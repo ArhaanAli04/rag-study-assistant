@@ -1,16 +1,23 @@
-# Python cache files
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
-# Virtual environment folder
+# Virtual env
 venv/
 
-# IDE configs
+# IDE
 .vscode/
 .idea/
 
-# Environment variables
-.env
-
-# Data files
+# Data / indexes / uploads
+uploads/
 data/
+*.db
+*.bin
+*.json
+
+# Environment / secrets
+.env
+*.log

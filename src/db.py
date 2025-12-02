@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String, unique=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     is_active = Column(Boolean, default=True)
+    doc_version = Column(Integer, default=0)  # increments on document upload
 
 class Session(Base):
     __tablename__ = "sessions"

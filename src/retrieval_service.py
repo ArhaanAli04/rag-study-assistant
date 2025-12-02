@@ -37,15 +37,15 @@ class RetrievalService:
 
     # -------- L1 exact-match cache (per process) --------
     @lru_cache(maxsize=256)
-    def _l1_cache_get(self, user_id: str, query: str) -> Optional[Dict[str, Any]]:
+    def _l1_cache_get(self, user_id: str, query: str,doc_version: int) -> Optional[Dict[str, Any]]:
         return None  # lru_cache requires a function; we ignore this return.
 
-    def l1_cache_lookup(self, user_id: str, query: str) -> Optional[Dict[str, Any]]:
+    def l1_cache_lookup(self, user_id: str, query: str,doc_version: int) -> Optional[Dict[str, Any]]:
         # lru_cache can't hold mutable objects safely; use a manual dict instead:
-        return self._manual_l1_cache.get((user_id, query))
+        return self._manual_l1_cache.get((user_id, query,doc_version))
 
-    def l1_cache_store(self, user_id: str, query: str, value: Dict[str, Any]):
-        self._manual_l1_cache[(user_id, query)] = value
+    def l1_cache_store(self, user_id: str, query: str,doc_version: int, value: Dict[str, Any]):
+        self._manual_l1_cache[(user_id, query,doc_version)] = value
         if len(self._manual_l1_cache) > 256:
             # naive eviction: pop oldest
             self._manual_l1_cache.pop(next(iter(self._manual_l1_cache)))
@@ -53,8 +53,8 @@ class RetrievalService:
     _manual_l1_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     # -------- Existing semantic_search (vector only) can stay if you use it elsewhere --------
-    def semantic_search(self, query: str, user_id: str | None = None, top_k: int = 5,filters: dict | None = None,):
-        cached = get_cached_response(user_id, query)
+    def semantic_search(self, query: str, user_id: str | None = None, top_k: int = 5,filters: dict | None = None, doc_version: int = 0):
+        cached = get_cached_response(user_id, query,doc_version)
         if cached is not None:
             return cached
         
@@ -64,7 +64,7 @@ class RetrievalService:
             filters["user_id"] = user_id
 
         results = self.index_builder.search(query, top_k=top_k, filters=filters)
-        set_cached_response(user_id, query, results)
+        set_cached_response(user_id, query,doc_version, results)
         return results
 
     def get_web_chunks(
@@ -165,6 +165,7 @@ class RetrievalService:
         self,
         query: str,
         user_id: str,
+        doc_version: int,
         top_k: int = 8,
         rerank_top_k: int = 5,
     ) -> Dict[str, Any]:
@@ -179,7 +180,7 @@ class RetrievalService:
         """
 
         # 1. L1 exact-match cache
-        cached = self.l1_cache_lookup(user_id, query)
+        cached = self.l1_cache_lookup(user_id, query,doc_version)
         if cached is not None:
             return {**cached, "from_l1_cache": True}
 
@@ -278,18 +279,48 @@ class RetrievalService:
         combined_list.sort(key=lambda x: x["hybrid_score"], reverse=True)
         combined_list = combined_list[:top_k]
 
-        # 7. Confidence scoring
+        # 7. Confidence scoring based on hybrid score
         if combined_list:
             best = combined_list[0]["hybrid_score"]
         else:
             best = 0.0
-        # simple clamp to [0,1]; you can tune thresholds later
         confidence = max(0.0, min(1.0, best))
 
-        # 8. Fallback decision
-        fallback_used = False
-        if confidence < 0.6:
-            fallback_used = True
+        # 7.5. Enhanced topic + example heuristic:
+        # If none of the top chunks contain any meaningful keyword from the query,
+        # force low confidence so we rely more on web search.
+        query_lower = query.lower()
+        # crude keyword extraction: words longer than 4 chars
+        keywords = [w for w in query_lower.split() if len(w) > 4]
+
+        # Detect if query explicitly needs examples/numbers
+        needs_example = any(word in query_lower for word in [
+            "example", "numeric", "calculate", "show me", "demonstrate", 
+            "instance", "case", "illustration"
+        ])
+
+        def chunk_matches(c: Dict[str, Any]) -> bool:
+            text = c.get("text", "").lower()
+            return any(k in text for k in keywords)
+
+        has_matching_chunk = any(chunk_matches(c) for c in combined_list)
+        has_example_in_context = any("example" in c.get("text", "").lower() or "tp" in c.get("text", "").lower() for c in combined_list)
+
+        # Force web fallback if:
+        # 1. No topical match AND needs example, OR
+        # 2. Topical match exists but explicitly needs example AND context lacks examples
+        force_web = False
+        if keywords and not has_matching_chunk:
+            force_web = True
+        elif needs_example and not has_example_in_context:
+            force_web = True
+
+        if force_web:
+            confidence = min(confidence, 0.3)  # lower than 0.6 threshold
+
+        # 8. Fallback decision (now uses adjusted confidence)
+        fallback_used = confidence < 0.6
+
 
         # 9. Build candidates from local results
         candidates: List[Dict[str, Any]] = []
@@ -340,7 +371,7 @@ class RetrievalService:
         }
 
         # 10. Store in L1 cache and in Redis cache (if you like)
-        self.l1_cache_store(user_id, query, result_payload)
+        self.l1_cache_store(user_id, query, doc_version, result_payload)
         # optional: set_cached_response(user_id, query, result_payload)
 
         return result_payload

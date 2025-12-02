@@ -57,10 +57,16 @@ class SemanticCache:
         safe_entries = _to_json_safe(entries)
         self.r.set(SEM_CACHE_KEY, json.dumps(safe_entries))
 
-    def lookup(self, query: str, threshold: float = 0.92) -> Optional[Dict[str, Any]]:
+    def lookup(self, query: str, threshold: float = 0.92, user_doc_version: Optional[int] = None) -> Optional[Dict[str, Any]]:
         entries = self._load_entries()
+        
+        # FILTER by doc_version if provided - only match entries with same version
+        if user_doc_version is not None:
+            entries = [e for e in entries if e.get("doc_version") == user_doc_version]
+        
         if not entries:
             return None
+        
         q_emb = np.array(self.index_builder.embed_texts([query])[0])
         best_sim = -1.0
         best_entry = None
@@ -77,11 +83,21 @@ class SemanticCache:
             return best_entry["value"]
         return None
 
-    def store(self, query: str, value: Dict[str, Any], max_entries: int = 64):
+
+    def store(self, query: str, value: Dict[str, Any], user_doc_version: int, max_entries: int = 64):
         q_emb = self.index_builder.embed_texts([query])[0]
         entries = self._load_entries()
         safe_value = _to_json_safe(value)
-        entries.append({"query": query, "embedding": list(map(float, q_emb)), "value": safe_value})
+        
+        # ADD doc_version to both value and entry metadata
+        safe_value["doc_version"] = user_doc_version
+        
+        entries.append({
+            "query": query, 
+            "embedding": list(map(float, q_emb)), 
+            "value": safe_value,
+            "doc_version": user_doc_version  # NEW: store version with entry
+        })
         if len(entries) > max_entries:
             entries = entries[-max_entries:]
         self._save_entries(entries)

@@ -64,6 +64,7 @@ class ChatResponse(BaseModel):
     session_id: int
     confidence: float
     fallback_used: bool
+    grounding_level: Optional[str] = None  # NEW FIELD
     sources: List[Dict[str, Any]]
 
 
@@ -98,11 +99,15 @@ async def upload_file(
         document_id=doc.id,
     )
 
+    # ADD THESE 3 LINES:
+    current_user.doc_version += 1  # bump version
+    db.commit()
     return {
         "filename": file.filename,
         "saved_path": file_location,
         "document_id": doc.id,
         "chunks_indexed": num_chunks,
+        "doc_version": current_user.doc_version
     }
 
 
@@ -190,9 +195,10 @@ async def chat(
 ):
     user_id_int = current_user.id
     user_id_str = str(current_user.id)
+    doc_version = current_user.doc_version  # GET VERSION
 
     # 0) Semantic cache lookup
-    cached = semantic_cache.lookup(body.query)
+    cached = semantic_cache.lookup(body.query,user_doc_version=doc_version)
     if cached is not None:
         return ChatResponse(**cached)
 
@@ -213,6 +219,7 @@ async def chat(
         retrieval_result = retrieval_service.hybrid_retrieve(
             query=subq,
             user_id=user_id_str,
+            doc_version=doc_version,  # PASS VERSION
             top_k=body.top_k,
             rerank_top_k=5,
         )
@@ -242,11 +249,19 @@ async def chat(
         for m in recent_msgs_db
     ]
 
+    # NEW: Determine grounding level based on confidence
+    if final_confidence >= 0.7:
+        grounding_level = "strict"      # Rich context → strict grounding
+    elif final_confidence >= 0.3:
+        grounding_level = "loose"       # Some context → partial grounding
+    else:
+        grounding_level = "none"        # No context → full model knowledge
     # 6) Build prompt + call LLM
     prompt = llm_client.build_prompt(
         question=body.query,
         context_chunks=compressed_context,
         recent_messages=recent_messages,
+        grounding_level=grounding_level,
     )
     answer = llm_client.generate_answer(prompt)
 
@@ -270,11 +285,12 @@ async def chat(
         "session_id": chat_session.id,
         "confidence": final_confidence,
         "fallback_used": any_fallback,
+        "grounding_level": grounding_level,  # NEW FIELD
         "sources": [c["metadata"] for c in compressed_context],
     }
 
     # 8) Store in semantic cache
-    semantic_cache.store(body.query, resp_dict)
+    semantic_cache.store(body.query, resp_dict, doc_version)
 
     return ChatResponse(**resp_dict)
 

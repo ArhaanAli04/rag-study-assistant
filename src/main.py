@@ -57,6 +57,7 @@ class ChatRequest(BaseModel):
     query: str
     session_id: Optional[int] = None
     top_k: int = 8
+    mode: str = "detailed"  # "detailed", "quick", "step_by_step"
 
 
 class ChatResponse(BaseModel):
@@ -66,6 +67,7 @@ class ChatResponse(BaseModel):
     fallback_used: bool
     grounding_level: Optional[str] = None  # NEW FIELD
     sources: List[Dict[str, Any]]
+    followups: Optional[List[str]] = None
 
 
 @app.get("/health")
@@ -197,8 +199,29 @@ async def chat(
     user_id_str = str(current_user.id)
     doc_version = current_user.doc_version  # GET VERSION
 
+    # SAFETY GUARDRAILS - EARLY RETURN
+    unsafe_keywords = ["suicide", "kill myself", "nuke", "die","self harm","explosives", "terrorist", "make a bomb"]
+    q_lower = body.query.lower()
+    if any(k in q_lower for k in unsafe_keywords):
+        safe_answer = (
+            "I am not able to help with that request. "
+            "If you are in distress or in danger, please reach out to a trusted person or "
+            "your local emergency services."
+        )
+        chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
+        add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
+        add_message(db, chat_session.id, user_id_int, role="assistant", content=safe_answer, sources="")
+        return ChatResponse(
+            answer=safe_answer,
+            session_id=chat_session.id,
+            confidence=0.0,
+            fallback_used=False,
+            grounding_level="none",
+            sources=[],
+            followups=[],
+        )
     # 0) Semantic cache lookup
-    cached = semantic_cache.lookup(body.query,user_doc_version=doc_version)
+    cached = semantic_cache.lookup(body.query,user_doc_version=doc_version,mode=body.mode)
     if cached is not None:
         return ChatResponse(**cached)
 
@@ -207,7 +230,7 @@ async def chat(
 
     # 2) Log user message
     add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
-
+    
     # 3) Query decomposition
     subqueries = query_decomposer.decompose(body.query)
 
@@ -243,7 +266,7 @@ async def chat(
     compressed_context = compressor.compress(all_context_chunks)
 
     # 5) Get recent history for prompt
-    recent_msgs_db = get_recent_messages(db, chat_session.id, limit=6)
+    recent_msgs_db = get_recent_messages(db, chat_session.id, limit=10)
     recent_messages = [
         {"role": m.role, "content": m.content}
         for m in recent_msgs_db
@@ -256,15 +279,18 @@ async def chat(
         grounding_level = "loose"       # Some context → partial grounding
     else:
         grounding_level = "none"        # No context → full model knowledge
+
     # 6) Build prompt + call LLM
     prompt = llm_client.build_prompt(
         question=body.query,
         context_chunks=compressed_context,
         recent_messages=recent_messages,
         grounding_level=grounding_level,
+        mode=body.mode,
     )
     answer = llm_client.generate_answer(prompt)
 
+    followups = llm_client.generate_followups(body.query, answer, mode=body.mode)
     # 7) Log assistant message
     add_message(
         db,
@@ -287,10 +313,11 @@ async def chat(
         "fallback_used": any_fallback,
         "grounding_level": grounding_level,  # NEW FIELD
         "sources": [c["metadata"] for c in compressed_context],
+        "followups": followups,
     }
 
     # 8) Store in semantic cache
-    semantic_cache.store(body.query, resp_dict, doc_version)
+    semantic_cache.store(body.query, resp_dict, doc_version,body.mode)
 
     return ChatResponse(**resp_dict)
 

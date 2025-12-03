@@ -29,6 +29,8 @@ from llm_client import LLMClient
 from query_decomposer import QueryDecomposer
 from semantic_cache import SemanticCache
 from context_compressor import SimpleContextCompressor
+from fastapi.responses import StreamingResponse
+import json
 
 
 
@@ -69,6 +71,10 @@ class ChatResponse(BaseModel):
     sources: List[Dict[str, Any]]
     followups: Optional[List[str]] = None
 
+class QuizRequest(BaseModel):
+    topic: Optional[str] = None
+    num_questions: int = 5
+    mode: str = "detailed"  # how verbose explanations should be if you include answers
 
 @app.get("/health")
 async def health_check():
@@ -111,6 +117,32 @@ async def upload_file(
         "chunks_indexed": num_chunks,
         "doc_version": current_user.doc_version
     }
+
+@app.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    doc = db.query(Document).filter(
+        Document.id == doc_id,
+        Document.user_id == current_user.id
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # remove from DB
+    db.delete(doc)
+    db.commit()
+
+    # bump doc_version for this user to invalidate caches
+    current_user.doc_version += 1
+    db.commit()
+
+    # (Optional) remove file from disk
+    # if doc.path and os.path.exists(doc.path): os.remove(doc.path)
+
+    return {"status": "deleted", "document_id": doc_id, "doc_version": current_user.doc_version}
 
 
 @app.middleware("http")
@@ -280,17 +312,38 @@ async def chat(
     else:
         grounding_level = "none"        # No context → full model knowledge
 
-    # 6) Build prompt + call LLM
-    prompt = llm_client.build_prompt(
-        question=body.query,
-        context_chunks=compressed_context,
-        recent_messages=recent_messages,
-        grounding_level=grounding_level,
-        mode=body.mode,
-    )
-    answer = llm_client.generate_answer(prompt)
+    
+    # 6) Build prompt + call LLM with retry and circuit breaker handling
+    try:
+        prompt = llm_client.build_prompt(
+            question=body.query,
+            context_chunks=compressed_context,
+            recent_messages=recent_messages,
+            grounding_level=grounding_level,
+            mode=body.mode,
+        )
+        answer = llm_client.generate_answer(prompt)
 
-    followups = llm_client.generate_followups(body.query, answer, mode=body.mode)
+        followups = llm_client.generate_followups(body.query, answer, mode=body.mode)
+
+    except RuntimeError as e:
+        # Log the error and return a user-friendly message
+        logger.error(f"LLM error during answer or follow-up generation: {e}")
+        friendly = (
+            "The answer service is temporarily unavailable due to an internal error. "
+            "Please try again later."
+        )
+        # Log assistant's safe message
+        add_message(db, chat_session.id, user_id_int, role="assistant", content=friendly, sources="")
+        return ChatResponse(
+            answer=friendly,
+            session_id=chat_session.id,
+            confidence=0.0,
+            fallback_used=any_fallback,
+            grounding_level=grounding_level,
+            sources=[],
+            followups=[],
+        )
     # 7) Log assistant message
     add_message(
         db,
@@ -320,6 +373,157 @@ async def chat(
     semantic_cache.store(body.query, resp_dict, doc_version,body.mode)
 
     return ChatResponse(**resp_dict)
+
+@app.post("/chat/stream")
+async def chat_stream(
+    body: ChatRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id_int = current_user.id
+    user_id_str = str(current_user.id)
+    doc_version = getattr(current_user, 'doc_version', 0)
+
+    # Safety check first
+    unsafe_keywords = ["explosive", "bomb", "suicide", "self harm"]
+    if any(k in body.query.lower() for k in unsafe_keywords):
+        async def safe_stream():
+            yield "I'm unable to assist with that request. Please seek help from trusted professionals.\n"
+        return StreamingResponse(safe_stream(), media_type="text/plain")
+
+    # Semantic cache (non-blocking lookup)
+    cached = semantic_cache.lookup(body.query, user_doc_version=doc_version, mode=body.mode)
+    if cached:
+        async def cached_stream():
+            yield f"data: {json.dumps(cached)}\n\n"
+            yield "data: [CACHE_HIT]\n\n"
+        return StreamingResponse(cached_stream(), media_type="text/event-stream")
+
+    # 1) Session + log user message
+    chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
+    add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
+
+    # 2) Retrieval + processing (same as regular /chat)
+    subqueries = query_decomposer.decompose(body.query)
+    all_context_chunks = []
+    final_confidence = 0.0
+    any_fallback = False
+
+    for subq in subqueries:
+        retrieval_result = retrieval_service.hybrid_retrieve(
+            query=subq, user_id=user_id_str, doc_version=doc_version,
+            top_k=body.top_k, rerank_top_k=5,
+        )
+        child_chunks = retrieval_result["results"]
+        all_candidates = retrieval_result.get("all_candidates", child_chunks)
+
+        # Parent-document expansion
+        parent_chunks = retrieval_service.expand_to_parent_context(
+            top_results=child_chunks,
+            all_results=all_candidates,
+            max_parents=3,
+        )
+        # ... same retrieval logic as /chat ...
+        all_context_chunks.extend(child_chunks + parent_chunks)
+        final_confidence = max(final_confidence, retrieval_result["confidence"])
+        any_fallback = any_fallback or retrieval_result["fallback_used"]
+
+    compressed_context = compressor.compress(all_context_chunks)
+    recent_messages = [{"role": m.role, "content": m.content} for m in get_recent_messages(db, chat_session.id, limit=20)]
+
+    # 3) Determine grounding + build prompt
+    grounding_level = "strict" if final_confidence >= 0.7 else "loose" if final_confidence >= 0.3 else "none"
+
+    prompt = llm_client.build_prompt(
+        question=body.query,
+        context_chunks=compressed_context,
+        recent_messages=recent_messages,
+        grounding_level=grounding_level,
+        mode=body.mode,
+    )
+
+    # 4) STREAM THE ANSWER
+    async def generate():
+        try:
+            # Send initial metadata
+            metadata = {
+                "session_id": chat_session.id,
+                "confidence": final_confidence,
+                "fallback_used": any_fallback,
+                "grounding_level": grounding_level,
+                "sources": [c["metadata"] for c in compressed_context],
+                "mode": body.mode,
+            }
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+
+            # Stream tokens
+            async for token in llm_client.stream_answer(prompt):
+                yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
+
+            # Final message
+            yield "data: [DONE]\n\n"
+
+            # Log assistant message
+            answer = ""  # Could collect full answer if needed
+            add_message(db, chat_session.id, user_id_int, role="assistant", content="[STREAMED]", sources="")
+
+            # Cache the response (you'd need to collect full answer first)
+            # semantic_cache.store(body.query, metadata, doc_version, body.mode)
+
+        except Exception as e:
+            logger.error(f"Stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': 'Stream failed. Please try again.'})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
+
+
+@app.post("/quiz")
+async def generate_quiz(
+    body: QuizRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user_id_str = str(current_user.id)
+    doc_version = current_user.doc_version
+
+    # Simple retrieval: use hybrid_retrieve on topic or generic "generate quiz"
+    query = body.topic or "generate quiz questions from my study materials"
+    retrieval_result = retrieval_service.hybrid_retrieve(
+        query=query,
+        user_id=user_id_str,
+        doc_version=doc_version,
+        top_k=body.num_questions * 3,
+        rerank_top_k=body.num_questions * 2,
+    )
+    candidates = retrieval_result["results"]
+    compressed_context = compressor.compress(candidates)
+
+    # Build a quiz-specific prompt
+    context_text = "\n\n".join(c["text"] for c in compressed_context)
+    prompt = (
+        "You are an AI tutor. Using ONLY the information in the following study snippets, "
+        "generate a quiz for the student.\n"
+        "Create {n} multiple-choice or short-answer questions that test understanding of the material.\n"
+        "Do not include the answers, only the questions.\n\n"
+        "Study snippets:\n"
+        f"{context_text}\n\n"
+        "Now write the questions, numbered:\n"
+    ).format(n=body.num_questions)
+
+    try:
+        quiz_text = llm_client.generate_answer(prompt)
+    except RuntimeError as e:
+        logger.error(f"LLM error in /quiz: {e}")
+        raise HTTPException(status_code=503, detail="Quiz generation service is temporarily unavailable.")
+
+    return {
+        "questions": quiz_text,
+        "sources": [c["metadata"] for c in compressed_context],
+    }
 
 
 @app.on_event("startup")

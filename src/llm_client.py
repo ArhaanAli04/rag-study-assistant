@@ -1,7 +1,9 @@
-from typing import List, Dict
+from typing import List, Dict,AsyncGenerator
 from google import genai  # [web:91][web:94]
 from dotenv import load_dotenv
 import os
+import time
+import random
 
 class LLMClient:
     """
@@ -15,6 +17,28 @@ class LLMClient:
             raise RuntimeError("GEMINI_API_KEY not set")
         self.client = genai.Client(api_key=api_key)
         self.model_name = model_name
+        # circuit breaker state
+        self._consecutive_failures = 0
+        self._circuit_open = False
+        self._circuit_open_until = 0.0  # epoch seconds
+
+    def _check_circuit(self):
+        now = time.time()
+        if self._circuit_open and now < self._circuit_open_until:
+            raise RuntimeError("LLM circuit breaker is open; temporarily refusing calls.")
+        if self._circuit_open and now >= self._circuit_open_until:
+            # half-open: allow one call
+            self._circuit_open = False
+            self._consecutive_failures = 0
+
+    def _record_success(self):
+        self._consecutive_failures = 0
+
+    def _record_failure(self, max_failures: int = 3, open_seconds: int = 60):
+        self._consecutive_failures += 1
+        if self._consecutive_failures >= max_failures:
+            self._circuit_open = True
+            self._circuit_open_until = time.time() + open_seconds
 
     def _mode_instructions(self, mode: str) -> str:
         mode = (mode or "detailed").lower()
@@ -113,16 +137,35 @@ class LLMClient:
         )
         return prompt
 
+    def _call_gemini_with_retry(self, prompt: str, max_retries: int = 3) -> str:
+        self._check_circuit()
+        last_exc: Exception | None = None
+
+        for attempt in range(max_retries):
+            try:
+                resp = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=prompt,
+                )
+                self._record_success()
+                return resp.text or ""
+            except Exception as e:
+                last_exc = e
+                self._record_failure()
+                # backoff with jitter
+                if attempt < max_retries - 1:
+                    delay = min(8, 1 * (2 ** attempt)) + random.uniform(0, 0.5)
+                    time.sleep(delay)
+                else:
+                    # all retries failed
+                    break
+
+        # After retries, if circuit now open, raise a cleaner error up
+        raise RuntimeError(f"LLM call failed after retries: {last_exc}")
+    
     def generate_answer(self, prompt: str) -> str:
-        """
-        Call Gemini with the constructed prompt and return plain text. [web:91][web:94]
-        """
-        response = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-        )
-        # .text flattens parts to a single string. [web:91][web:93]
-        return response.text or ""
+        
+        return self._call_gemini_with_retry(prompt)
     
     def generate_followups(self, question: str, answer: str, mode: str = "detailed") -> List[str]:
         prompt = (
@@ -133,10 +176,53 @@ class LLMClient:
             f"User question: {question}\n\n"
             f"Your answer: {answer}\n"
         )
-        resp = self.client.models.generate_content(
-            model=self.model_name,
-            contents=prompt,
-        )
-        text = resp.text or ""
+        
+        text = self._call_gemini_with_retry(prompt)
         lines = [l.strip("- ").strip() for l in text.split("\n") if l.strip()]
         return [l for l in lines if len(l) > 0][:3]
+    
+    def verify_answer(self, question: str, answer: str, sources: List[Dict]) -> str:
+        # build a compact source summary
+        src_text = ""
+        for s in sources[:8]:
+            if "url" in s:
+                src_text += f"- Web: {s.get('url')}\n"
+            else:
+                src_text += f"- Local: {s.get('file_name','')} page {s.get('page_num')}\n"
+
+        prompt = (
+            "You are a careful verifier.\n"
+            "Given a user's question, an AI-generated answer, and a list of sources, "
+            "check whether the answer is fully supported by the sources.\n"
+            "If the answer contains unsupported claims, point them out briefly.\n"
+            "Respond in 2–4 sentences.\n\n"
+            f"Question: {question}\n\n"
+            f"Answer: {answer}\n\n"
+            f"Sources list:\n{src_text}\n"
+        )
+        return self._call_gemini_with_retry(prompt)
+    
+    async def stream_answer(self, prompt: str) :
+        """
+        Stream tokens from Gemini and yield them one by one.
+        """
+        self._check_circuit()
+        
+        try:
+            
+            response =  self.client.models.generate_content_stream(
+                model=self.model_name,
+                contents=[prompt],
+                
+            )
+            
+            self._record_success()
+            for chunk in response:
+                text = getattr(chunk, "text", None)
+                if text:
+                    # Yield text chunks to FastAPI StreamingResponse
+                    yield text
+                    
+        except Exception as e:
+            self._record_failure()
+            raise RuntimeError(f"Streaming LLM call failed: {e}")

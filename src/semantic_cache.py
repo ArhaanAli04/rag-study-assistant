@@ -2,6 +2,8 @@
 import json
 import os
 from typing import List, Optional, Dict, Any
+from logger import setup_logging
+logger = setup_logging()
 
 import numpy as np
 import redis
@@ -79,7 +81,9 @@ class SemanticCache:
                 best_sim = sim
                 best_entry = e
         if best_sim >= threshold:
+            logger.info("CACHE HIT: query='%s', score=%.3f, mode=%s", query[:50], best_sim, mode)
             return best_entry["value"]
+        logger.info("CACHE MISS: query='%s', mode=%s", query[:50], mode)
         return None
 
 

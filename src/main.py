@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import os
 from logger import setup_logging
 from jose import JWTError, jwt
-
+import time
 # Service imports
 from db import Document, User,init_db
 from document_service import register_document
@@ -144,6 +144,14 @@ async def delete_document(
 
     return {"status": "deleted", "document_id": doc_id, "doc_version": current_user.doc_version}
 
+@app.middleware("http")
+async def timing_middleware(request: Request, call_next):
+    start_time = time.perf_counter()
+    response = await call_next(request)
+    process_time = (time.perf_counter() - start_time) * 1000
+    logger.info(f"REQ {request.method} {request.url.path} {process_time:.1f}ms")
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
 
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -279,6 +287,11 @@ async def chat(
             rerank_top_k=5,
         )
         child_chunks = retrieval_result["results"]
+        # LOG retrieval for inspection
+        top_docs = [c["metadata"].get("document_id", "N/A") for c in child_chunks[:3]]
+        logger.info("RETRIEVAL subq='%s' conf=%.2f fallback=%s top_docs=%s", 
+                    subq[:40], retrieval_result["confidence"], 
+                    retrieval_result["fallback_used"], top_docs)
         all_candidates = retrieval_result.get("all_candidates", child_chunks)
 
         # Parent-document expansion

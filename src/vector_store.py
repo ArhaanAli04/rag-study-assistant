@@ -17,6 +17,10 @@ class FaissVectorStore:
         assert embeddings.shape[0] == len(chunks)
         self.index.add(embeddings.astype("float32"))
         for chunk in chunks:
+            # NEW: extract document_id from extra_metadata
+            doc_id = None
+            if chunk.extra_metadata:
+                doc_id = chunk.extra_metadata.get("document_id")
             self.metadata.append({
                 "id": chunk.id,
                 "text": chunk.text,
@@ -27,6 +31,7 @@ class FaissVectorStore:
                 "subject_tags": chunk.subject_tags,
                 "extra_metadata": chunk.extra_metadata,
                 "user_id": user_id,
+                "document_id": doc_id,
             })
 
     def mark_delete_by_document_id(self, document_id: int):

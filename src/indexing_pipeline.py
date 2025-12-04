@@ -41,6 +41,10 @@ class IndexingPipeline:
         # 2) Add to BM25
         bm25_docs = []
         for c in chunks:
+            # extract document_id from extra_metadata if present
+            doc_id = None
+            if c.extra_metadata:
+                doc_id = c.extra_metadata.get("document_id")
             meta = {
                 "id": c.id,
                 "text": c.text,
@@ -51,6 +55,7 @@ class IndexingPipeline:
                 "subject_tags": c.subject_tags,
                 "extra_metadata": c.extra_metadata,
                 "user_id": user_id,
+                "document_id": doc_id,
             }
             bm25_docs.append({"text": c.text, "metadata": meta})
 

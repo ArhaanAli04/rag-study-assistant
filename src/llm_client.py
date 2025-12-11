@@ -202,7 +202,7 @@ class LLMClient:
         )
         return self._call_gemini_with_retry(prompt)
     
-    async def stream_answer(self, prompt: str) :
+    def stream_answer(self, prompt: str) :
         """
         Stream tokens from Gemini and yield them one by one.
         """

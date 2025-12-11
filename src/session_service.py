@@ -28,11 +28,30 @@ def get_or_create_session(
     return create_session(db, user_id, title)
 
 def add_message(db: DBSession, session_id: int, user_id: int, role: str, content: str, sources: str | None = None):
-    m = Message(session_id=session_id, user_id=user_id, role=role, content=content, sources=sources)
-    db.add(m)
+    from datetime import datetime
+    from sqlalchemy import text
+    
+    # Use raw SQL to bypass ORM caching issues
+    sql = text("""
+        INSERT INTO messages (user_id, session_id, role, content, sources, feedback, feedback_comment, timestamp)
+        VALUES (:user_id, :session_id, :role, :content, :sources, :feedback, :feedback_comment, :timestamp)
+    """)
+    
+    db.execute(sql, {
+        'user_id': str(user_id),
+        'session_id': session_id,
+        'role': role,
+        'content': content,
+        'sources': sources or "",
+        'feedback': None,
+        'feedback_comment': None,
+        'timestamp': datetime.utcnow()
+    })
     db.commit()
-    db.refresh(m)
-    return m
+    
+    # Return a mock message object (optional, if needed)
+    return None
+
 
 def get_recent_messages(
     db: DBSession,

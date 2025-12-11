@@ -63,3 +63,9 @@ SessionLocal = sessionmaker(bind=engine)
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+def refresh_metadata():
+    """Force SQLAlchemy to reload table metadata from database"""
+    Base.metadata.clear()
+    Base.metadata.reflect(bind=engine)
+

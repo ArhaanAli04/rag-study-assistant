@@ -7,7 +7,7 @@ from logger import setup_logging
 from jose import JWTError, jwt
 import time
 # Service imports
-from db import Document, User,init_db
+from db import Document, User,init_db,SessionLocal,Message,Session as ChatSession
 from document_service import register_document
 from indexing_pipeline import IndexingPipeline
 from index_builder import IndexBuilder
@@ -15,7 +15,7 @@ from keyword_index import BM25KeywordIndex
 from retrieval_service import RetrievalService
 from auth import (
     get_db, get_password_hash, authenticate_user, 
-    create_access_token, get_current_user
+    create_access_token, get_current_user,get_current_user_optional
 )
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -295,6 +295,62 @@ def sanitize_query(q: str) -> str:
 
     return q
 
+@app.get("/sessions")
+async def get_sessions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all chat sessions for current user."""
+    sessions = (
+        db.query(ChatSession)
+        .filter(ChatSession.user_id == current_user.id)
+        .order_by(ChatSession.created_at.desc())
+        .all()
+    )
+    
+    return [
+        {
+            "id": s.id,
+            "title": s.title,
+            "created_at": s.created_at.isoformat(),
+        }
+        for s in sessions
+    ]
+
+@app.get("/sessions/{session_id}/messages")
+async def get_session_messages(
+    session_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all messages in a session."""
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    messages = (
+        db.query(Message)
+        .filter(Message.session_id == session_id)
+        .order_by(Message.timestamp.asc())  # ← Changed from created_at
+        .all()
+    )
+    
+    return [
+        {
+            "id": m.id,
+            "role": m.role,
+            "content": m.content,
+            "sources":  m.sources.split(',') if m.sources else [],
+            "created_at": m.timestamp.isoformat(),  # ← Use timestamp but return as created_at
+        }
+        for m in messages
+    ]
+
+
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
@@ -460,25 +516,44 @@ async def chat(
         )
     return ChatResponse(**resp_dict)
 
-@app.post("/chat/stream")
+@app.get("/chat/stream")
 async def chat_stream(
-    body: ChatRequest,
-    current_user: User = Depends(get_current_user),
+    query: str,
+    session_id: int = 0,
+    top_k: int = 5,
+    mode: str = "quick",
+    token: Optional[str] = None,
     db: Session = Depends(get_db),
 ):
+    # Manual token auth
+    current_user = None
+    if token:
+        try:
+            from jose import jwt
+            from auth import SECRET_KEY, ALGORITHM
+            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+            email = payload.get("sub")
+            if email:
+                current_user = db.query(User).filter(User.email == email).first()
+        except:
+            pass
+    
+    if not current_user:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
     user_id_int = current_user.id
     user_id_str = str(current_user.id)
     doc_version = getattr(current_user, 'doc_version', 0)
 
     # Safety check first
     unsafe_keywords = ["explosive", "bomb", "suicide", "self harm"]
-    if any(k in body.query.lower() for k in unsafe_keywords):
+    if any(k in query.lower() for k in unsafe_keywords):
         async def safe_stream():
             yield "I'm unable to assist with that request. Please seek help from trusted professionals.\n"
         return StreamingResponse(safe_stream(), media_type="text/plain")
 
     # Semantic cache (non-blocking lookup)
-    cached = semantic_cache.lookup(body.query, user_doc_version=doc_version, mode=body.mode)
+    cached = semantic_cache.lookup(query, user_doc_version=doc_version, mode=mode)
     if cached:
         async def cached_stream():
             yield f"data: {json.dumps(cached)}\n\n"
@@ -486,11 +561,11 @@ async def chat_stream(
         return StreamingResponse(cached_stream(), media_type="text/event-stream")
 
     # 1) Session + log user message
-    chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
-    add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
+    chat_session = get_or_create_session(db, user_id_int, session_id, query)
+    add_message(db, chat_session.id, user_id_int, role="user", content=query)
 
-    # 2) Retrieval + processing (same as regular /chat)
-    subqueries = query_decomposer.decompose(body.query)
+    # 2) Retrieval + processing
+    subqueries = query_decomposer.decompose(query)
     all_context_chunks = []
     final_confidence = 0.0
     any_fallback = False
@@ -498,7 +573,7 @@ async def chat_stream(
     for subq in subqueries:
         retrieval_result = retrieval_service.hybrid_retrieve(
             query=subq, user_id=user_id_str, doc_version=doc_version,
-            top_k=body.top_k, rerank_top_k=5,
+            top_k=top_k, rerank_top_k=5,
         )
         child_chunks = retrieval_result["results"]
         all_candidates = retrieval_result.get("all_candidates", child_chunks)
@@ -509,7 +584,6 @@ async def chat_stream(
             all_results=all_candidates,
             max_parents=3,
         )
-        # ... same retrieval logic as /chat ...
         all_context_chunks.extend(child_chunks + parent_chunks)
         final_confidence = max(final_confidence, retrieval_result["confidence"])
         any_fallback = any_fallback or retrieval_result["fallback_used"]
@@ -521,11 +595,11 @@ async def chat_stream(
     grounding_level = "strict" if final_confidence >= 0.7 else "loose" if final_confidence >= 0.3 else "none"
 
     prompt = llm_client.build_prompt(
-        question=body.query,
+        question=query,
         context_chunks=compressed_context,
         recent_messages=recent_messages,
         grounding_level=grounding_level,
-        mode=body.mode,
+        mode=mode,
     )
 
     # 4) STREAM THE ANSWER
@@ -538,23 +612,34 @@ async def chat_stream(
                 "fallback_used": any_fallback,
                 "grounding_level": grounding_level,
                 "sources": [c["metadata"] for c in compressed_context],
-                "mode": body.mode,
+                "mode": mode,
             }
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
 
             # Stream tokens
-            async for token in llm_client.stream_answer(prompt):
+            full_answer = ""
+            for token in llm_client.stream_answer(prompt):  # Remove 'async'
+                full_answer += token
                 yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
 
             # Final message
             yield "data: [DONE]\n\n"
 
-            # Log assistant message
-            answer = ""  # Could collect full answer if needed
-            add_message(db, chat_session.id, user_id_int, role="assistant", content="[STREAMED]", sources="")
+            # Log assistant message with full answer
+            add_message(db, chat_session.id, user_id_int, role="assistant", content=full_answer,
+                        sources=",".join([c["metadata"].get("file_name", c["metadata"].get("url", "")) for c in compressed_context]))
 
-            # Cache the response (you'd need to collect full answer first)
-            # semantic_cache.store(body.query, metadata, doc_version, body.mode)
+            # Cache the response
+            resp_dict = {
+                "answer": full_answer,
+                "session_id": chat_session.id,
+                "confidence": final_confidence,
+                "fallback_used": any_fallback,
+                "grounding_level": grounding_level,
+                "sources": [c["metadata"] for c in compressed_context],
+                "followups": [],
+            }
+            semantic_cache.store(query, resp_dict, doc_version, mode)
 
         except Exception as e:
             logger.error(f"Stream error: {e}")
@@ -565,6 +650,7 @@ async def chat_stream(
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
     )
+
 
 
 @app.post("/quiz")
@@ -652,5 +738,8 @@ async def submit_feedback(
 
 @app.on_event("startup")
 async def on_startup():
-    init_db()
+    #init_db()
+    from db import Base, engine
+    Base.metadata.clear()  # Clear cached metadata
+    Base.metadata.reflect(bind=engine, only=['messages'])  # Reload messages table
     logger.info("Database initialized")

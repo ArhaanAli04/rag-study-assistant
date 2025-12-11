@@ -32,9 +32,17 @@ from context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
 import json
 
+from fastapi.middleware.cors import CORSMiddleware
 
-
-app = FastAPI()
+app = FastAPI(title="RAG Study Assistant API")
+# ADD CORS MIDDLEWARE HERE
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 logger = setup_logging()
 index_builder = IndexBuilder()
 bm25_index = BM25KeywordIndex()
@@ -76,9 +84,43 @@ class QuizRequest(BaseModel):
     num_questions: int = 5
     mode: str = "detailed"  # how verbose explanations should be if you include answers
 
+class FeedbackRequest(BaseModel):
+    feedback: str              # "up" or "down"
+    comment: Optional[str] = None
+
+class UserCreate(BaseModel):
+    email: str
+    password: str
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+ALLOWED_EXTENSIONS = {".pdf", ".pptx", ".docx"}
+MAX_FILE_SIZE_MB = 50
+
+async def validate_upload(file: UploadFile):
+    # Extension check
+    filename = file.filename or ""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    ext = f".{ext}"
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+
+    # Size check: read stream into memory once for size (ok for <= 50MB)
+    content = await file.read()
+    size_mb = len(content) / (1024 * 1024)
+    if size_mb > MAX_FILE_SIZE_MB:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({size_mb:.1f} MB). Max {MAX_FILE_SIZE_MB} MB."
+        )
+
+    # Reset file for later processing
+    file.file.seek(0)
 
 @app.post("/upload")
 async def upload_file(
@@ -86,6 +128,8 @@ async def upload_file(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    # NEW: validate upload
+    await validate_upload(file)
     if not os.path.exists(UPLOAD_DIR):
         os.makedirs(UPLOAD_DIR)
 
@@ -181,16 +225,19 @@ from db import User
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
+
 @app.post("/register")
-async def register(email: str, password: str, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == email).first()
+async def register(user: UserCreate, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.email == user.email).first()
     if existing:
         raise HTTPException(status_code=400, detail="Email already registered")
-    user = User(email=email, hashed_password=get_password_hash(password))
-    db.add(user)
+    
+    new_user = User(email=user.email, hashed_password=get_password_hash(user.password))
+    db.add(new_user)
     db.commit()
-    db.refresh(user)
-    return {"id": user.id, "email": user.email}
+    db.refresh(new_user)
+    
+    return {"id": new_user.id, "email": new_user.email}
 
 @app.post("/login")
 async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
@@ -228,6 +275,26 @@ async def semantic_search(
         filters=filters
     )
     return {"results": results}
+
+def sanitize_query(q: str) -> str:
+    q_lower = q.lower()
+
+    # Very simple heuristic: block common injection phrases
+    injection_phrases = [
+        "ignore previous instructions",
+        "you are now",
+        "disregard all earlier",
+        "system prompt",
+    ]
+    if any(p in q_lower for p in injection_phrases):
+        # Either block or strip; here we block
+        raise HTTPException(
+            status_code=400,
+            detail="Query rejected due to unsafe or prompt-injection-like content.",
+        )
+
+    return q
+
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
@@ -385,6 +452,12 @@ async def chat(
     # 8) Store in semantic cache
     semantic_cache.store(body.query, resp_dict, doc_version,body.mode)
 
+    # NEW: log low-confidence queries for later analysis
+    if final_confidence < 0.3:
+        logger.warning(
+            "LOW_CONFIDENCE_QUERY user_id=%s session_id=%s conf=%.2f query=%r",
+            user_id_int, chat_session.id, final_confidence, body.query
+        )
     return ChatResponse(**resp_dict)
 
 @app.post("/chat/stream")
@@ -537,6 +610,44 @@ async def generate_quiz(
         "questions": quiz_text,
         "sources": [c["metadata"] for c in compressed_context],
     }
+
+from fastapi import HTTPException
+from db import Message
+@app.post("/messages/{message_id}/feedback")
+async def submit_feedback(
+    message_id: int,
+    body: FeedbackRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    # Validate feedback value
+    if body.feedback not in ("up", "down"):
+        raise HTTPException(status_code=400, detail="feedback must be 'up' or 'down'")
+
+    msg = db.query(Message).filter(
+        Message.id == message_id,
+        Message.user_id == current_user.id
+    ).first()
+
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message not found")
+
+    msg.feedback = body.feedback
+    msg.feedback_comment = body.comment
+    db.commit()
+
+    logger.info(
+        "Feedback received: msg_id=%s user_id=%s feedback=%s",
+        message_id, current_user.id, body.feedback
+    )
+    # If negative feedback, log as failed query
+    if body.feedback == "down":
+        logger.warning(
+            "NEGATIVE_FEEDBACK user_id=%s session_id=%s msg_id=%s comment=%r",
+            current_user.id, msg.session_id, msg.id, body.comment
+        )
+
+    return {"status": "ok"}
 
 
 @app.on_event("startup")

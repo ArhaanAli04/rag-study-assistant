@@ -31,6 +31,9 @@ class Message(Base):
     role = Column(String)  # 'user' or 'assistant'
     content = Column(Text)
     sources = Column(Text, nullable=True)
+    # NEW: feedback fields
+    feedback = Column(String, nullable=True)          # "up" / "down"
+    feedback_comment = Column(Text, nullable=True)    # optional free-text comment
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
     session = relationship("Session", back_populates="messages")

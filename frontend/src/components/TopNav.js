@@ -1,48 +1,59 @@
+import { Menu, Moon, Settings, LogOut } from 'lucide-react';
+
 export default function TopNav({ user, onLogout, onToggleSidebar }) {
+  
+  const handleSettings = () => {
+    // TODO: Open settings modal
+    console.log('Settings clicked');
+  };
+
+  const handleDarkMode = () => {
+    // TODO: Toggle dark mode
+    console.log('Dark mode toggle clicked');
+  };
+
   return (
-    <div
-      style={{
-        height: "60px",
-        backgroundColor: "#2c3e50",
-        color: "white",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        padding: "0 20px",
-        boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-      }}
+    <header
+      className="glass border-b border-border/50 px-4 lg:px-6 h-16 flex items-center justify-between"
+      style={{ background: "rgba(15, 15, 15, 0.8)" }}
     >
-      <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-        <button
+      <div className="flex items-center gap-3">
+        <button 
           onClick={onToggleSidebar}
-          style={{
-            background: "transparent",
-            border: "none",
-            color: "white",
-            fontSize: "20px",
-            cursor: "pointer",
-          }}
+          className="p-2 hover:bg-white/5 rounded-lg transition-all"
         >
-          ☰
+          <Menu className="w-5 h-5 text-foreground" />
         </button>
-        <h1 style={{ margin: 0, fontSize: "20px" }}>RAG Study Assistant</h1>
+        <h1 className="text-xl font-semibold bg-gradient-to-r from-[#7C3AED] to-[#3B82F6] bg-clip-text text-transparent">
+          RAG Study Assistant
+        </h1>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "15px" }}>
-        <span>{user?.email || "User"}</span>
-        <button
-          onClick={onLogout}
-          style={{
-            padding: "8px 16px",
-            backgroundColor: "#e74c3c",
-            color: "white",
-            border: "none",
-            borderRadius: "4px",
-            cursor: "pointer",
-          }}
+
+      <div className="flex items-center gap-2">
+        <button 
+          onClick={handleDarkMode}
+          className="p-2 hover:bg-white/5 rounded-lg transition-all"
         >
-          Logout
+          <Moon className="w-5 h-5 text-foreground" />
         </button>
+        <button 
+          onClick={handleSettings}
+          className="p-2 hover:bg-white/5 rounded-lg transition-all"
+        >
+          <Settings className="w-5 h-5 text-foreground" />
+        </button>
+        <div className="flex items-center gap-2 ml-2">
+          <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-sm font-semibold text-white">
+            {user?.email?.substring(0, 2).toUpperCase() || 'JD'}
+          </div>
+          <button 
+            onClick={onLogout}
+            className="p-2 hover:bg-white/5 rounded-lg transition-all"
+          >
+            <LogOut className="w-5 h-5 text-foreground" />
+          </button>
+        </div>
       </div>
-    </div>
+    </header>
   );
 }

@@ -1,156 +1,169 @@
-import MessageBubble from "./MessageBubble";
+import React, { useState } from 'react';
+import { ThumbsUp, ThumbsDown, FileText } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import { cn } from '../lib/utils';
 
 export default function MessageList({ 
   messages, 
   streamingAnswer,
-  onFeedback,  // NEW
-  showCommentFor,  // NEW
-  feedbackComment,  // NEW
-  onCommentChange,  // NEW
-  onCancelComment  // NEW
+  onFeedback,
+  showCommentFor,
+  feedbackComment,
+  onCommentChange,
+  onCancelComment
 }) {
   return (
     <>
       {messages.map((msg, idx) => (
         <div
           key={idx}
-          style={{
-            marginBottom: "15px",
-            textAlign: msg.role === "user" ? "right" : "left",
-          }}
+          className={cn(
+            "animate-fade-in flex gap-3 mb-6",
+            msg.role === "user" ? "justify-end" : ""
+          )}
         >
-          <div
-            style={{
-              display: "inline-block",
-              maxWidth: "70%",
-              padding: "12px",
-              borderRadius: "8px",
-              backgroundColor: msg.role === "user" ? "#3498db" : "#fff",
-              color: msg.role === "user" ? "#fff" : "#2c3e50",
-              textAlign: "left",
-              boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-            }}
-          >
-            {msg.content}
+          {/* AI Avatar (left side for assistant) */}
+          {msg.role === "assistant" && (
+            <div className="w-8 h-8 mt-1 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold flex-shrink-0">
+              AI
+            </div>
+          )}
+
+          {/* Message Content */}
+          <div className={cn("flex-1 max-w-3xl", msg.role === "user" ? "flex justify-end" : "")}>
+            {/* Message Bubble */}
+            <div
+              className={cn(
+                "px-4 py-3 rounded-2xl transition-all hover:shadow-lg",
+                msg.role === "user"
+                  ? "bg-[#2563EB] text-white ml-auto max-w-2xl"
+                  : "bg-[#1F2937] border border-[#374151] text-foreground"
+              )}
+            >
+              {msg.role === "assistant" ? (
+                <div className="prose prose-sm max-w-none text-foreground">
+                  <ReactMarkdown
+                    components={{
+                      p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
+                      strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
+                      code: ({ children }) => (
+                        <code className="bg-black/30 px-1.5 py-0.5 rounded text-sm font-mono text-white">{children}</code>
+                      ),
+                      ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
+                      ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
+                      li: ({ children }) => <li className="mb-1">{children}</li>,
+                    }}
+                  >
+                    {msg.content}
+                  </ReactMarkdown>
+                </div>
+              ) : (
+                <p className="leading-relaxed">{msg.content}</p>
+              )}
+            </div>
+
+            {/* Source Citations */}
+            {msg.sources && msg.sources.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-3">
+                {msg.sources.map((source, srcIdx) => (
+                  <button
+                    key={srcIdx}
+                    className="glass px-3 py-2 rounded-lg border border-border/50 hover:border-primary/50 hover:scale-105 transition-all group"
+                    style={{ background: "rgba(31, 41, 55, 0.6)" }}
+                  >
+                    <div className="flex items-center gap-2 text-sm">
+                      <FileText className="w-4 h-4 text-muted group-hover:text-primary transition-colors" />
+                      <span className="text-foreground font-medium">
+                        {source.file_name || source.url || 'Source'}
+                      </span>
+                      {source.page_num && (
+                        <span className="px-1.5 py-0.5 bg-primary/20 text-primary rounded text-xs">
+                          p.{source.page_num}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Feedback Buttons (only for assistant messages) */}
+            {msg.role === 'assistant' && msg.id && (
+              <div className="flex items-center gap-2 mt-3">
+                <button
+                  onClick={() => onFeedback(msg.id, 'up')}
+                  disabled={msg.userFeedback}
+                  className={cn(
+                    "h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all",
+                    msg.userFeedback === 'up' && "text-primary bg-primary/10"
+                  )}
+                >
+                  <ThumbsUp className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => onFeedback(msg.id, 'down')}
+                  disabled={msg.userFeedback}
+                  className={cn(
+                    "h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all",
+                    msg.userFeedback === 'down' && "text-destructive bg-destructive/10"
+                  )}
+                >
+                  <ThumbsDown className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Comment Box (appears after thumbs down) */}
+            {showCommentFor === msg.id && (
+              <div className="mt-3 animate-slide-down">
+                <textarea
+                  placeholder="What could be improved?"
+                  value={feedbackComment}
+                  onChange={(e) => onCommentChange(e.target.value)}
+                  rows={3}
+                  className="w-full px-3 py-2 bg-input border border-border rounded-lg text-foreground focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all resize-none"
+                />
+                <div className="flex justify-end gap-2 mt-2">
+                  <button
+                    onClick={onCancelComment}
+                    className="px-3 py-1.5 text-sm rounded-lg hover:bg-white/5 transition-all"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => onFeedback(msg.id, 'down')}
+                    className="px-3 py-1.5 text-sm bg-primary hover:bg-primary/90 rounded-lg transition-all"
+                  >
+                    Submit
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* NEW: Feedback buttons for assistant messages */}
-          {msg.role === 'assistant' && msg.id && (
-            <div style={{ marginTop: "8px", display: "inline-block" }}>
-              <button
-                onClick={() => onFeedback(msg.id, 'up')}
-                disabled={msg.userFeedback}
-                style={{
-                  background: msg.userFeedback === 'up' ? '#007bff' : 'none',
-                  border: '1px solid #ddd',
-                  padding: '4px 8px',
-                  cursor: msg.userFeedback ? 'not-allowed' : 'pointer',
-                  borderRadius: '4px',
-                  marginRight: '8px',
-                  fontSize: '16px',
-                  opacity: msg.userFeedback ? 0.5 : 1,
-                }}
-              >
-                👍
-              </button>
-              <button
-                onClick={() => onFeedback(msg.id, 'down')}
-                disabled={msg.userFeedback}
-                style={{
-                  background: msg.userFeedback === 'down' ? '#dc3545' : 'none',
-                  border: '1px solid #ddd',
-                  padding: '4px 8px',
-                  cursor: msg.userFeedback ? 'not-allowed' : 'pointer',
-                  borderRadius: '4px',
-                  fontSize: '16px',
-                  opacity: msg.userFeedback ? 0.5 : 1,
-                }}
-              >
-                👎
-              </button>
-
-              {/* NEW: Comment field appears when thumbs down clicked */}
-              {showCommentFor === msg.id && (
-                <div style={{
-                  marginTop: '10px',
-                  padding: '10px',
-                  background: '#f8f9fa',
-                  borderRadius: '4px',
-                  maxWidth: '400px'
-                }}>
-                  <textarea
-                    placeholder="What went wrong? (optional)"
-                    value={feedbackComment}
-                    onChange={(e) => onCommentChange(e.target.value)}
-                    rows={3}
-                    style={{
-                      width: '100%',
-                      padding: '8px',
-                      border: '1px solid #ddd',
-                      borderRadius: '4px',
-                      fontSize: '14px',
-                      fontFamily: 'inherit',
-                      resize: 'vertical'
-                    }}
-                  />
-                  <div style={{ marginTop: '8px', display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={() => onFeedback(msg.id, 'down')}
-                      style={{
-                        padding: '6px 16px',
-                        background: '#007bff',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '14px'
-                      }}
-                    >
-                      Submit
-                    </button>
-                    <button
-                      onClick={onCancelComment}
-                      style={{
-                        padding: '6px 16px',
-                        background: '#6c757d',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        fontSize: '14px'
-                      }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
+          {/* User Avatar (right side for user) */}
+          {msg.role === "user" && (
+            <div className="w-8 h-8 mt-1 rounded-full bg-primary flex items-center justify-center text-sm font-semibold text-white flex-shrink-0">
+              JD
             </div>
           )}
         </div>
       ))}
 
-      {/* Streaming answer */}
+      {/* Streaming Answer (with typing indicator) */}
       {streamingAnswer && (
-        <div style={{ marginBottom: "15px", textAlign: "left" }}>
-          <div
-            style={{
-              display: "inline-block",
-              maxWidth: "70%",
-              padding: "12px",
-              borderRadius: "8px",
-              backgroundColor: "#fff",
-              color: "#2c3e50",
-              textAlign: "left",
-              boxShadow: "0 2px 5px rgba(0,0,0,0.1)",
-            }}
-          >
-            {streamingAnswer}
-            <span className="cursor">▊</span>
+        <div className="animate-fade-in flex gap-3 mb-6">
+          <div className="w-8 h-8 mt-1 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold flex-shrink-0">
+            AI
+          </div>
+          <div className="flex-1 max-w-3xl">
+            <div className="px-4 py-3 rounded-2xl bg-[#1F2937] border border-[#374151] text-foreground">
+              <p className="leading-relaxed">{streamingAnswer}</p>
+              <span className="inline-block w-2 h-4 bg-primary ml-1 animate-pulse">▊</span>
+            </div>
           </div>
         </div>
       )}
     </>
   );
 }
-

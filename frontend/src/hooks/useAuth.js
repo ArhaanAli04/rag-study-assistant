@@ -34,6 +34,9 @@ export function useAuth() {
 
     localStorage.setItem("token", data.access_token);
     setToken(data.access_token);
+
+    // Wait for state to update
+    await new Promise(resolve => setTimeout(resolve, 50));
     return data;
   }, []);
 

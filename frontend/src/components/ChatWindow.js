@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { Menu, Moon, Settings, LogOut, Sparkles } from "lucide-react";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
 
@@ -6,9 +7,8 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [streamingAnswer, setStreamingAnswer] = useState("");
-  const [showCommentFor, setShowCommentFor] = useState(null);  // NEW
-  const [feedbackComment, setFeedbackComment] = useState('');   // NEW
-  const [assistantMessageId, setAssistantMessageId] = useState(null);  // ← ADD THIS LINE
+  const [showCommentFor, setShowCommentFor] = useState(null);
+  const [feedbackComment, setFeedbackComment] = useState('');
   const messagesEndRef = useRef(null);
 
   // Fetch messages when session changes
@@ -38,11 +38,10 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     }
   };
 
-  // NEW: Feedback handler
+  // Feedback handler
   const handleFeedback = async (messageId, feedbackType) => {
     const token = localStorage.getItem('token');
     
-    // If thumbs down and no comment shown yet, show comment field
     if (feedbackType === 'down' && showCommentFor !== messageId) {
       setShowCommentFor(messageId);
       return;
@@ -62,11 +61,9 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       });
 
       if (response.ok) {
-        console.log('Feedback submitted');
         setShowCommentFor(null);
         setFeedbackComment('');
         
-        // Update message to show feedback was submitted
         setMessages(prev => prev.map(msg => 
           msg.id === messageId 
             ? { ...msg, userFeedback: feedbackType } 
@@ -79,7 +76,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
   };
 
   const handleSendMessage = async (query, mode) => {
-    // Add user message to UI immediately
     const userMsg = { role: "user", content: query, id: Date.now() };
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
@@ -87,7 +83,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
 
     const token = localStorage.getItem("token");
 
-    // Pass token as query param for EventSource
     const url = new URL("http://localhost:8000/chat/stream");
     url.searchParams.append("query", query);
     url.searchParams.append("session_id", sessionId || 0);
@@ -102,13 +97,10 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     let capturedMessageId = null;
 
     eventSource.onmessage = (event) => {
-      console.log("Received SSE event:", event.data);  // ← ADD THIS
       if (event.data === "[DONE]") {
-        console.log("Stream done, message ID:", capturedMessageId);  // ← ADD THIS
         eventSource.close();
         setLoading(false);
 
-        // Add final assistant message
         const assistantMsg = {
           role: "assistant",
           content: assistantAnswer,
@@ -116,12 +108,9 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
           sources: metadataReceived?.sources || [],
           confidence: metadataReceived?.confidence || 0,
         };
-        console.log("Creating assistant message with ID:", assistantMsg.id);  // ← ADD THIS
         setMessages((prev) => [...prev, assistantMsg]);
         setStreamingAnswer("");
-        setAssistantMessageId(null);  // ← ADD: Reset for next message
 
-        // If new session created, notify parent
         if (metadataReceived?.session_id && !sessionId) {
           onSessionCreated(metadataReceived.session_id);
         }
@@ -130,14 +119,12 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
 
       try {
         const data = JSON.parse(event.data);
-        console.log("Parsed SSE data:", data);  // ← ADD THIS
         if (data.type === "metadata") {
           metadataReceived = data.data;
         } else if (data.type === "token") {
           assistantAnswer += data.data;
           setStreamingAnswer(assistantAnswer);
-        }else if (data.type === "message_id") {  // ← ADD THIS BLOCK
-          console.log("Received message_id:", data.data);
+        } else if (data.type === "message_id") {
           capturedMessageId = data.data;
         }
       } catch (e) {
@@ -153,33 +140,51 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     };
   };
 
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    window.location.href = '/login';
+  };
+
   return (
-    <div
-      style={{
-        flex: 1,
-        display: "flex",
-        flexDirection: "column",
-        backgroundColor: "#ecf0f1",
-      }}
-    >
-      {/* Messages area */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "20px" }}>
-        <MessageList 
-          messages={messages} 
-          streamingAnswer={streamingAnswer}
-          onFeedback={handleFeedback}  // NEW: Pass feedback handler
-          showCommentFor={showCommentFor}  // NEW
-          feedbackComment={feedbackComment}  // NEW
-          onCommentChange={setFeedbackComment}  // NEW
-          onCancelComment={() => {  // NEW
-            setShowCommentFor(null);
-            setFeedbackComment('');
-          }}
-        />
-        <div ref={messagesEndRef} />
+    <div className="flex-1 flex flex-col h-screen">
+      {/* Top Navigation */}
+      
+
+      {/* Messages Area */}
+      <div 
+        ref={messagesEndRef} 
+        className="flex-1 overflow-y-auto px-4 lg:px-6 py-6" 
+        style={{ background: "#0F0F0F" }}
+      >
+        {messages.length === 0 ? (
+          // Empty State
+          <div className="flex flex-col items-center justify-center h-full text-center">
+            <Sparkles className="w-16 h-16 text-primary mb-4" />
+            <h2 className="text-2xl font-semibold mb-2">Start a conversation</h2>
+            <p className="text-muted max-w-md">
+              Ask me anything about your study materials. I can help explain concepts, summarize documents, and answer questions.
+            </p>
+          </div>
+        ) : (
+          <div className="max-w-4xl mx-auto">
+            <MessageList 
+              messages={messages} 
+              streamingAnswer={streamingAnswer}
+              onFeedback={handleFeedback}
+              showCommentFor={showCommentFor}
+              feedbackComment={feedbackComment}
+              onCommentChange={setFeedbackComment}
+              onCancelComment={() => {
+                setShowCommentFor(null);
+                setFeedbackComment('');
+              }}
+            />
+            <div ref={messagesEndRef} />
+          </div>
+        )}
       </div>
 
-      {/* Input area */}
+      {/* Input Area */}
       <ChatInput onSend={handleSendMessage} disabled={loading} />
     </div>
   );

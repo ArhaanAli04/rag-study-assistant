@@ -1,19 +1,28 @@
 import { useState, useEffect } from "react";
-import { useAuth } from "../hooks/useAuth";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../contexts/AuthContext";
 import SessionSidebar from "../components/SessionSidebar";
 import ChatWindow from "../components/ChatWindow";
 import TopNav from "../components/TopNav";
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
+
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
+  
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Fetch sessions on mount
   useEffect(() => {
     fetchSessions();
   }, []);
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login");
+  };
 
   const fetchSessions = async () => {
     try {
@@ -48,7 +57,7 @@ export default function ChatPage() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       {/* Top Navigation */}
-      <TopNav user={user} onLogout={logout} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
+      <TopNav user={user} onLogout={handleLogout} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
 
       {/* Main area: Sidebar + Chat */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>

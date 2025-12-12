@@ -52,7 +52,17 @@ class Document(Base):
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
 
-
+class FailedQuery(Base):
+    __tablename__ = "failed_queries"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(String, nullable=False)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
+    query = Column(Text, nullable=False)
+    confidence = Column(Integer, nullable=True)  # 0-100 scale
+    feedback = Column(String, nullable=True)  # "down"
+    reason = Column(String, nullable=True)  # "low_confidence" or "negative_feedback"
+    comment = Column(Text, nullable=True)
+    timestamp = Column(DateTime, default=datetime.datetime.utcnow)
 
 DATA_DIR = "data"
 if not os.path.exists(DATA_DIR):

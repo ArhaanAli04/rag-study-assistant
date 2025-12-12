@@ -37,7 +37,7 @@ def add_message(db: DBSession, session_id: int, user_id: int, role: str, content
         VALUES (:user_id, :session_id, :role, :content, :sources, :feedback, :feedback_comment, :timestamp)
     """)
     
-    db.execute(sql, {
+    result = db.execute(sql, {
         'user_id': str(user_id),
         'session_id': session_id,
         'role': role,
@@ -49,8 +49,11 @@ def add_message(db: DBSession, session_id: int, user_id: int, role: str, content
     })
     db.commit()
     
-    # Return a mock message object (optional, if needed)
-    return None
+    # Get the last inserted ID
+    message_id = result.lastrowid
+    print(f"DEBUG session_service: Created message ID {message_id}")  # ← ADD THI
+    # Return messagwe_id
+    return message_id
 
 
 def get_recent_messages(

@@ -555,10 +555,44 @@ async def chat_stream(
     # Semantic cache (non-blocking lookup)
     cached = semantic_cache.lookup(query, user_doc_version=doc_version, mode=mode)
     if cached:
+        # Create/update session for cached response
+        chat_session = get_or_create_session(db, user_id_int, session_id, query)
+        add_message(db, chat_session.id, user_id_int, role="user", content=query)
+        
         async def cached_stream():
-            yield f"data: {json.dumps(cached)}\n\n"
-            yield "data: [CACHE_HIT]\n\n"
-        return StreamingResponse(cached_stream(), media_type="text/event-stream")
+            # Send metadata
+            metadata = {
+                "session_id": chat_session.id,
+                "confidence": cached.get("confidence", 100),
+                "fallback_used": False,
+                "grounding_level": cached.get("grounding_level", "strict"),
+                "sources": cached.get("sources", []),
+                "mode": mode,
+            }
+            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
+            
+            # Send cached answer as tokens
+            cached_answer = cached.get("answer", "")
+            for char in cached_answer:
+                yield f"data: {json.dumps({'type': 'token', 'data': char})}\n\n"
+            
+            # Log assistant message and get ID
+            assistant_msg_id = add_message(
+                db, chat_session.id, user_id_int, 
+                role="assistant", 
+                content=cached_answer,
+                sources=",".join([str(s.get("file_name", s.get("url", ""))) for s in cached.get("sources", [])])
+            )
+            
+            print(f"DEBUG: Created message with ID: {assistant_msg_id}")  # ← ADD THIS
+            # Send message ID
+            yield f"data: {json.dumps({'type': 'message_id', 'data': assistant_msg_id})}\n\n"
+            print(f"DEBUG: Sent message_id event")  # ← ADD THIS
+            # Send DONE
+            yield "data: [DONE]\n\n"
+        
+        return StreamingResponse(cached_stream(), media_type="text/event-stream",
+                                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
     # 1) Session + log user message
     chat_session = get_or_create_session(db, user_id_int, session_id, query)
@@ -592,7 +626,7 @@ async def chat_stream(
     recent_messages = [{"role": m.role, "content": m.content} for m in get_recent_messages(db, chat_session.id, limit=20)]
 
     # 3) Determine grounding + build prompt
-    grounding_level = "strict" if final_confidence >= 0.7 else "loose" if final_confidence >= 0.3 else "none"
+    grounding_level = "strict" if final_confidence >= 70.0 else "loose" if final_confidence >= 30.0 else "none"
 
     prompt = llm_client.build_prompt(
         question=query,
@@ -616,18 +650,41 @@ async def chat_stream(
             }
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
 
+            # Log low confidence as failed query
+            if final_confidence < 30.0:  # Threshold for "low confidence"
+                from db import FailedQuery
+                failed_query = FailedQuery(
+                    user_id=str(user_id_int),
+                    session_id=chat_session.id,
+                    query=query,
+                    confidence=final_confidence,
+                    feedback=None,
+                    reason='low_confidence',
+                    comment=f"Automatic log: confidence={final_confidence}",
+                    timestamp=datetime.datetime.utcnow()
+                )
+                db.add(failed_query)
+                db.commit()
+
             # Stream tokens
             full_answer = ""
-            for token in llm_client.stream_answer(prompt):  # Remove 'async'
+            for token in llm_client.stream_answer(prompt):
                 full_answer += token
                 yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
 
+            # Log assistant message and get ID
+            assistant_msg_id = add_message(
+                db, chat_session.id, user_id_int, 
+                role="assistant", 
+                content=full_answer,
+                sources=",".join([c["metadata"].get("file_name", c["metadata"].get("url", "")) for c in compressed_context])
+            )
+
+            # Send message ID to frontend
+            yield f"data: {json.dumps({'type': 'message_id', 'data': assistant_msg_id})}\n\n"
+
             # Final message
             yield "data: [DONE]\n\n"
-
-            # Log assistant message with full answer
-            add_message(db, chat_session.id, user_id_int, role="assistant", content=full_answer,
-                        sources=",".join([c["metadata"].get("file_name", c["metadata"].get("url", "")) for c in compressed_context]))
 
             # Cache the response
             resp_dict = {
@@ -699,6 +756,7 @@ async def generate_quiz(
 
 from fastapi import HTTPException
 from db import Message
+import datetime
 @app.post("/messages/{message_id}/feedback")
 async def submit_feedback(
     message_id: int,
@@ -706,40 +764,85 @@ async def submit_feedback(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    # Validate feedback value
-    if body.feedback not in ("up", "down"):
-        raise HTTPException(status_code=400, detail="feedback must be 'up' or 'down'")
-
+    """Submit thumbs up/down feedback for a message"""
+    from sqlalchemy import text
+    from db import FailedQuery
+    # Verify message belongs to user
     msg = db.query(Message).filter(
         Message.id == message_id,
-        Message.user_id == current_user.id
+        Message.user_id == str(current_user.id)
     ).first()
-
+    
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
-
-    msg.feedback = body.feedback
-    msg.feedback_comment = body.comment
+    
+    # Update feedback using raw SQL
+    sql = text("""
+        UPDATE messages 
+        SET feedback = :feedback, feedback_comment = :comment
+        WHERE id = :message_id
+    """)
+    
+    db.execute(sql, {
+        'feedback': body.feedback,
+        'comment': body.comment or "",
+        'message_id': message_id
+    })
+    
+    # NEW: Log failed query if thumbs down
+    if body.feedback == 'down':
+        # Find the user query that led to this answer
+        user_msg = db.query(Message).filter(
+            Message.session_id == msg.session_id,
+            Message.role == 'user',
+            Message.id < msg.id
+        ).order_by(Message.id.desc()).first()
+        
+        if user_msg:
+            # Create failed query entry
+            failed_query = FailedQuery(
+                user_id=str(current_user.id),
+                session_id=msg.session_id,
+                query=user_msg.content,
+                confidence=None,  # Can be populated if you track confidence
+                feedback='down',
+                reason='negative_feedback',
+                comment=body.comment or "",
+                timestamp=datetime.datetime.utcnow()
+            )
+            db.add(failed_query)
+    
     db.commit()
 
-    logger.info(
-        "Feedback received: msg_id=%s user_id=%s feedback=%s",
-        message_id, current_user.id, body.feedback
-    )
-    # If negative feedback, log as failed query
-    if body.feedback == "down":
-        logger.warning(
-            "NEGATIVE_FEEDBACK user_id=%s session_id=%s msg_id=%s comment=%r",
-            current_user.id, msg.session_id, msg.id, body.comment
-        )
+    return {"status": "ok", "message_id": message_id}
 
-    return {"status": "ok"}
-
+@app.get("/analytics/failed-queries")
+async def get_failed_queries(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = 50
+):
+    """Get recent failed queries for analysis"""
+    from db import FailedQuery
+    
+    failed_queries = db.query(FailedQuery).filter(
+        FailedQuery.user_id == str(current_user.id)
+    ).order_by(FailedQuery.timestamp.desc()).limit(limit).all()
+    
+    return [
+        {
+            "id": fq.id,
+            "query": fq.query,
+            "confidence": fq.confidence,
+            "reason": fq.reason,
+            "comment": fq.comment,
+            "timestamp": fq.timestamp.isoformat() if fq.timestamp else None,
+            "session_id": fq.session_id
+        }
+        for fq in failed_queries
+    ]
 
 @app.on_event("startup")
 async def on_startup():
-    #init_db()
-    from db import Base, engine
-    Base.metadata.clear()  # Clear cached metadata
-    Base.metadata.reflect(bind=engine, only=['messages'])  # Reload messages table
+    init_db()
     logger.info("Database initialized")

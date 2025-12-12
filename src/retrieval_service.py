@@ -280,11 +280,27 @@ class RetrievalService:
         combined_list = combined_list[:top_k]
 
         # 7. Confidence scoring based on hybrid score
+        confidence = 0.0
+
         if combined_list:
-            best = combined_list[0]["hybrid_score"]
+            # Factor 1: Top result score (0-50 points)
+            best_score = combined_list[0]["hybrid_score"]
+            score_confidence = min(50.0, best_score * 50)
+            
+            # Factor 2: Number of quality results (0-30 points)
+            quality_results = sum(1 for c in combined_list if c["hybrid_score"] > 0.3)
+            count_confidence = min(30.0, (quality_results / top_k) * 30)
+            
+            # Factor 3: Score distribution (0-20 points)
+            if len(combined_list) >= 2:
+                top_3_avg = sum(c["hybrid_score"] for c in combined_list[:3]) / min(3, len(combined_list))
+                distribution_confidence = min(20.0, (top_3_avg / best_score) * 20) if best_score > 0 else 0
+            else:
+                distribution_confidence = 0
+            
+            confidence = score_confidence + count_confidence + distribution_confidence
         else:
-            best = 0.0
-        confidence = max(0.0, min(1.0, best))
+            confidence = 0.0
 
         # 7.5. Enhanced topic + example heuristic:
         # If none of the top chunks contain any meaningful keyword from the query,
@@ -304,22 +320,30 @@ class RetrievalService:
             return any(k in text for k in keywords)
 
         has_matching_chunk = any(chunk_matches(c) for c in combined_list)
-        has_example_in_context = any("example" in c.get("text", "").lower() or "tp" in c.get("text", "").lower() for c in combined_list)
+        has_example_in_context = any(
+            "example" in c.get("text", "").lower() or 
+            "e.g." in c.get("text", "").lower() or
+            any(char.isdigit() for char in c.get("text", ""))  # Has numbers
+            for c in combined_list
+        )
 
         # Force web fallback if:
         # 1. No topical match AND needs example, OR
         # 2. Topical match exists but explicitly needs example AND context lacks examples
         force_web = False
         if keywords and not has_matching_chunk:
+            confidence *= 0.5  # Reduce by 50%
             force_web = True
         elif needs_example and not has_example_in_context:
+            confidence *= 0.6  # Reduce by 40%
             force_web = True
 
         if force_web:
             confidence = min(confidence, 0.3)  # lower than 0.6 threshold
-
+        # Ensure confidence stays in 0-100 range
+        confidence = max(0.0, min(100.0, confidence))
         # 8. Fallback decision (now uses adjusted confidence)
-        fallback_used = confidence < 0.6
+        fallback_used = confidence < 60.0
 
 
         # 9. Build candidates from local results
@@ -358,11 +382,29 @@ class RetrievalService:
         # 10. Rerank using cross-encoder across local + web
         reranked = self.reranker.rerank(query, candidates, top_k=rerank_top_k)
 
+        # 10.5 Recalculate confidence based on FINAL reranked results
+        final_confidence = confidence  # Start with hybrid confidence
+
+        if reranked and len(reranked) > 0:
+            # Check if we have web results in top results
+            web_count = sum(1 for r in reranked if r["metadata"].get("source_type") == "web")
+            
+            if web_count > 0 and final_confidence < 40.0:
+                # We relied on web fallback - set moderate confidence
+                # Based on: number of results + reranker scores
+                top_scores = [r.get("score", 0) for r in reranked[:3]]
+                avg_score = sum(top_scores) / len(top_scores) if top_scores else 0
+                
+                # Web results confidence: 40-75 range
+                web_confidence = min(75.0, 40.0 + (len(reranked) * 5) + (avg_score * 20))
+                final_confidence = max(final_confidence, web_confidence)
+                print(f"DEBUG: Web fallback confidence: {web_confidence:.1f} (avg rerank score: {avg_score:.3f})")
+
         result_payload: Dict[str, Any] = {
             "query": query,
             "results": reranked,
             "all_candidates": candidates,  # before compression / parent
-            "confidence": confidence,
+            "confidence": final_confidence,
             "fallback_used": fallback_used,
             "web_results": [
                 r for r in reranked if r["metadata"].get("source_type") == "web"
@@ -370,7 +412,7 @@ class RetrievalService:
             
         }
 
-        # 10. Store in L1 cache and in Redis cache (if you like)
+        # Store in L1 cache and in Redis cache (if you like)
         self.l1_cache_store(user_id, query, doc_version, result_payload)
         # optional: set_cached_response(user_id, query, result_payload)
 

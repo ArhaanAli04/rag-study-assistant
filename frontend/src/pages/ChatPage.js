@@ -54,6 +54,33 @@ export default function ChatPage() {
     fetchSessions(); // refresh sidebar
   };
 
+  const handleDeleteSession = async (sessionId) => {
+    console.log("handleDeleteSession called with ID:", sessionId);
+    try {
+      const token = localStorage.getItem("token");
+      console.log("Sending DELETE request to:", `http://localhost:8000/sessions/${sessionId}`);
+      const resp = await fetch(`http://localhost:8000/sessions/${sessionId}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      console.log("Response status:", resp.status);
+      if (!resp.ok) {
+        console.error("Failed to delete session:", resp.status);
+        return;
+      }
+      console.log("Session deleted successfully");
+      // If we deleted the active session, clear it
+      if (activeSessionId === sessionId) {
+        setActiveSessionId(null);
+      }
+
+      // Refresh sessions list
+      fetchSessions();
+    } catch (e) {
+      console.error("Failed to delete session:", e);
+    }
+  };
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
       {/* Top Navigation */}
@@ -67,6 +94,7 @@ export default function ChatPage() {
             activeSessionId={activeSessionId}
             onSelectSession={setActiveSessionId}
             onNewChat={handleNewChat}
+            onDeleteSession={handleDeleteSession}
           />
         )}
         <ChatWindow

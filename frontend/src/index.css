@@ -65,3 +65,21 @@
   font-family: 'Fira Code', 'Courier New', monospace;
   color: #FFFFFF;
 }
+/* Markdown table styling */
+.prose table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose table tr:last-child td {
+  border-bottom: none;
+}
+
+.prose table tr:hover {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* Links in markdown */
+.prose a {
+  word-break: break-all;
+}

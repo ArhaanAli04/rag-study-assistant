@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { ThumbsUp, ThumbsDown, FileText } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm'; // ✅ ADD THIS IMPORT
 import { cn } from '../lib/utils';
 
 export default function MessageList({ 
@@ -43,15 +44,57 @@ export default function MessageList({
               {msg.role === "assistant" ? (
                 <div className="prose prose-sm max-w-none text-foreground">
                   <ReactMarkdown
+                    remarkPlugins={[remarkGfm]} // ✅ ADD THIS LINE
                     components={{
                       p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
                       strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
-                      code: ({ children }) => (
-                        <code className="bg-black/30 px-1.5 py-0.5 rounded text-sm font-mono text-white">{children}</code>
-                      ),
+                      code: ({ children, inline }) => 
+                        inline ? (
+                          <code className="bg-black/30 px-1.5 py-0.5 rounded text-sm font-mono text-white">{children}</code>
+                        ) : (
+                          <code className="block bg-black/50 p-3 rounded-lg text-sm font-mono text-white overflow-x-auto my-2">{children}</code>
+                        ),
                       ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
                       ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
                       li: ({ children }) => <li className="mb-1">{children}</li>,
+                      // ✅ ADD TABLE STYLING
+                      table: ({ children }) => (
+                        <div className="overflow-x-auto my-4">
+                          <table className="min-w-full border-collapse border border-[#374151] rounded-lg">
+                            {children}
+                          </table>
+                        </div>
+                      ),
+                      thead: ({ children }) => (
+                        <thead className="bg-[#374151]/50">{children}</thead>
+                      ),
+                      th: ({ children }) => (
+                        <th className="px-4 py-3 text-left text-sm font-semibold text-white border border-[#374151]">
+                          {children}
+                        </th>
+                      ),
+                      tbody: ({ children }) => (
+                        <tbody>{children}</tbody>
+                      ),
+                      tr: ({ children }) => (
+                        <tr className="hover:bg-white/5 transition-colors">{children}</tr>
+                      ),
+                      td: ({ children }) => (
+                        <td className="px-4 py-3 text-sm text-foreground/90 border border-[#374151]">
+                          {children}
+                        </td>
+                      ),
+                      // ✅ ADD LINK STYLING
+                      a: ({ children, href }) => (
+                        <a 
+                          href={href} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-primary hover:underline break-all"
+                        >
+                          {children}
+                        </a>
+                      ),
                     }}
                   >
                     {msg.content}

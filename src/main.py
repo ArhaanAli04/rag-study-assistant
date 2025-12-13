@@ -294,28 +294,48 @@ def sanitize_query(q: str) -> str:
         )
 
     return q
-
+from sqlalchemy import func, desc
 @app.get("/sessions")
 async def get_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-):
-    """Get all chat sessions for current user."""
-    sessions = (
-        db.query(ChatSession)
+):  
+    """Get all chat sessions ordered by most recent message"""
+    
+    # Subquery to get the latest message timestamp for each session
+    latest_message = (
+        db.query(
+            Message.session_id,
+            func.max(Message.timestamp).label('last_message_time')
+        )
+        .group_by(Message.session_id)
+        .subquery()
+    )
+    
+    # Query sessions with their latest message time
+    sessions_with_time = (
+        db.query(
+            ChatSession,
+            latest_message.c.last_message_time
+        )
+        .outerjoin(latest_message, ChatSession.id == latest_message.c.session_id)
         .filter(ChatSession.user_id == current_user.id)
-        .order_by(ChatSession.created_at.desc())
+        .order_by(desc(latest_message.c.last_message_time).nulls_last())
         .all()
     )
     
-    return [
-        {
-            "id": s.id,
-            "title": s.title,
-            "created_at": s.created_at.isoformat(),
-        }
-        for s in sessions
-    ]
+    # Build response
+    result = []
+    for session, last_msg_time in sessions_with_time:
+        result.append({
+            "id": session.id,
+            "title": session.title,
+            "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None,
+            "last_message_time": last_msg_time.isoformat() + 'Z' if last_msg_time else None,
+        })
+    
+    return result
+
 
 @app.get("/sessions/{session_id}/messages")
 async def get_session_messages(
@@ -350,7 +370,31 @@ async def get_session_messages(
         for m in messages
     ]
 
-
+@app.delete("/sessions/{session_id}")
+async def delete_session(
+    session_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a chat session"""
+    
+    # Find the session
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Delete associated messages first (if not cascade deleted)
+    db.query(Message).filter(Message.session_id == session_id).delete()
+    
+    # Delete the session
+    db.delete(session)
+    db.commit()
+    
+    return {"message": "Session deleted successfully"}
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
@@ -841,6 +885,10 @@ async def get_failed_queries(
         }
         for fq in failed_queries
     ]
+
+
+
+
 
 @app.on_event("startup")
 async def on_startup():

@@ -3,6 +3,8 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import ChatPage from "./pages/ChatPage";
+import DocumentsPage from "./pages/DocumentsPage";
+import QuizPage from "./pages/QuizPage";
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
@@ -14,6 +16,14 @@ function AppRoutes() {
       <Route
         path="/chat"
         element={isAuthenticated ? <ChatPage /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/documents"
+        element={isAuthenticated ? <DocumentsPage /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/quiz"
+        element={isAuthenticated ? <QuizPage /> : <Navigate to="/login" replace />}
       />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

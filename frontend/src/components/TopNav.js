@@ -1,16 +1,21 @@
-import { Menu, Moon, Settings, LogOut } from 'lucide-react';
+import { Menu, Moon, Settings, LogOut, FileText, MessageSquare, Brain } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function TopNav({ user, onLogout, onToggleSidebar }) {
+  const navigate = useNavigate();
+  const location = useLocation();
   
   const handleSettings = () => {
-    // TODO: Open settings modal
     console.log('Settings clicked');
   };
 
   const handleDarkMode = () => {
-    // TODO: Toggle dark mode
     console.log('Dark mode toggle clicked');
   };
+
+  // Check if we're on documents page
+  const isDocumentsPage = location.pathname === '/documents';
+  const isQuizPage = location.pathname === '/quiz';
 
   return (
     <header
@@ -30,6 +35,35 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
       </div>
 
       <div className="flex items-center gap-2">
+        {/* ✅ ADD QUIZ BUTTON */}
+        <button 
+          onClick={() => navigate('/quiz')}
+          className={`p-2 rounded-lg transition-all ${
+            isQuizPage ? 'bg-primary/10 text-primary' : 'hover:bg-white/5 text-foreground'
+          }`}
+          title="Quiz"
+        >
+          <Brain className="w-5 h-5" />
+        </button>
+        {/* ✅ Show Chat or Documents button based on current page */}
+        {isDocumentsPage ? (
+          <button 
+            onClick={() => navigate('/chat')}
+            className="p-2 hover:bg-white/5 rounded-lg transition-all"
+            title="Back to Chat"
+          >
+            <MessageSquare className="w-5 h-5 text-foreground" />
+          </button>
+        ) : (
+          <button 
+            onClick={() => navigate('/documents')}
+            className="p-2 hover:bg-white/5 rounded-lg transition-all"
+            title="Documents"
+          >
+            <FileText className="w-5 h-5 text-foreground" />
+          </button>
+        )}
+        
         <button 
           onClick={handleDarkMode}
           className="p-2 hover:bg-white/5 rounded-lg transition-all"

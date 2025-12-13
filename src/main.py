@@ -170,7 +170,7 @@ async def delete_document(
 ):
     doc = db.query(Document).filter(
         Document.id == doc_id,
-        Document.user_id == current_user.id
+        Document.user_id == str(current_user.id)
     ).first()
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
@@ -187,6 +187,41 @@ async def delete_document(
     # if doc.path and os.path.exists(doc.path): os.remove(doc.path)
 
     return {"status": "deleted", "document_id": doc_id, "doc_version": current_user.doc_version}
+
+@app.get("/documents")
+async def get_documents(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get all documents for current user"""
+    
+    documents = (
+        db.query(Document)
+        .filter(
+            Document.user_id == str(current_user.id),  # Convert to string
+            Document.is_active == True  # Only active documents
+        )
+        .order_by(desc(Document.id))  # Order by ID since no created_at
+        .all()
+    )
+    
+    result = []
+    for doc in documents:
+        # Get file size if file exists
+        file_size = None
+        if doc.file_path and os.path.exists(doc.file_path):
+            file_size = os.path.getsize(doc.file_path)
+        
+        result.append({
+            "id": doc.id,
+            "filename": doc.file_name,  # ✅ Use file_name
+            "path": doc.file_path,      # ✅ Use file_path
+            "created_at": None,  # No timestamp field in your model
+            "file_size": file_size,
+            "version": doc.version,
+        })
+    
+    return result
 
 @app.middleware("http")
 async def timing_middleware(request: Request, call_next):
@@ -763,6 +798,8 @@ async def generate_quiz(
     user_id_str = str(current_user.id)
     doc_version = current_user.doc_version
 
+    # ADD THIS DEBUG LOG
+    logger.info(f"Generating quiz for user {user_id_str}, doc_version: {doc_version}, topic: {body.topic}")
     # Simple retrieval: use hybrid_retrieve on topic or generic "generate quiz"
     query = body.topic or "generate quiz questions from my study materials"
     retrieval_result = retrieval_service.hybrid_retrieve(
@@ -773,7 +810,14 @@ async def generate_quiz(
         rerank_top_k=body.num_questions * 2,
     )
     candidates = retrieval_result["results"]
+    # ADD THIS DEBUG LOG
+    logger.info(f"Retrieved {len(candidates)} candidates for quiz")
     compressed_context = compressor.compress(candidates)
+
+    # ADD THIS DEBUG LOG
+    logger.info(f"Compressed to {len(compressed_context)} chunks")
+    if compressed_context:
+        logger.info(f"First chunk preview: {compressed_context[0]['text'][:100]}")
 
     # Build a quiz-specific prompt
     context_text = "\n\n".join(c["text"] for c in compressed_context)

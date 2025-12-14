@@ -14,7 +14,7 @@ export default function QuizPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const handleGenerateQuiz = async (topic, numQuestions) => {
+  const handleGenerateQuiz = async (topic, numQuestions, difficulty) => {
     try {
       setLoading(true);
       setError(null);
@@ -27,8 +27,10 @@ export default function QuizPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          topic: topic || null,
+          topic: topic,
           num_questions: numQuestions,
+          difficulty: difficulty,
+          include_answers: true,
         }),
       });
 

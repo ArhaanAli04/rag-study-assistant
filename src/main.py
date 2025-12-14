@@ -19,7 +19,7 @@ from auth import (
 )
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-
+from enum import Enum
 from session_service import (
     get_or_create_session,
     add_message,
@@ -31,6 +31,7 @@ from semantic_cache import SemanticCache
 from context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
 import json
+from topic_classifier import topic_classifier
 
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -79,10 +80,16 @@ class ChatResponse(BaseModel):
     sources: List[Dict[str, Any]]
     followups: Optional[List[str]] = None
 
+class QuizDifficulty(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+
 class QuizRequest(BaseModel):
-    topic: Optional[str] = None
+    topic: str
     num_questions: int = 5
-    mode: str = "detailed"  # how verbose explanations should be if you include answers
+    difficulty: QuizDifficulty = QuizDifficulty.MEDIUM
+    include_answers: bool = False  # True if you want answers
 
 class FeedbackRequest(BaseModel):
     feedback: str              # "up" or "down"
@@ -365,6 +372,7 @@ async def get_sessions(
         result.append({
             "id": session.id,
             "title": session.title,
+            "topic": session.topic or "General",  # ✅ ADD TOPIC
             "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None,
             "last_message_time": last_msg_time.isoformat() + 'Z' if last_msg_time else None,
         })
@@ -469,10 +477,25 @@ async def chat(
 
     # 1) Get or create session
     chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
-
+    message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
     # 2) Log user message
     add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
     
+    # ✅ TOPIC DETECTION - Auto-tag session on first message or if still "General"
+    
+    if message_count == 0 or chat_session.topic == "General":
+        try:
+            topic_result = topic_classifier.classify_topic(body.query)
+            if topic_result['confidence'] > 0.3:  # Only update if confident
+                chat_session.topic = topic_result['topic']
+                db.commit()
+                logger.info(
+                    f"✅ Session {chat_session.id} tagged: {topic_result['topic']} "
+                    f"(confidence: {topic_result['confidence']:.2f})"
+                )
+        except Exception as e:
+            logger.error(f"Topic classification error: {e}")
+
     # 3) Query decomposition
     subqueries = query_decomposer.decompose(body.query)
 
@@ -636,8 +659,23 @@ async def chat_stream(
     if cached:
         # Create/update session for cached response
         chat_session = get_or_create_session(db, user_id_int, session_id, query)
+        # ✅ CHECK MESSAGE COUNT BEFORE ADDING
+        message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
         add_message(db, chat_session.id, user_id_int, role="user", content=query)
         
+        
+        if message_count ==0 or chat_session.topic == "General":
+            try:
+                topic_result = topic_classifier.classify_topic(query)
+                if topic_result['confidence'] > 0.3:
+                    chat_session.topic = topic_result['topic']
+                    db.commit()
+                    logger.info(
+                        f"✅ Session {chat_session.id} tagged (cached): {topic_result['topic']} "
+                        f"(confidence: {topic_result['confidence']:.2f})"
+                    )
+            except Exception as e:
+                logger.error(f"Topic classification error (cached): {e}")
         async def cached_stream():
             # Send metadata
             metadata = {
@@ -675,7 +713,25 @@ async def chat_stream(
 
     # 1) Session + log user message
     chat_session = get_or_create_session(db, user_id_int, session_id, query)
+    # ✅ CHECK MESSAGE COUNT BEFORE ADDING
+    message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
     add_message(db, chat_session.id, user_id_int, role="user", content=query)
+
+    #  ADD TOPIC DETECTIon for new response 
+    
+    if message_count ==0 or chat_session.topic == "General":
+        try:
+            topic_result = topic_classifier.classify_topic(query)
+            if topic_result['confidence'] > 0.3:  # Only update if confident
+                chat_session.topic = topic_result['topic']
+                db.commit()
+                logger.info(
+                    f"✅ Session {chat_session.id} tagged: {topic_result['topic']} "
+                    f"(confidence: {topic_result['confidence']:.2f})"
+                )
+        except Exception as e:
+            logger.error(f"Topic classification error: {e}")
+    
 
     # 2) Retrieval + processing
     subqueries = query_decomposer.decompose(query)
@@ -793,53 +849,74 @@ async def chat_stream(
 async def generate_quiz(
     body: QuizRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
-    user_id_str = str(current_user.id)
-    doc_version = current_user.doc_version
+    """Generate quiz questions from internet knowledge (not user documents)"""
+    
+    logger.info(f"Generating {body.difficulty} quiz for user {current_user.id}, topic: {body.topic}")
 
-    # ADD THIS DEBUG LOG
-    logger.info(f"Generating quiz for user {user_id_str}, doc_version: {doc_version}, topic: {body.topic}")
-    # Simple retrieval: use hybrid_retrieve on topic or generic "generate quiz"
-    query = body.topic or "generate quiz questions from my study materials"
-    retrieval_result = retrieval_service.hybrid_retrieve(
-        query=query,
-        user_id=user_id_str,
-        doc_version=doc_version,
-        top_k=body.num_questions * 3,
-        rerank_top_k=body.num_questions * 2,
-    )
-    candidates = retrieval_result["results"]
-    # ADD THIS DEBUG LOG
-    logger.info(f"Retrieved {len(candidates)} candidates for quiz")
-    compressed_context = compressor.compress(candidates)
+    # Build difficulty-specific prompt
+    difficulty_instructions = {
+        "easy": "basic, straightforward questions suitable for beginners",
+        "medium": "moderate difficulty questions requiring understanding of key concepts",
+        "hard": "advanced, challenging questions requiring deep understanding and critical thinking"
+    }
+    
+    difficulty_desc = difficulty_instructions[body.difficulty]
+    
+    # Build prompt for internet-based quiz
+    if body.include_answers:
+        prompt = f"""You are an expert quiz creator. Generate {body.num_questions} multiple-choice questions about "{body.topic}".
 
-    # ADD THIS DEBUG LOG
-    logger.info(f"Compressed to {len(compressed_context)} chunks")
-    if compressed_context:
-        logger.info(f"First chunk preview: {compressed_context[0]['text'][:100]}")
+Difficulty Level: {body.difficulty.upper()} - Create {difficulty_desc}.
+IMPORTANT: Use plain text only. Do NOT use markdown formatting (no **, ##, or other symbols).
 
-    # Build a quiz-specific prompt
-    context_text = "\n\n".join(c["text"] for c in compressed_context)
-    prompt = (
-        "You are an AI tutor. Using ONLY the information in the following study snippets, "
-        "generate a quiz for the student.\n"
-        "Create {n} multiple-choice or short-answer questions that test understanding of the material.\n"
-        "Do not include the answers, only the questions.\n\n"
-        "Study snippets:\n"
-        f"{context_text}\n\n"
-        "Now write the questions, numbered:\n"
-    ).format(n=body.num_questions)
+Format each question EXACTLY like this:
+
+Question X: [question text]
+A) [option A]
+B) [option B]
+C) [option C]
+D) [option D]
+Correct Answer: [letter]
+Explanation: [brief explanation]
+
+Make the questions educational and accurate. Include varied topics within {body.topic}."""
+    else:
+        prompt = f"""You are an expert quiz creator. Generate {body.num_questions} multiple-choice questions about "{body.topic}".
+
+Difficulty Level: {body.difficulty.upper()} - Create {difficulty_desc}.
+IMPORTANT: Use plain text only. Do NOT use markdown formatting (no **, ##, or other symbols).
+
+Format each question as:
+Question X: [question text]
+A) [option A]
+B) [option B]
+C) [option C]
+D) [option D]
+
+Question 2: [question text]
+A) [option A]
+B) [option B]
+C) [option C]
+D) [option D]
+
+Do NOT include answers. Make the questions educational and accurate."""
 
     try:
         quiz_text = llm_client.generate_answer(prompt)
     except RuntimeError as e:
         logger.error(f"LLM error in /quiz: {e}")
-        raise HTTPException(status_code=503, detail="Quiz generation service is temporarily unavailable.")
+        raise HTTPException(
+            status_code=503, 
+            detail="Quiz generation service is temporarily unavailable."
+        )
 
     return {
+        "topic": body.topic,
+        "difficulty": body.difficulty,
+        "num_questions": body.num_questions,
         "questions": quiz_text,
-        "sources": [c["metadata"] for c in compressed_context],
+        "has_answers": body.include_answers,
     }
 
 from fastapi import HTTPException

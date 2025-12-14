@@ -10,7 +10,7 @@ class LLMClient:
     Gemini-based client with a grounded RAG prompt and citation requirements.
     """
 
-    def __init__(self, model_name: str = "gemini-2.5-flash"):
+    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:

@@ -18,6 +18,7 @@ class Session(Base):
     id = Column(Integer, primary_key=True)
     user_id = Column(String, nullable=False)
     title = Column(String, nullable=True)
+    topic = Column(String, nullable=True, default="General")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 

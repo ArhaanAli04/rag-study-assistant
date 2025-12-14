@@ -1,41 +1,123 @@
 import { useState } from "react";
-import { CheckCircle, FileText, RefreshCw, ExternalLink } from "lucide-react";
-import ReactMarkdown from "react-markdown";
+import { CheckCircle, RefreshCw, Award, CheckCircle2, XCircle, Eye } from "lucide-react";
 
 export default function QuizDisplay({ quiz, onNewQuiz }) {
-  const [showSources, setShowSources] = useState(false);
+  const [userAnswers, setUserAnswers] = useState({});
+  const [showResults, setShowResults] = useState(false);
 
-  // Better source display logic
-  const formatSource = (source, idx) => {
-    if (typeof source === 'string') {
-      return { label: source, page: null };
+  // Parse quiz text into structured questions
+  const parseQuiz = (text) => {
+    // Remove markdown formatting artifacts
+    text = text.replace(/\*\*/g, '').replace(/##/g, '');
+    
+    // Split by "Question X:" pattern
+    const questionPattern = /Question\s+(\d+):/gi;
+    const matches = [...text.matchAll(questionPattern)];
+    
+    if (matches.length === 0) {
+      return [];
     }
     
-    // Extract filename from path or use source field
-    let filename = 'Unknown Source';
-    if (source.source) {
-      filename = source.source.split('/').pop().split('\\').pop();
-    } else if (source.filename) {
-      filename = source.filename;
-    } else if (source.file_path) {
-      filename = source.file_path.split('/').pop().split('\\').pop();
+    const questions = [];
+    
+    for (let i = 0; i < matches.length; i++) {
+      const match = matches[i];
+      const questionNumber = parseInt(match[1]);
+      const startIdx = match.index + match[0].length;
+      const endIdx = i < matches.length - 1 ? matches[i + 1].index : text.length;
+      const block = text.substring(startIdx, endIdx).trim();
+      
+      const lines = block.split('\n').map(l => l.trim()).filter(l => l);
+      
+      let questionText = '';
+      let restLines = [];
+      
+      if (lines.length > 0) {
+        questionText = lines[0];
+        restLines = lines.slice(1);
+      }
+      
+      const options = [];
+      let correctAnswer = null;
+      let explanation = '';
+      let explanationStarted = false;
+      
+      restLines.forEach((line) => {
+        const optionMatch = line.match(/^([A-D])\)\s*(.+)/i);
+        if (optionMatch && !explanationStarted) {
+          options.push({
+            letter: optionMatch[1].toUpperCase(),
+            text: optionMatch[2].trim()
+          });
+          return;
+        }
+        
+        const answerMatch = line.match(/Correct\s+Answer:\s*([A-D])/i);
+        if (answerMatch) {
+          correctAnswer = answerMatch[1].toUpperCase();
+          return;
+        }
+        
+        const explanationMatch = line.match(/Explanation:\s*(.+)/i);
+        if (explanationMatch) {
+          explanation = explanationMatch[1].trim();
+          explanationStarted = true;
+          return;
+        }
+        
+        if (explanationStarted && !line.match(/^(Question|Correct Answer:|[A-D]\))/i)) {
+          explanation += ' ' + line;
+        }
+      });
+      
+      questions.push({
+        number: questionNumber,
+        question: questionText,
+        options,
+        correctAnswer,
+        explanation: explanation.trim()
+      });
     }
     
-    return {
-      label: filename,
-      page: source.page || source.page_number || null,
-      chunk: source.chunk_id || null,
-    };
+    return questions;
   };
+
+  const questions = parseQuiz(quiz.questions);
+
+  const handleSelectAnswer = (questionNumber, selectedLetter) => {
+    if (showResults) return; // Don't allow changes after showing results
+    
+    setUserAnswers({
+      ...userAnswers,
+      [questionNumber]: selectedLetter
+    });
+  };
+
+  const calculateScore = () => {
+    let correct = 0;
+    questions.forEach(q => {
+      if (userAnswers[q.number] === q.correctAnswer) {
+        correct++;
+      }
+    });
+    return { correct, total: questions.length };
+  };
+
+  const score = showResults ? calculateScore() : null;
 
   return (
     <div className="space-y-6">
-      {/* Quiz Questions */}
-      <div className="glass border border-border/50 rounded-2xl p-8">
-        <div className="flex items-center justify-between mb-6">
+      {/* Quiz Header */}
+      <div className="glass border border-border/50 rounded-2xl p-6">
+        <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <CheckCircle className="w-6 h-6 text-primary" />
-            <h2 className="text-2xl font-bold text-foreground">Your Quiz</h2>
+            <Award className="w-6 h-6 text-primary" />
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">{quiz.topic}</h3>
+              <p className="text-sm text-muted-foreground">
+                {quiz.num_questions} questions • {quiz.difficulty} difficulty
+              </p>
+            </div>
           </div>
           <button
             onClick={onNewQuiz}
@@ -45,105 +127,138 @@ export default function QuizDisplay({ quiz, onNewQuiz }) {
             <span className="text-sm">New Quiz</span>
           </button>
         </div>
-
-        {/* Quiz Content */}
-        <div className="prose prose-invert max-w-none">
-          <ReactMarkdown
-            components={{
-              p: ({ children }) => (
-                <p className="text-foreground mb-4 leading-relaxed">{children}</p>
-              ),
-              ol: ({ children }) => (
-                <ol className="list-decimal list-inside space-y-4 text-foreground">{children}</ol>
-              ),
-              ul: ({ children }) => (
-                <ul className="list-disc list-inside space-y-2 text-foreground">{children}</ul>
-              ),
-              li: ({ children }) => (
-                <li className="text-foreground mb-3">{children}</li>
-              ),
-              strong: ({ children }) => (
-                <strong className="text-foreground font-semibold">{children}</strong>
-              ),
-            }}
-          >
-            {quiz.questions}
-          </ReactMarkdown>
-        </div>
       </div>
 
-      {/* Sources Section */}
-      {quiz.sources && quiz.sources.length > 0 && (
-        <div className="glass border border-border/50 rounded-2xl p-6">
-          <button
-            onClick={() => setShowSources(!showSources)}
-            className="flex items-center justify-between w-full"
-          >
-            <div className="flex items-center gap-2">
-              <FileText className="w-5 h-5 text-primary" />
-              <h3 className="text-lg font-semibold text-foreground">
-                Sources ({quiz.sources.length})
-              </h3>
-            </div>
-            <span className="text-sm text-muted-foreground">
-              {showSources ? "Hide" : "Show"}
-            </span>
-          </button>
-
-          {showSources && (
-            <div className="mt-4 space-y-2">
-              {quiz.sources.map((source, idx) => {
-                const formattedSource = formatSource(source, idx);
-                return (
-                  <div
-                    key={idx}
-                    className="p-4 rounded-lg bg-white/5 border border-border/30 hover:border-primary/50 transition-all"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <FileText className="w-4 h-4 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm text-foreground font-medium">
-                          {formattedSource.label}
-                        </p>
-                        <div className="flex items-center gap-3 mt-1">
-                          {formattedSource.page && (
-                            <span className="text-xs text-muted-foreground">
-                              Page {formattedSource.page}
-                            </span>
-                          )}
-                          {formattedSource.chunk && (
-                            <span className="text-xs text-muted-foreground">
-                              Chunk #{formattedSource.chunk}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
+      {/* Score Display (After Results) */}
+      {showResults && score && (
+        <div className="glass border border-primary/50 rounded-2xl p-6 bg-primary/5">
+          <div className="text-center">
+            <h3 className="text-2xl font-bold text-foreground mb-2">
+              Your Score: {score.correct} / {score.total}
+            </h3>
+            <p className="text-lg text-muted-foreground">
+              {Math.round((score.correct / score.total) * 100)}% Correct
+            </p>
+          </div>
         </div>
       )}
 
-      {/* No Sources Warning */}
-      {(!quiz.sources || quiz.sources.length === 0) && (
-        <div className="glass border border-yellow-500/50 rounded-2xl p-6 bg-yellow-500/5">
-          <div className="flex items-start gap-3">
-            <ExternalLink className="w-5 h-5 text-yellow-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <h3 className="text-sm font-semibold text-yellow-500 mb-1">
-                No Sources Found
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                This quiz was generated without reference to your uploaded documents. 
-                Try uploading study materials first or specify a more specific topic.
-              </p>
-            </div>
-          </div>
+      {/* Quiz Questions */}
+      {questions.length === 0 ? (
+        <div className="glass border border-border/50 rounded-2xl p-8 text-center">
+          <p className="text-muted-foreground">Unable to parse quiz questions. Please try generating again.</p>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {questions.map((q) => {
+            const userAnswer = userAnswers[q.number];
+            const isCorrect = showResults && userAnswer === q.correctAnswer;
+            const isWrong = showResults && userAnswer && userAnswer !== q.correctAnswer;
+
+            return (
+              <div key={q.number} className="glass border border-border/50 rounded-2xl p-6">
+                {/* Question */}
+                <div className="mb-4">
+                  <div className="flex items-start gap-3">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-bold text-primary">{q.number}</span>
+                    </div>
+                    <p className="text-foreground font-medium leading-relaxed flex-1">
+                      {q.question}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Options */}
+                {q.options.length > 0 ? (
+                  <div className="space-y-2 ml-11">
+                    {q.options.map((option) => {
+                      const isSelected = userAnswer === option.letter;
+                      const isCorrectOption = showResults && option.letter === q.correctAnswer;
+                      const isWrongSelection = showResults && isSelected && !isCorrectOption;
+
+                      return (
+                        <button
+                          key={option.letter}
+                          onClick={() => handleSelectAnswer(q.number, option.letter)}
+                          disabled={showResults}
+                          className={`
+                            w-full p-3 rounded-lg border transition-all text-left
+                            ${showResults
+                              ? isCorrectOption
+                                ? 'border-green-500/50 bg-green-500/10'
+                                : isWrongSelection
+                                ? 'border-red-500/50 bg-red-500/10'
+                                : 'border-border/30 bg-white/5'
+                              : isSelected
+                              ? 'border-primary bg-primary/10'
+                              : 'border-border/30 bg-white/5 hover:border-primary/50'
+                            }
+                            ${!showResults && 'cursor-pointer'}
+                          `}
+                        >
+                          <div className="flex items-start gap-3">
+                            <span className={`
+                              font-semibold flex-shrink-0
+                              ${showResults && isCorrectOption
+                                ? 'text-green-500'
+                                : showResults && isWrongSelection
+                                ? 'text-red-500'
+                                : isSelected
+                                ? 'text-primary'
+                                : 'text-foreground'
+                              }
+                            `}>
+                              {option.letter})
+                            </span>
+                            <span className="text-foreground flex-1">{option.text}</span>
+                            {showResults && isCorrectOption && (
+                              <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0" />
+                            )}
+                            {showResults && isWrongSelection && (
+                              <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground text-sm ml-11">No options available</p>
+                )}
+
+                {/* Explanation (Only shown after results) */}
+                {showResults && q.explanation && (
+                  <div className="mt-4 ml-11 p-4 rounded-lg bg-primary/5 border border-primary/20">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-primary mb-1">
+                          Explanation
+                        </p>
+                        <p className="text-sm text-foreground/80 leading-relaxed">
+                          {q.explanation}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Show Results Button */}
+      {!showResults && questions.length > 0 && (
+        <div className="sticky bottom-6 flex justify-center">
+          <button
+            onClick={() => setShowResults(true)}
+            className="flex items-center gap-2 px-8 py-4 bg-gradient-to-r from-[#7C3AED] to-[#3B82F6] text-white rounded-lg font-medium hover:opacity-90 transition-all shadow-lg shadow-primary/30"
+          >
+            <Eye className="w-5 h-5" />
+            <span>Show Results</span>
+          </button>
         </div>
       )}
     </div>

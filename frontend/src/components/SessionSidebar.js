@@ -105,6 +105,27 @@ export default function SessionSidebar({
 
   const grouped = groupSessions();
 
+  const getTopicColor = (topic) => {
+  const colors = {
+    "Machine Learning": "bg-blue-500/10 text-blue-400 border-blue-500/30",
+    "Deep Learning": "bg-purple-500/10 text-purple-400 border-purple-500/30",
+    "Natural Language Processing": "bg-indigo-500/10 text-indigo-400 border-indigo-500/30",
+    "Computer Vision": "bg-cyan-500/10 text-cyan-400 border-cyan-500/30",
+    "Python Programming": "bg-green-500/10 text-green-400 border-green-500/30",
+    "Data Structures": "bg-yellow-500/10 text-yellow-400 border-yellow-500/30",
+    "Algorithms": "bg-orange-500/10 text-orange-400 border-orange-500/30",
+    "Web Development": "bg-pink-500/10 text-pink-400 border-pink-500/30",
+    "Database": "bg-red-500/10 text-red-400 border-red-500/30",
+    "System Design": "bg-violet-500/10 text-violet-400 border-violet-500/30",
+    "General": "bg-gray-500/10 text-gray-400 border-gray-500/30",
+  };
+  
+  // Find matching color or use default
+  for (const [key, value] of Object.entries(colors)) {
+    if (topic?.includes(key)) return value;
+  }
+  return colors["General"];
+};
   const renderSession = (session) => (
     <div
       key={session.id}
@@ -128,6 +149,15 @@ export default function SessionSidebar({
         }`}>
           {session.title || `Session ${session.id}`}
         </div>
+        {/* ✅ ADD TOPIC TAG HERE */}
+        {session.topic && session.topic !== "General" && (
+          <div className="mt-1.5">
+            <span className={`inline-flex items-center text-xs px-2 py-0.5 rounded-md border ${getTopicColor(session.topic)}`}>
+              {session.topic}
+            </span>
+          </div>
+        )}
+
         <div className="text-xs text-muted-foreground mt-1">
           {formatDate(session.last_message_time || session.created_at)}
         </div>

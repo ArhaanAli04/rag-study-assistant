@@ -32,8 +32,9 @@ from context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
 import json
 from topic_classifier import topic_classifier
-
+from error_handler import UserFriendlyError
 from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI(title="RAG Study Assistant API")
 # ADD CORS MIDDLEWARE HERE
@@ -490,7 +491,7 @@ async def chat(
                 chat_session.topic = topic_result['topic']
                 db.commit()
                 logger.info(
-                    f"✅ Session {chat_session.id} tagged: {topic_result['topic']} "
+                    f" Session {chat_session.id} tagged: {topic_result['topic']} "
                     f"(confidence: {topic_result['confidence']:.2f})"
                 )
         except Exception as e:
@@ -565,16 +566,14 @@ async def chat(
         followups = llm_client.generate_followups(body.query, answer, mode=body.mode)
 
     except RuntimeError as e:
-        # Log the error and return a user-friendly message
-        logger.error(f"LLM error during answer or follow-up generation: {e}")
-        friendly = (
-            "The answer service is temporarily unavailable due to an internal error. "
-            "Please try again later."
-        )
+        error_type = UserFriendlyError.classify_error(e)
+        error_response = UserFriendlyError.get_message(error_type)
+        
+        logger.error(f"LLM RuntimeError ({error_type}): {e}")
         # Log assistant's safe message
-        add_message(db, chat_session.id, user_id_int, role="assistant", content=friendly, sources="")
+        add_message(db, chat_session.id, user_id_int, role="assistant", content=error_response['error'], sources="")
         return ChatResponse(
-            answer=friendly,
+            answer=error_response['error'],
             session_id=chat_session.id,
             confidence=0.0,
             fallback_used=any_fallback,
@@ -671,7 +670,7 @@ async def chat_stream(
                     chat_session.topic = topic_result['topic']
                     db.commit()
                     logger.info(
-                        f"✅ Session {chat_session.id} tagged (cached): {topic_result['topic']} "
+                        f" Session {chat_session.id} tagged (cached): {topic_result['topic']} "
                         f"(confidence: {topic_result['confidence']:.2f})"
                     )
             except Exception as e:
@@ -726,7 +725,7 @@ async def chat_stream(
                 chat_session.topic = topic_result['topic']
                 db.commit()
                 logger.info(
-                    f"✅ Session {chat_session.id} tagged: {topic_result['topic']} "
+                    f" Session {chat_session.id} tagged: {topic_result['topic']} "
                     f"(confidence: {topic_result['confidence']:.2f})"
                 )
         except Exception as e:
@@ -833,9 +832,16 @@ async def chat_stream(
             }
             semantic_cache.store(query, resp_dict, doc_version, mode)
 
+        except RuntimeError as e:
+            error_type = UserFriendlyError.classify_error(e)
+            error_response = UserFriendlyError.get_message(error_type)
+            
+            logger.error(f"Stream RuntimeError ({error_type}): {e}")
+            yield f"data: {json.dumps({'type': 'error', 'data': error_response['error']})}\n\n"
         except Exception as e:
-            logger.error(f"Stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'data': 'Stream failed. Please try again.'})}\n\n"
+            logger.error(f"Unexpected stream error: {e}")
+            error_response = UserFriendlyError.get_message("unknown")
+            yield f"data: {json.dumps({'type': 'error', 'data': error_response['error']})}\n\n"
 
     return StreamingResponse(
         generate(),

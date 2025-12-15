@@ -31,10 +31,27 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       const resp = await fetch(`http://localhost:8000/sessions/${sid}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      
+      // ✅ Handle API errors
+      if (!resp.ok) {
+        throw new Error(`Failed to fetch messages: ${resp.status}`);
+      }
+      
       const data = await resp.json();
       setMessages(data || []);
     } catch (e) {
       console.error("Failed to fetch messages:", e);
+      
+      // ✅ Show error in chat if session exists
+      if (sid) {
+        const errorMsg = {
+          role: "assistant",
+          content: "⚠️ Unable to load previous messages. Please refresh the page.",
+          id: Date.now(),
+          isError: true,
+        };
+        setMessages([errorMsg]);
+      }
     }
   };
 
@@ -69,9 +86,14 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
             ? { ...msg, userFeedback: feedbackType } 
             : msg
         ));
+      } else {
+        // ✅ Handle feedback error
+        console.error('Feedback failed:', response.status);
+        alert('Failed to submit feedback. Please try again.');
       }
     } catch (error) {
       console.error('Failed to submit feedback:', error);
+      alert('Failed to submit feedback. Please check your connection.');
     }
   };
 
@@ -119,14 +141,33 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
 
       try {
         const data = JSON.parse(event.data);
+        
         if (data.type === "metadata") {
           metadataReceived = data.data;
-        } else if (data.type === "token") {
+        } 
+        else if (data.type === "token") {
           assistantAnswer += data.data;
           setStreamingAnswer(assistantAnswer);
-        } else if (data.type === "message_id") {
+        } 
+        else if (data.type === "message_id") {
           capturedMessageId = data.data;
+        } 
+        // ✅ NEW: Handle error messages
+        else if (data.type === "error") {
+          eventSource.close();
+          setLoading(false);
+          setStreamingAnswer("");
+          
+          const errorMsg = {
+            role: "assistant",
+            content: `⚠️ ${data.data}`,
+            id: Date.now(),
+            isError: true,
+            sources: [],
+          };
+          setMessages((prev) => [...prev, errorMsg]);
         }
+        
       } catch (e) {
         console.error("Failed to parse SSE data:", e);
       }
@@ -137,6 +178,16 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       eventSource.close();
       setLoading(false);
       setStreamingAnswer("");
+      
+      // ✅ Show user-friendly error
+      const errorMsg = {
+        role: "assistant",
+        content: "⚠️ I'm having trouble connecting right now. Please try again in a moment.",
+        id: Date.now(),
+        isError: true,
+        sources: [],
+      };
+      setMessages((prev) => [...prev, errorMsg]);
     };
   };
 
@@ -147,9 +198,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
 
   return (
     <div className="flex-1 flex flex-col h-screen">
-      {/* Top Navigation */}
-      
-
       {/* Messages Area */}
       <div 
         ref={messagesEndRef} 

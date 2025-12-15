@@ -1,9 +1,9 @@
 import React from 'react';
-import { ThumbsUp, ThumbsDown, FileText } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, FileText, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm'; // ✅ ADD THIS IMPORT
 import { cn } from '../lib/utils';
-
+import { useState } from 'react';
 export default function MessageList({ 
   messages, 
   streamingAnswer,
@@ -13,6 +13,14 @@ export default function MessageList({
   onCommentChange,
   onCancelComment
 }) {
+  const [copiedId, setCopiedId] = useState(null);
+
+  const handleCopyQuery = (text, messageId) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(messageId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
   return (
     <>
       {messages.map((msg, idx) => (
@@ -133,6 +141,18 @@ export default function MessageList({
             {/* Feedback Buttons (only for assistant messages) */}
             {msg.role === 'assistant' && msg.id && (
               <div className="flex items-center gap-2 mt-3">
+                {/* Copy Button */}
+                <button
+                  onClick={() => handleCopyQuery(msg.content, msg.id)}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all"
+                  title="Copy response"
+                >
+                  {copiedId === msg.id ? (
+                    <Check className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </button>
                 <button
                   onClick={() => onFeedback(msg.id, 'up')}
                   disabled={msg.userFeedback}
@@ -186,8 +206,28 @@ export default function MessageList({
 
           {/* User Avatar (right side for user) */}
           {msg.role === "user" && (
+            <div className="flex flex-col items-end gap-2">
             <div className="w-8 h-8 mt-1 rounded-full bg-primary flex items-center justify-center text-sm font-semibold text-white flex-shrink-0">
               JD
+            </div>
+            {/* ✅ COPY BUTTON */}
+              <button
+                onClick={() => handleCopyQuery(msg.content, msg.id)}
+                className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 rounded-lg transition-all"
+                title="Copy query"
+              >
+                {copiedId === msg.id ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-green-400" />
+                    <span></span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span></span>
+                  </>
+                )}
+              </button>
             </div>
           )}
         </div>

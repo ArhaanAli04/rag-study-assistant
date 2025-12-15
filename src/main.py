@@ -14,10 +14,10 @@ from index_builder import IndexBuilder
 from keyword_index import BM25KeywordIndex
 from retrieval_service import RetrievalService
 from auth import (
-    get_db, get_password_hash, authenticate_user, 
+    get_db, get_password_hash, authenticate_user, verify_password,
     create_access_token, get_current_user,get_current_user_optional
 )
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 from session_service import (
@@ -97,9 +97,19 @@ class FeedbackRequest(BaseModel):
     comment: Optional[str] = None
 
 class UserCreate(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str
+    
+    @validator('new_password')
+    def validate_password(cls, v):
+        if len(v) < 8:
+            raise ValueError('Password must be at least 8 characters long')
+        return v
+    
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
@@ -289,6 +299,38 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
         raise HTTPException(status_code=401, detail="Invalid credentials")
     token = create_access_token({"sub": user.email})
     return {"access_token": token, "token_type": "bearer"}
+
+@app.post("/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change user password after verifying current password
+    """
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+    
+    # Check if new password is same as current
+    if verify_password(password_data.new_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password"
+        )
+    
+    # Hash and update new password
+    current_user.hashed_password = get_password_hash(password_data.new_password)
+    db.commit()
+    
+    return {
+        "message": "Password changed successfully",
+        "email": current_user.email
+    }
 
 @app.get("/me")
 async def read_me(current_user: User = Depends(get_current_user)):

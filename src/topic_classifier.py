@@ -24,7 +24,7 @@ class TopicClassifier:
         try:
             self.client = genai.Client(api_key=api_key)
             self.model_name = "gemini-2.5-flash-lite"  # Fast and cheap for classification
-            logger.info("✅ LLM-based topic classifier initialized")
+            logger.info(" LLM-based topic classifier initialized")
         except Exception as e:
             logger.error(f"Failed to initialize topic classifier: {e}")
             self.client = None

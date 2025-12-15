@@ -110,6 +110,10 @@ class PasswordChange(BaseModel):
             raise ValueError('Password must be at least 8 characters long')
         return v
     
+# Schema for profile update
+class ProfileUpdate(BaseModel):
+    name: str
+
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
@@ -336,6 +340,48 @@ async def change_password(
 async def read_me(current_user: User = Depends(get_current_user)):
     return {"id": current_user.id, "email": current_user.email}
 
+# Get user profile
+@app.get("/user/profile")
+async def get_profile(
+    current_user: User = Depends(get_current_user)
+):
+    return {
+        "email": current_user.email,
+        "name": current_user.name if hasattr(current_user, 'name') else "",
+        "created_at": current_user.created_at if hasattr(current_user, 'created_at') else None
+    }
+
+# Update user profile
+@app.put("/user/profile")
+async def update_profile(
+    profile: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Update user name
+    current_user.name = profile.name
+    db.commit()
+    
+    return {
+        "message": "Profile updated successfully",
+        "email": current_user.email,
+        "name": current_user.name
+    }
+
+# Delete account
+@app.delete("/user/delete")
+async def delete_account(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    # Delete all user data
+    db.query(Message).filter(Message.user_id == str(current_user.id)).delete()
+    db.query(Session).filter(Session.user_id == str(current_user.id)).delete()
+    db.query(Document).filter(Document.user_id == str(current_user.id)).delete()
+    db.delete(current_user)
+    db.commit()
+    
+    return {"message": "Account deleted successfully"}
 
 @app.post("/search")
 async def semantic_search(

@@ -368,6 +368,31 @@ async def update_profile(
         "name": current_user.name
     }
 
+@app.get("/user/stats")
+async def get_user_stats(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Get user statistics for profile"""
+    
+    # Count documents uploaded by user
+    document_count = db.query(Document).filter(
+        Document.user_id == str(current_user.id),
+        Document.is_active == True
+    ).count()
+    
+    # Get account creation date
+    created_at = current_user.created_at if hasattr(current_user, 'created_at') and current_user.created_at else None
+    
+    return {
+        "member_since": created_at.isoformat() if created_at else None,
+        "plan": "Free",  # Can be dynamic later if you add paid plans
+        "documents_uploaded": document_count,
+        "documents_limit": 10,  # Free plan limit
+        "email": current_user.email,
+        "name": current_user.name if hasattr(current_user, 'name') else ""
+    }
+
 # Delete account
 @app.delete("/user/delete")
 async def delete_account(

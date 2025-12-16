@@ -1,10 +1,16 @@
 import { useState, useEffect } from 'react';
-import { User, Mail, Calendar, Trash2 } from 'lucide-react';
+import { User, Mail, Calendar, Trash2, FileText } from 'lucide-react';
 
 export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
     name: '',
     email: user?.email || '',
+  });
+  const [userStats, setUserStats] = useState({
+    member_since: null,
+    plan: 'Free',
+    documents_uploaded: 0,
+    documents_limit: 10
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -12,24 +18,43 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   useEffect(() => {
-    // Load user data from backend
+    // Load user data and stats from backend
     fetchUserData();
   }, []);
 
   const fetchUserData = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/user/profile', {
+      
+      // Fetch profile data
+      const profileResponse = await fetch('http://localhost:8000/user/profile', {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (profileResponse.ok) {
+        const profileData = await profileResponse.json();
         setFormData({
-          name: data.name || '',
-          email: data.email || '',
+          name: profileData.name || '',
+          email: profileData.email || '',
+        });
+      }
+
+      // Fetch user stats
+      const statsResponse = await fetch('http://localhost:8000/user/stats', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (statsResponse.ok) {
+        const statsData = await statsResponse.json();
+        setUserStats({
+          member_since: statsData.member_since,
+          plan: statsData.plan,
+          documents_uploaded: statsData.documents_uploaded,
+          documents_limit: statsData.documents_limit
         });
       }
     } catch (error) {
@@ -92,6 +117,22 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
     } catch (error) {
       alert('Error deleting account');
     }
+  };
+
+  // Format member since date
+  const formatMemberSince = () => {
+    if (!userStats.member_since) {
+      return new Date().toLocaleDateString('en-US', { 
+        month: 'short', 
+        year: 'numeric' 
+      });
+    }
+    
+    const date = new Date(userStats.member_since);
+    return date.toLocaleDateString('en-US', { 
+      month: 'short', 
+      year: 'numeric' 
+    });
   };
 
   return (
@@ -167,7 +208,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
               </p>
             </div>
 
-            {/* Account Stats */}
+            {/* Account Stats - NOW DYNAMIC */}
             <div className="bg-[#374151]/30 rounded-lg p-4 space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-400 flex items-center gap-2">
@@ -175,19 +216,21 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
                   Member Since
                 </span>
                 <span className="text-white font-medium">
-                  {new Date().toLocaleDateString('en-US', { 
-                    month: 'short', 
-                    year: 'numeric' 
-                  })}
+                  {formatMemberSince()}
                 </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-400">Plan</span>
-                <span className="text-white font-medium">Free</span>
+                <span className="text-white font-medium">{userStats.plan}</span>
               </div>
               <div className="flex items-center justify-between text-sm">
-                <span className="text-gray-400">Documents Uploaded</span>
-                <span className="text-white font-medium">0 / 10</span>
+                <span className="text-gray-400 flex items-center gap-2">
+                  <FileText className="w-4 h-4" />
+                  Documents Uploaded
+                </span>
+                <span className="text-white font-medium">
+                  {userStats.documents_uploaded} / {userStats.documents_limit}
+                </span>
               </div>
             </div>
 

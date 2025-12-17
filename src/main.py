@@ -34,7 +34,7 @@ import json
 from topic_classifier import topic_classifier
 from error_handler import UserFriendlyError
 from fastapi.middleware.cors import CORSMiddleware
-
+from concept_models import ConceptMap, ConceptMapNode
 
 app = FastAPI(title="RAG Study Assistant API")
 # ADD CORS MIDDLEWARE HERE

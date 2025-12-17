@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Request, Depends
+from fastapi import FastAPI, File, UploadFile, Request, Depends, Query
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -35,6 +35,16 @@ from topic_classifier import topic_classifier
 from error_handler import UserFriendlyError
 from fastapi.middleware.cors import CORSMiddleware
 from concept_models import ConceptMap, ConceptMapNode
+# Add these imports to your existing imports
+from concept_map_service import get_concept_map_service
+from concept_map_schemas import (
+    GenerateConceptMapRequest,
+    GenerateConceptMapResponse,
+    ListConceptMapsResponse,
+    ConceptMapDetail,
+    DeleteConceptMapResponse,
+    SourceStatistics
+)
 
 app = FastAPI(title="RAG Study Assistant API")
 # ADD CORS MIDDLEWARE HERE
@@ -1125,6 +1135,198 @@ async def get_failed_queries(
         }
         for fq in failed_queries
     ]
+
+
+# CONCEPT MAP ENDPOINTS
+
+@app.post(
+    "/api/concepts/generate",
+    response_model=GenerateConceptMapResponse,
+    tags=["Concept Maps"]
+)
+async def generate_concept_map(
+    request: GenerateConceptMapRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Generate a new concept map
+    
+    - Retrieves context from documents and/or web
+    - Extracts concepts using LLM
+    - Saves to database
+    - Returns structured concept map
+    """
+    try:
+        service = get_concept_map_service()
+        
+        result = service.generate_concept_map(
+            topic=request.topic,
+            user_id=current_user.id,
+            db=db,
+            use_documents=request.use_documents,
+            use_web=request.use_web,
+            max_concepts=request.max_concepts,
+            max_edges=request.max_edges
+        )
+        
+        return result
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Failed to generate concept map: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate concept map")
+
+
+@app.get(
+    "/api/concepts/maps",
+    response_model=ListConceptMapsResponse,
+    tags=["Concept Maps"]
+)
+async def list_concept_maps(
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    List all concept maps for the current user
+    
+    - Ordered by creation date (newest first)
+    - Includes summary information
+    - Paginated results
+    """
+    try:
+        service = get_concept_map_service()
+        
+        maps = service.list_user_concept_maps(
+            user_id=current_user.id,
+            db=db,
+            limit=limit,
+            offset=offset
+        )
+        
+        return {
+            "maps": maps,
+            "total": len(maps)
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to list concept maps: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list concept maps")
+
+
+@app.get(
+    "/api/concepts/maps/{map_id}",
+    response_model=ConceptMapDetail,
+    tags=["Concept Maps"]
+)
+async def get_concept_map(
+    map_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get full details of a specific concept map
+    
+    - Includes all nodes and edges
+    - Includes source information
+    - Verifies user ownership
+    """
+    try:
+        service = get_concept_map_service()
+        
+        concept_map = service.get_concept_map_by_id(
+            map_id=map_id,
+            user_id=current_user.id,
+            db=db
+        )
+        
+        if not concept_map:
+            raise HTTPException(status_code=404, detail="Concept map not found")
+        
+        return concept_map
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get concept map: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve concept map")
+
+
+@app.delete(
+    "/api/concepts/maps/{map_id}",
+    response_model=DeleteConceptMapResponse,
+    tags=["Concept Maps"]
+)
+async def delete_concept_map(
+    map_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Delete a concept map
+    
+    - Verifies user ownership
+    - Deletes map and associated nodes
+    - Returns confirmation
+    """
+    try:
+        service = get_concept_map_service()
+        
+        deleted = service.delete_concept_map(
+            map_id=map_id,
+            user_id=current_user.id,
+            db=db
+        )
+        
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Concept map not found")
+        
+        return {
+            "message": "Concept map deleted successfully",
+            "map_id": map_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete concept map: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete concept map")
+
+
+@app.get(
+    "/api/concepts/statistics",
+    response_model=SourceStatistics,
+    tags=["Concept Maps"]
+)
+async def get_concept_map_statistics(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Get statistics about user's concept maps
+    
+    - Total maps created
+    - Source breakdown (documents vs web)
+    - Average confidence scores
+    - Node and edge counts
+    """
+    try:
+        service = get_concept_map_service()
+        
+        stats = service.get_source_statistics(
+            user_id=current_user.id,
+            db=db
+        )
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Failed to get statistics: {e}")
+        raise HTTPException(status_code=500, detail="Failed to retrieve statistics")
+
 
 
 

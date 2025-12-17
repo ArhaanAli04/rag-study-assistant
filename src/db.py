@@ -74,6 +74,48 @@ if not os.path.exists(DATA_DIR):
 engine = create_engine(f"sqlite:///{DATA_DIR}/app.db", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 
+def migrate_concept_maps():
+    """Migrate concept_maps table to add new columns"""
+    db_path = f"{DATA_DIR}/app.db"
+    
+    if not os.path.exists(db_path):
+        return  # No database yet
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    try:
+        # Check if concept_maps table exists
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='concept_maps'")
+        if not cursor.fetchone():
+            return  # Table doesn't exist yet
+        
+        # Get current columns
+        cursor.execute("PRAGMA table_info(concept_maps)")
+        columns = [col[1] for col in cursor.fetchall()]
+        
+        # Add missing columns
+        migrations = {
+            'source_document_count': "ALTER TABLE concept_maps ADD COLUMN source_document_count INTEGER DEFAULT 0",
+            'source_web_count': "ALTER TABLE concept_maps ADD COLUMN source_web_count INTEGER DEFAULT 0",
+            'confidence_score': "ALTER TABLE concept_maps ADD COLUMN confidence_score REAL DEFAULT 0.0",
+            'edges_json': "ALTER TABLE concept_maps ADD COLUMN edges_json TEXT"
+        }
+        
+        for column_name, sql in migrations.items():
+            if column_name not in columns:
+                print(f"🔧 Adding '{column_name}' column to concept_maps...")
+                cursor.execute(sql)
+                conn.commit()
+                print(f"✅ Added '{column_name}' column")
+        
+    except Exception as e:
+        print(f"❌ Concept maps migration error: {e}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
 def migrate_database():
     """Apply database migrations"""
     db_path = f"{DATA_DIR}/app.db"
@@ -114,6 +156,10 @@ def migrate_database():
         conn.rollback()
     finally:
         conn.close()
+
+    # ✅ Run concept maps migration
+    migrate_concept_maps()
+    
 def init_db():
     Base.metadata.create_all(bind=engine)
     # Then apply migrations to existing tables

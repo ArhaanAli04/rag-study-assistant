@@ -5,6 +5,7 @@ import RegisterPage from "./pages/RegisterPage";
 import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import QuizPage from "./pages/QuizPage";
+import ConceptMapPage from "./pages/ConceptMapPage";
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
@@ -24,6 +25,10 @@ function AppRoutes() {
       <Route
         path="/quiz"
         element={isAuthenticated ? <QuizPage /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/concept-maps"
+        element={isAuthenticated ? <ConceptMapPage /> : <Navigate to="/login" replace />}
       />
       <Route path="*" element={<Navigate to="/login" replace />} />
     </Routes>

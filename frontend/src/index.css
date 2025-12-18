@@ -85,12 +85,16 @@
 }
 /* Ensure settings dropdown appears above everything */
 header {
-  z-index: 20;
+  z-index: 50;
   position: relative;
 }
 
 .settings-dropdown {
-  z-index: 9999 !important;
+  z-index: 10000 !important;
+}
+/* Settings dropdown container needs higher z-index */
+header .relative {
+  z-index: 10000;
 }
 
 /* Modals should be highest */
@@ -148,4 +152,445 @@ header {
 /* Theme transition for all elements */
 * {
   transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ============================================
+   CONCEPT MAP STYLES
+   ============================================ */
+
+/* ============================================
+   CONCEPT MAP VIEWER STYLES (Keep These)
+   ============================================ */
+
+/* Viewer Layout */
+.concept-map-viewer {
+  height: calc(100vh - 200px);
+  display: flex;
+  flex-direction: column;
+}
+
+.viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #374151;
+}
+
+.back-button {
+  padding: 0.5rem 1rem;
+  background: #374151;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.back-button:hover {
+  background: #4b5563;
+}
+
+.viewer-title {
+  flex: 1;
+  text-align: center;
+}
+
+/* Graph Legend */
+.graph-legend {
+  display: flex;
+  gap: 1.5rem;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+
+.legend-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+/* Graph Container */
+.graph-container {
+  flex: 1;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Map Metadata */
+.map-metadata {
+  display: flex;
+  gap: 2rem;
+  justify-content: center;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 8px;
+}
+
+.metadata-item {
+  display: flex;
+  gap: 0.5rem;
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+
+.metadata-label {
+  font-weight: 500;
+}
+
+.metadata-value {
+  color: white;
+}
+
+/* Node Details Popup */
+.node-details-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.node-details-popup {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #374151;
+}
+
+.details-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: white;
+  margin-bottom: 0.5rem;
+}
+
+.source-badge-large {
+  padding: 0.5rem 1rem;
+  border-radius: 12px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: white;
+}
+
+.close-button {
+  background: #374151;
+  color: white;
+  border: none;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.25rem;
+  transition: all 0.2s;
+}
+
+.close-button:hover {
+  background: #4b5563;
+}
+
+.details-section {
+  margin-bottom: 1.5rem;
+}
+
+.section-title {
+  color: white;
+  font-weight: 600;
+  margin-bottom: 0.75rem;
+}
+
+.definition-text {
+  color: #d1d5db;
+  line-height: 1.6;
+}
+
+/* Sources List */
+.sources-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.source-item {
+  padding: 0.5rem 0.75rem;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+}
+
+.source-link {
+  color: #60a5fa;
+  text-decoration: none;
+  word-break: break-all;
+  font-size: 0.875rem;
+}
+
+.source-link:hover {
+  text-decoration: underline;
+}
+
+.source-doc {
+  color: #9ca3af;
+  font-size: 0.875rem;
+}
+
+/* Related Concepts */
+.related-concepts {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.related-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: #111827;
+  border: 1px solid #374151;
+  border-radius: 6px;
+}
+
+.relationship-arrow {
+  color: #3b82f6;
+  font-size: 1.25rem;
+}
+
+.related-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.related-label {
+  color: white;
+  font-weight: 500;
+}
+
+.relationship-type {
+  color: #6b7280;
+  font-size: 0.75rem;
+}
+
+/* Map Controls */
+.map-controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.control-btn {
+  padding: 0.5rem 1rem;
+  background: #374151;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+}
+
+.control-btn:hover {
+  background: #4b5563;
+}
+
+.control-btn.delete-btn {
+  background: #7f1d1d;
+  color: #fca5a5;
+}
+
+.control-btn.delete-btn:hover {
+  background: #991b1b;
+}
+
+/* Delete Confirmation Modal */
+.delete-confirm-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.delete-confirm-modal {
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 400px;
+  width: 90%;
+}
+
+.confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.confirm-icon {
+  font-size: 2rem;
+}
+
+.confirm-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: white;
+}
+
+.confirm-message {
+  color: #9ca3af;
+  line-height: 1.6;
+  margin-bottom: 1.5rem;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}
+
+.btn-cancel-delete {
+  padding: 0.75rem 1.5rem;
+  background: #374151;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-cancel-delete:hover {
+  background: #4b5563;
+}
+
+.btn-confirm-delete {
+  padding: 0.75rem 1.5rem;
+  background: #dc2626;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s;
+}
+
+.btn-confirm-delete:hover {
+  background: #b91c1c;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .viewer-header {
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .graph-legend {
+    flex-wrap: wrap;
+  }
+
+  .node-details-popup {
+    width: 95%;
+    padding: 1.5rem;
+  }
+
+  .map-metadata {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
+/* Custom Select Dropdown Styling */
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2.5rem;
+}
+
+select option {
+  background-color: #1f2937;
+  color: white;
+  padding: 0.5rem;
+}
+
+/* Firefox specific fix */
+select option:checked {
+  background-color: #3b82f6;
+}
+/* Fullscreen Mode for Concept Map */
+.concept-map-viewer.fullscreen-mode {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  background: #0f172a;
+  padding: 1rem;
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+}
+
+.fullscreen-mode .graph-container {
+  flex: 1 !important;
+  height: auto !important;
+  min-height: 0 !important;
+}
+
+.fullscreen-mode .viewer-header {
+  margin-bottom: 0.5rem;
+}
+
+.fullscreen-mode .graph-legend {
+  margin-bottom: 0.5rem;
+}
+
+.fullscreen-mode .map-metadata {
+  margin-top: 0.5rem;
 }

@@ -5,7 +5,7 @@ Handles database operations, retrieval, and extraction
 
 import logging
 from typing import List, Dict, Optional, Any
-from datetime import datetime
+from datetime import datetime,timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from db import User 
@@ -259,7 +259,7 @@ class ConceptMapService:
                 result.append({
                     "id": map_obj.id,
                     "topic": map_obj.topic,
-                    "created_at": map_obj.created_at.isoformat(),
+                    "created_at": map_obj.created_at.replace(tzinfo=timezone.utc).isoformat(),
                     "node_count": map_obj.node_count,
                     "edge_count": map_obj.edge_count,
                     "sources": {

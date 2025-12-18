@@ -1,4 +1,4 @@
-import { Menu, Moon, Sun, Settings, LogOut, FileText, MessageSquare, Brain, User, Key, Download, Bell, HelpCircle } from 'lucide-react';
+import { Menu, Moon, Sun, Settings, LogOut, FileText, MessageSquare, Brain, User, Key, Download, Bell, HelpCircle, Network } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import HelpSupportModal from './HelpSupportModal';
@@ -83,7 +83,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
   // Check current page
   const isDocumentsPage = location.pathname === '/documents';
   const isQuizPage = location.pathname === '/quiz';
-
+  const isConceptMapsPage = location.pathname === '/concept-maps';
   return (
     <>
     <header
@@ -106,16 +106,46 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
 
       {/* Right Section */}
       <div className="flex items-center gap-2">
+        {/* ← NEW: Concept Maps Button */}
+        {isConceptMapsPage ? (
+        <button 
+          onClick={() => navigate('/chat')}
+          className="p-2 hover:bg-white/5 rounded-lg transition-all"
+          title="Back to Chat"
+        >
+          <MessageSquare className="w-5 h-5 text-foreground" />
+        </button>
+      ) : (
+        <button 
+          onClick={() => navigate('/concept-maps')}
+          className={`p-2 rounded-lg transition-all ${
+            isConceptMapsPage ? 'bg-primary/10 text-primary' : 'hover:bg-white/5 text-foreground'
+          }`}
+          title="Concept Maps"
+        >
+          <Network className="w-5 h-5" />
+        </button>
+      )}
+
         {/* Quiz Button */}
+        {isQuizPage ? (
+        <button 
+          onClick={() => navigate('/chat')}
+          className="p-2 hover:bg-white/5 rounded-lg transition-all"
+          title="Back to Chat"
+        >
+          <MessageSquare className="w-5 h-5 text-foreground" />
+        </button>
+      ) : (
         <button 
           onClick={() => navigate('/quiz')}
-          className={`p-2 rounded-lg transition-all ${
-            isQuizPage ? 'bg-primary/10 text-primary' : 'hover:bg-white/5 text-foreground'
-          }`}
+          className="p-2 hover:bg-white/5 rounded-lg transition-all"
           title="Quiz"
         >
           <Brain className="w-5 h-5" />
         </button>
+      )}
+
 
         {/* Documents/Chat Toggle */}
         {isDocumentsPage ? (
@@ -138,7 +168,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
 
 
         {/* Settings Dropdown */}
-        <div className="relative" ref={settingsRef}>
+        <div className="relative z-[10000]" ref={settingsRef}>
           <button 
             onClick={() => setShowSettings(!showSettings)}
             className={`p-2 rounded-lg transition-all ${
@@ -151,7 +181,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
 
           {/* Dropdown Menu */}
           {showSettings && (
-            <div className="absolute right-0 mt-2 w-64 bg-[#1F2937] border border-[#374151] rounded-lg shadow-xl z-[9999] py-2 animate-fade-in">
+            <div className="absolute right-0 mt-2 w-64 bg-[#1F2937] border border-[#374151] rounded-lg shadow-xl z-[9999] py-2 animate-fade-in settings-dropdown">
               {/* User Info Section */}
               <div className="px-4 py-3 border-b border-[#374151]">
                 <div className="text-sm font-medium text-white truncate">

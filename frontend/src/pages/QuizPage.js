@@ -73,13 +73,7 @@ export default function QuizPage() {
         <div className="max-w-4xl mx-auto">
           {/* Header */}
           <div className="mb-8">
-            <button
-              onClick={() => navigate('/chat')}
-              className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-all mb-4"
-            >
-              <ArrowLeft className="w-4 h-4" />
-              <span className="text-sm">Back to Chat</span>
-            </button>
+            
             
             <div className="flex items-center gap-3 mb-2">
               <Brain className="w-8 h-8 text-primary" />

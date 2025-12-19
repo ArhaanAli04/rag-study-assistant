@@ -1,10 +1,4 @@
-# 📝 **Here's Your Updated Comprehensive README.md**
 
-Copy this entire content and replace your current README.md:
-
-***
-
-```markdown
 # 🎓 RAG Study Assistant
 
 An AI-powered study companion that transforms your documents into an interactive learning experience with intelligent Q&A, concept mapping, and quiz generation.

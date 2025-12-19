@@ -585,9 +585,9 @@ Content-Type: application/json
     }
   ]
 }
-</details>
-```
 
+```
+</details>
 ---
 
 ## 🐛 Troubleshooting

@@ -594,3 +594,131 @@ select option:checked {
 .fullscreen-mode .map-metadata {
   margin-top: 0.5rem;
 }
+
+
+/* Export Dropdown Styles */
+.export-dropdown-container {
+  position: relative;
+  display: inline-block;
+}
+
+.export-dropdown-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  min-width: 200px;
+  overflow: hidden;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.export-menu-header {
+  padding: 10px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid #374151;
+  background: #111827;
+}
+
+.export-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease;
+  color: #e5e7eb;
+  font-size: 14px;
+}
+
+.export-menu-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.export-icon {
+  font-size: 20px;
+  width: 24px;
+  text-align: center;
+}
+
+.export-info {
+  flex: 1;
+  text-align: left;
+}
+
+.export-format {
+  font-weight: 500;
+  color: #f3f4f6;
+  margin-bottom: 2px;
+}
+
+.export-desc {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+/* Export Indicator (Loading) */
+.export-indicator {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: rgba(0, 0, 0, 0.9);
+  padding: 24px 32px;
+  border-radius: 12px;
+  border: 1px solid #374151;
+  z-index: 10000;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.export-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid #374151;
+  border-top-color: #7c3aed;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.export-indicator p {
+  color: #e5e7eb;
+  font-size: 14px;
+  font-weight: 500;
+  margin: 0;
+}
+
+/* Disabled button style */
+.control-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

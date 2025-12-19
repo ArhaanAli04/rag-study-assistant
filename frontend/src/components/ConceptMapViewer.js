@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import ReactFlow, {
   MiniMap,
   Controls,
@@ -6,18 +6,25 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   MarkerType,
+  useReactFlow,
+  ReactFlowProvider,
 } from 'reactflow';
 import dagre from 'dagre';
+import { toPng, toJpeg } from 'html-to-image';
 import 'reactflow/dist/style.css';
 import ConceptNodeDetails from './ConceptNodeDetails';
 import ConceptMapControls from './ConceptMapControls';
 
-const ConceptMapViewer = ({ mapData, onBack, onDelete }) => {
+const ConceptMapViewerInner = ({ mapData, onBack, onDelete }) => {
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
   const [selectedNode, setSelectedNode] = useState(null);
   const [showNodeDetails, setShowNodeDetails] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
+  
+  const { getNodes } = useReactFlow();
+  const flowRef = useRef(null);
 
   // Initialize graph layout using dagre
   useEffect(() => {
@@ -144,13 +151,81 @@ const ConceptMapViewer = ({ mapData, onBack, onDelete }) => {
     setSelectedNode(null);
   };
 
-  // Export as image
-  const handleExport = () => {
-    // This will be implemented in ConceptMapControls
-    alert('Export feature coming soon!');
+  // Export as PNG
+  const handleExportPNG = useCallback(() => {
+    if (!flowRef.current) return;
+    
+    setIsExporting(true);
+    
+    const viewport = flowRef.current.querySelector('.react-flow__viewport');
+    
+    toPng(viewport, {
+      backgroundColor: '#0F0F0F',
+      width: viewport.offsetWidth,
+      height: viewport.offsetHeight,
+      style: {
+        width: viewport.offsetWidth + 'px',
+        height: viewport.offsetHeight + 'px',
+      },
+      cacheBust: true,
+    })
+      .then((dataUrl) => {
+        const link = document.createElement('a');
+        link.download = `${sanitizeFilename(mapData.topic)}_concept_map.png`;
+        link.href = dataUrl;
+        link.click();
+        setIsExporting(false);
+      })
+      .catch((err) => {
+        console.error('Failed to export PNG:', err);
+        alert('Failed to export image. Please try again.');
+        setIsExporting(false);
+      });
+  }, [mapData.topic]);
+
+  // Export as JPEG
+  const handleExportJPEG = useCallback(() => {
+    if (!flowRef.current) return;
+    
+    setIsExporting(true);
+    
+    const viewport = flowRef.current.querySelector('.react-flow__viewport');
+    
+    toJpeg(viewport, {
+      backgroundColor: '#0F0F0F',
+      width: viewport.offsetWidth,
+      height: viewport.offsetHeight,
+      style: {
+        width: viewport.offsetWidth + 'px',
+        height: viewport.offsetHeight + 'px',
+      },
+      quality: 0.95,
+      cacheBust: true,
+    })
+      .then((dataUrl) => {
+        const link = document.createElement('a');
+        link.download = `${sanitizeFilename(mapData.topic)}_concept_map.jpg`;
+        link.href = dataUrl;
+        link.click();
+        setIsExporting(false);
+      })
+      .catch((err) => {
+        console.error('Failed to export JPEG:', err);
+        alert('Failed to export image. Please try again.');
+        setIsExporting(false);
+      });
+  }, [mapData.topic]);
+
+  // Sanitize filename
+  const sanitizeFilename = (name) => {
+    return name
+      .replace(/[^a-z0-9]/gi, '_')
+      .replace(/_+/g, '_')
+      .toLowerCase()
+      .substring(0, 50);
   };
 
-  // ← ADD THIS FUNCTION
+  // Toggle fullscreen
   const toggleFullscreen = () => {
     setIsFullscreen(!isFullscreen);
   };
@@ -183,10 +258,12 @@ const ConceptMapViewer = ({ mapData, onBack, onDelete }) => {
         </div>
 
         <ConceptMapControls
-          onExport={handleExport}
+          onExportPNG={handleExportPNG}
+          onExportJPEG={handleExportJPEG}
           onDelete={onDelete}
           onToggleFullscreen={toggleFullscreen}
           isFullscreen={isFullscreen}
+          isExporting={isExporting}
         />
       </div>
 
@@ -207,7 +284,7 @@ const ConceptMapViewer = ({ mapData, onBack, onDelete }) => {
       </div>
 
       {/* React Flow Graph */}
-      <div className="graph-container">
+      <div className="graph-container" ref={flowRef}>
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -275,7 +352,24 @@ const ConceptMapViewer = ({ mapData, onBack, onDelete }) => {
           </span>
         </div>
       </div>
+
+      {/* Export Indicator */}
+      {isExporting && (
+        <div className="export-indicator">
+          <div className="export-spinner"></div>
+          <p>Exporting image...</p>
+        </div>
+      )}
     </div>
+  );
+};
+
+// Wrapper component with ReactFlowProvider
+const ConceptMapViewer = (props) => {
+  return (
+    <ReactFlowProvider>
+      <ConceptMapViewerInner {...props} />
+    </ReactFlowProvider>
   );
 };
 

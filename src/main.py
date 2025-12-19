@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile, Request, Depends, Query
+from fastapi import FastAPI, File, UploadFile, Request, Depends, Query, Body
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
@@ -562,6 +562,46 @@ async def delete_session(
     db.commit()
     
     return {"message": "Session deleted successfully"}
+
+@app.patch("/sessions/{session_id}/rename")
+async def rename_session(
+    session_id: int,
+    new_title: str = Body(..., embed=True),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Rename a chat session"""
+    
+    # Validate title
+    if not new_title or len(new_title.strip()) == 0:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    
+    if len(new_title) > 100:
+        raise HTTPException(status_code=400, detail="Title too long (max 100 characters)")
+    
+    # Find the session
+    session = db.query(ChatSession).filter(
+        ChatSession.id == session_id,
+        ChatSession.user_id == current_user.id
+    ).first()
+    
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Update title
+    session.title = new_title.strip()
+    db.commit()
+    db.refresh(session)
+    
+    return {
+        "message": "Session renamed successfully",
+        "session": {
+            "id": session.id,
+            "title": session.title,
+            "topic": session.topic or "General",
+            "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None,
+        }
+    }
 
 @app.post("/chat", response_model=ChatResponse)
 async def chat(

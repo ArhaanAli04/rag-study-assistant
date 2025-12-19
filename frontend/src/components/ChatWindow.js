@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from "react";
-import { Menu, Moon, Settings, LogOut, Sparkles } from "lucide-react";
+import { Sparkles, Download } from "lucide-react";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
+import { exportChatAsMarkdown, exportChatAsPDF } from "../utils/exportUtils";
+import ExportChatMenu from "./ExportChatMenu";
 
 export default function ChatWindow({ sessionId, onSessionCreated }) {
   const [messages, setMessages] = useState([]);
@@ -9,7 +11,9 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
   const [streamingAnswer, setStreamingAnswer] = useState("");
   const [showCommentFor, setShowCommentFor] = useState(null);
   const [feedbackComment, setFeedbackComment] = useState('');
+  const [sessionTitle, setSessionTitle] = useState("Chat Export");
   const messagesEndRef = useRef(null);
+  const messagesContainerRef = useRef(null);
 
   // Fetch messages when session changes
   useEffect(() => {
@@ -17,22 +21,37 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       fetchMessages(sessionId);
     } else {
       setMessages([]);
+      setSessionTitle("Chat Export");
     }
   }, [sessionId]);
 
-  // Auto-scroll to bottom
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, streamingAnswer]);
+  // DISABLED Auto-scroll - This was causing the issue
+  // useEffect(() => {
+  //   messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  // }, [messages, streamingAnswer]);
 
   const fetchMessages = async (sid) => {
     try {
       const token = localStorage.getItem("token");
+      
+      // Fetch session info to get title
+      const sessionResp = await fetch(`http://localhost:8000/sessions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      
+      if (sessionResp.ok) {
+        const sessions = await sessionResp.json();
+        const currentSession = sessions.find(s => s.id === sid);
+        if (currentSession) {
+          setSessionTitle(currentSession.title || `Session ${sid}`);
+        }
+      }
+      
+      // Fetch messages
       const resp = await fetch(`http://localhost:8000/sessions/${sid}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
-      // ✅ Handle API errors
       if (!resp.ok) {
         throw new Error(`Failed to fetch messages: ${resp.status}`);
       }
@@ -42,7 +61,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     } catch (e) {
       console.error("Failed to fetch messages:", e);
       
-      // ✅ Show error in chat if session exists
       if (sid) {
         const errorMsg = {
           role: "assistant",
@@ -87,7 +105,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
             : msg
         ));
       } else {
-        // ✅ Handle feedback error
         console.error('Feedback failed:', response.status);
         alert('Failed to submit feedback. Please try again.');
       }
@@ -152,7 +169,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
         else if (data.type === "message_id") {
           capturedMessageId = data.data;
         } 
-        // ✅ NEW: Handle error messages
         else if (data.type === "error") {
           eventSource.close();
           setLoading(false);
@@ -179,7 +195,6 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       setLoading(false);
       setStreamingAnswer("");
       
-      // ✅ Show user-friendly error
       const errorMsg = {
         role: "assistant",
         content: "⚠️ I'm having trouble connecting right now. Please try again in a moment.",
@@ -191,21 +206,68 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     };
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    window.location.href = '/login';
+  // Export handlers
+  const handleExportMarkdown = () => {
+    if (messages.length === 0) {
+      alert('No messages to export');
+      return;
+    }
+    exportChatAsMarkdown(messages, sessionTitle);
+  };
+  const handleExportPDF = () => {
+    if (messages.length === 0) {
+      alert('No messages to export');
+      return;
+    }
+    exportChatAsPDF(messages, sessionTitle);
   };
 
+
   return (
-    <div className="flex-1 flex flex-col h-screen">
-      {/* Messages Area */}
+    <div style={{ 
+      display: "flex", 
+      flexDirection: "column", 
+      height: "100%", 
+      width: "100%"
+    }}>
+      
+      {/* HEADER - Always visible */}
+      <div style={{ 
+        borderBottom: '1px solid #374151', 
+        padding: '12px 24px', 
+        display: 'flex', 
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        background: '#0F0F0F',
+        minHeight: '56px'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <Sparkles size={18} color="#7C3AED" />
+          <h2 style={{ color: 'white', fontSize: '17px', fontWeight: '600', margin: 0 }}>
+            {sessionTitle || "New Chat"}
+          </h2>
+        </div>
+        
+        {messages.length > 0 && (
+          <ExportChatMenu 
+            onExportMarkdown={handleExportMarkdown}
+            onExportPDF={handleExportPDF}
+            currentSessionTitle={sessionTitle}
+          />
+        )}
+      </div>
+
+      {/* MESSAGES AREA - Scrollable */}
       <div 
-        ref={messagesEndRef} 
-        className="flex-1 overflow-y-auto px-4 lg:px-6 py-6" 
-        style={{ background: "#0F0F0F" }}
+        ref={messagesContainerRef}
+        style={{ 
+          flex: 1, 
+          overflowY: "auto", 
+          background: "#0F0F0F",
+          padding: "20px"
+        }}
       >
         {messages.length === 0 ? (
-          // Empty State
           <div className="flex flex-col items-center justify-center h-full text-center">
             <Sparkles className="w-16 h-16 text-primary mb-4" />
             <h2 className="text-2xl font-semibold mb-2">Start a conversation</h2>
@@ -227,12 +289,12 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
                 setFeedbackComment('');
               }}
             />
-            <div ref={messagesEndRef} />
+            <div ref={messagesEndRef} style={{ height: '20px' }} />
           </div>
         )}
       </div>
 
-      {/* Input Area */}
+      {/* INPUT AREA - Always visible */}
       <ChatInput onSend={handleSendMessage} disabled={loading} />
     </div>
   );

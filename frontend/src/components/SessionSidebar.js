@@ -1,4 +1,6 @@
-import { Plus, MessageSquare, Trash2 } from 'lucide-react';
+import { Plus, MessageSquare, Trash2,Edit2 } from 'lucide-react';
+import { useState } from 'react'; 
+import SessionRenameModal from './SessionRenameModal';
 
 export default function SessionSidebar({
   sessions,
@@ -7,7 +9,8 @@ export default function SessionSidebar({
   onNewChat,
   onDeleteSession,
 }) {
-  
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [sessionToRename, setSessionToRename] = useState(null);
   // Helper to check if two dates are the same day
   const isSameDay = (d1, d2) => {
     return d1.getFullYear() === d2.getFullYear() &&
@@ -126,6 +129,38 @@ export default function SessionSidebar({
   }
   return colors["General"];
 };
+  const handleRenameClick = (e, session) => {
+    e.stopPropagation();
+    setSessionToRename(session);
+    setRenameModalOpen(true);
+  };
+
+  const handleRename = async (sessionId, newTitle) => {
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/rename`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({ new_title: newTitle }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to rename session');
+      }
+
+      // Refresh sessions list (you'll need to call this from parent)
+      // For now, just close modal - we'll add proper refresh in next step
+      window.location.reload(); // Temporary solution
+    } catch (error) {
+      console.error('Rename failed:', error);
+      throw error;
+    }
+  };
+
   const renderSession = (session) => (
     <div
       key={session.id}
@@ -149,6 +184,7 @@ export default function SessionSidebar({
         }`}>
           {session.title || `Session ${session.id}`}
         </div>
+
         {/* ✅ ADD TOPIC TAG HERE */}
         {session.topic && session.topic !== "General" && (
           <div className="mt-1.5">
@@ -163,13 +199,23 @@ export default function SessionSidebar({
         </div>
       </div>
 
-      <button
-        onClick={(e) => handleDelete(e, session)}
-        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-destructive/20 rounded transition-all"
-        title="Delete conversation"
-      >
-        <Trash2 className="w-4 h-4 text-destructive" />
-      </button>
+      {/* ← ADD THIS DIV FOR BUTTONS */}
+      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <button
+          onClick={(e) => handleRenameClick(e, session)}
+          className="p-1 hover:bg-primary/20 rounded transition-all"
+          title="Rename conversation"
+        >
+          <Edit2 className="w-4 h-4 text-primary" />
+        </button>
+        <button
+          onClick={(e) => handleDelete(e, session)}
+          className="p-1 hover:bg-destructive/20 rounded transition-all"
+          title="Delete conversation"
+        >
+          <Trash2 className="w-4 h-4 text-destructive" />
+        </button>
+      </div>
     </div>
   );
 
@@ -245,6 +291,17 @@ export default function SessionSidebar({
           </>
         )}
       </div>
+      {/* ← ADD RENAME MODAL */}
+      {renameModalOpen && sessionToRename && (
+        <SessionRenameModal
+          session={sessionToRename}
+          onClose={() => {
+            setRenameModalOpen(false);
+            setSessionToRename(null);
+          }}
+          onRename={handleRename}
+        />
+      )}
     </aside>
   );
 }

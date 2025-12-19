@@ -8,6 +8,8 @@ An AI-powered study companion that transforms your documents into an interactive
 [![React](https://img.shields.io/badge/React-18.0+-blue.svg)](https://reactjs.org/)
 [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+> **A comprehensive RAG-powered study assistant that combines document analysis, AI-driven Q&A, concept visualization, and quiz generation to enhance your learning experience.**
+
 ---
 
 ## 📋 Table of Contents
@@ -15,148 +17,174 @@ An AI-powered study companion that transforms your documents into an interactive
 - [Tech Stack](#-tech-stack)
 - [Architecture](#-architecture)
 - [Setup & Installation](#-setup--installation)
-- [Configuration](#-configuration)
 - [Usage Guide](#-usage-guide)
-- [API Documentation](#-api-documentation)
-- [Troubleshooting](#-troubleshooting)
-- [Contributing](#-contributing)
+- [Contact](#-contact)
 
 ---
 
 ## ✨ Features
 
 ### 🤖 Intelligent Q&A System
-- **Retrieval Augmented Generation (RAG)** - Combines document knowledge with web search
-- **Hybrid Search** - Vector similarity + keyword matching with BM25 reranking
-- **Multi-source Integration** - Seamlessly blends document content and web results
-- **Confidence Scoring** - Transparent reliability metrics for every answer
-- **Citation Tracking** - Every claim is backed by verifiable sources
+- **Retrieval Augmented Generation (RAG)** - Combines document knowledge with web search for accurate answers
+- **Hybrid Search** - Vector similarity + keyword matching with BM25 reranking for optimal retrieval
+- **Multi-source Integration** - Seamlessly blends document content and real-time web results
+- **Confidence Scoring** - Transparent reliability metrics (0-100%) for every answer
+- **Citation Tracking** - Every claim backed by verifiable sources with document references
+- **Streaming Responses** - Real-time answer generation for better user experience
 
 ### 📚 Document Processing
-- **Multi-format Support** - PDFs, PowerPoint (PPTX), Word (DOCX), images
-- **OCR Technology** - Extract text from handwritten notes and scanned documents
+- **Multi-format Support** - PDFs, PowerPoint (PPTX), Word (DOCX), and images
+- **OCR Technology** - Extract text from handwritten notes and scanned documents using Tesseract
 - **Smart Chunking** - Intelligent text segmentation with overlap for context preservation
 - **Vector Embeddings** - High-quality semantic search using sentence transformers
-- **Metadata Extraction** - Preserve document structure and context
+- **Metadata Extraction** - Preserve document structure, page numbers, and context
+- **Async Processing** - Non-blocking document ingestion for large files
 
 ### 💬 Session Management
-- **Chat History** - Persistent conversation storage across sessions
-- **Session Organization** - Browse and manage multiple study topics
-- **Rename Sessions** - Customize session titles for better organization
+- **Persistent Chat History** - All conversations saved and organized by topic
+- **Multi-session Support** - Work on multiple subjects simultaneously
+- **Session Renaming** - Customize session titles for better organization
 - **Export Conversations**:
-  - **Markdown (.md)** - Clean, readable text format
-  - **PDF Document** - Professionally formatted with timestamps and sources
+  - **Markdown (.md)** - Clean, readable text format with timestamps
+  - **PDF Document** - Professionally formatted with color-coded roles and sources
+- **Session Deletion** - Clean up old conversations easily
 
 ### 🗺️ Concept Map Generation
-- **AI-Powered Visualization** - Automatically generate knowledge graphs from your materials
-- **Interactive Exploration** - Click nodes to view definitions and relationships
-- **Source Attribution** - Color-coded nodes by source type (web/documents)
+- **AI-Powered Visualization** - Automatically generate knowledge graphs from your study materials
+- **Interactive Exploration** - Click nodes to view definitions, relationships, and sources
+- **Smart Layout** - Auto-arranged hierarchical visualization using Dagre algorithm
+- **Source Attribution** - Color-coded nodes by source type (web/documents/both)
 - **Export Capabilities**:
-  - **PNG Images** - High-quality lossless format
-  - **JPEG Images** - Compressed format for sharing
-- **Layout Algorithms** - Auto-arranged hierarchical visualization
+  - **PNG Images** - High-quality lossless format for presentations
+  - **JPEG Images** - Compressed format for easy sharing
+- **Fullscreen Mode** - Immersive viewing experience for complex maps
+- **Minimap Navigation** - Bird's-eye view for large concept graphs
 
 ### 📝 Quiz Generation
-- **Adaptive Difficulty** - Tailored to your study materials
-- **Multiple Formats** - MCQs, true/false, short answer
-- **Instant Feedback** - Immediate evaluation with explanations
-- **Performance Tracking** - Monitor your progress over time
+- **AI-Generated Questions** - Automatically create quizzes from your documents
+- **Multiple Formats** - MCQs, true/false, and short answer questions
+- **Adaptive Difficulty** - Tailored to your study materials and learning level
+- **Instant Feedback** - Immediate evaluation with detailed explanations
+- **Source References** - Every question linked to specific document sections
+- **Performance Tracking** - Monitor your progress and identify weak areas
 
 ### 🔐 Authentication & Security
-- **OAuth 2.0 Integration** - Secure Google Sign-In
-- **JWT Token Management** - Stateless authentication
-- **User Isolation** - Personal document and chat spaces
-- **Rate Limiting** - Protection against abuse
+- **OAuth 2.0 Integration** - Secure Google Sign-In (ready for deployment)
+- **JWT Token Management** - Stateless authentication with refresh tokens
+- **User Isolation** - Personal document libraries and chat spaces
+- **Rate Limiting** - Protection against abuse and API overuse
+- **Secure File Handling** - Sandboxed document processing
 
 ### ⚡ Performance Optimization
-- **Redis Caching** - Fast repeated query responses
-- **Async Processing** - Non-blocking document ingestion
-- **FAISS Indexing** - Millisecond-level vector search
-- **Streaming Responses** - Real-time answer generation
+- **Redis Caching** - Lightning-fast responses for repeated queries
+- **FAISS Vector Database** - Millisecond-level similarity search across thousands of documents
+- **Async API Design** - Non-blocking operations for better concurrency
+- **Efficient Chunking** - Optimized text segmentation for accurate retrieval
+- **Smart Reranking** - BM25 scoring for improved result relevance
 
 ---
 
 ## 🛠️ Tech Stack
 
 ### Backend
-- **Framework**: FastAPI 0.104+
-- **Language**: Python 3.9+
-- **Vector Database**: FAISS (Facebook AI Similarity Search)
-- **Cache Layer**: Redis
-- **Authentication**: OAuth 2.0 (Google), JWT
-- **LLM Integration**: 
-  - Google Gemini API (primary)
-  - OpenAI GPT-4 (fallback)
-- **Web Search**: Tavily API, SerpAPI
-- **OCR**: Tesseract OCR, pytesseract
-- **Document Processing**: 
-  - PyPDF2, pdfplumber (PDFs)
-  - python-pptx (PowerPoint)
-  - python-docx (Word)
-  - Pillow (images)
+| Technology | Purpose |
+|------------|---------|
+| **FastAPI 0.104+** | High-performance async web framework |
+| **Python 3.9+** | Core programming language |
+| **FAISS** | Facebook AI Similarity Search for vector operations |
+| **Redis** | In-memory cache for query results |
+| **Sentence Transformers** | Text embeddings (all-MiniLM-L6-v2) |
+| **Google Gemini API** | Primary LLM for answer generation |
+| **Tavily API** | Academic web search and augmentation |
+| **Tesseract OCR** | Handwritten and scanned document processing |
+| **PyPDF2 / pdfplumber** | PDF text extraction |
+| **python-pptx** | PowerPoint processing |
+| **python-docx** | Word document processing |
+| **Pillow** | Image processing and OCR |
+| **Authlib** | OAuth 2.0 implementation |
+| **python-jose** | JWT token handling |
 
 ### Frontend
-- **Framework**: React 18.0+
-- **UI Library**: Tailwind CSS
-- **Graph Visualization**: React Flow
-- **State Management**: React Hooks
-- **HTTP Client**: Axios
-- **OAuth**: @react-oauth/google
+| Technology | Purpose |
+|------------|---------|
+| **React 18.0+** | Modern UI framework |
+| **Tailwind CSS** | Utility-first styling |
+| **React Flow** | Interactive graph visualization |
+| **@react-oauth/google** | Google OAuth integration |
+| **Axios** | HTTP client for API calls |
+| **html-to-image** | Export concept maps as images |
+| **jspdf** | Generate PDF exports |
+| **React Hooks** | State management |
 
-### Infrastructure
-- **Deployment**: Docker, Render.com, Vercel
-- **Database**: PostgreSQL (planned)
-- **Storage**: Cloud storage for documents (planned)
-- **Monitoring**: Logging, error tracking
+### Infrastructure & Tools
+- **Git & GitHub** - Version control
+- **Docker** - Containerization (planned)
+- **Render.com** - Backend hosting (planned)
+- **Vercel** - Frontend hosting (planned)
+- **PostgreSQL** - User data and chat history (planned)
 
 ---
 
 ## 🏗️ Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Frontend (React)                      │
-│  ┌────────────┐  ┌────────────┐  ┌─────────────────────┐   │
-│  │  Chat UI   │  │  Concept   │  │  Document Manager   │   │
-│  │            │  │    Maps    │  │                     │   │
-│  └────────────┘  └────────────┘  └─────────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-                            │
-                            │ REST API
-                            ▼
-┌─────────────────────────────────────────────────────────────┐
-│                      Backend (FastAPI)                       │
-│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
-│  │   RAG       │  │  Document    │  │  Authentication  │   │
-│  │  Pipeline   │  │  Processing  │  │     (OAuth)      │   │
-│  └─────────────┘  └──────────────┘  └──────────────────┘   │
-└─────────────────────────────────────────────────────────────┘
-              │              │                  │
-              ▼              ▼                  ▼
-┌──────────────────┐  ┌──────────────┐  ┌──────────────┐
-│  FAISS Vector DB │  │    Redis     │  │  PostgreSQL  │
-│  (Embeddings)    │  │   (Cache)    │  │ (Users/Logs) │
-└──────────────────┘  └──────────────┘  └──────────────┘
-              │
-              ▼
-┌─────────────────────────────────────────┐
-│        External Services                 │
-│  -  Google Gemini API                     │
-│  -  Tavily Web Search                     │
-│  -  Tesseract OCR                         │
-└─────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                     Frontend (React)                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │   Chat UI    │  │   Concept    │  │   Document Manager   │  │
+│  │  (Real-time  │  │     Maps     │  │   (Multi-format)     │  │
+│  │  Streaming)  │  │ (React Flow) │  │                      │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              │ REST API (FastAPI)
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                      Backend (FastAPI)                           │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────┐  │
+│  │     RAG      │  │   Document   │  │   Authentication     │  │
+│  │   Pipeline   │  │  Processing  │  │   (OAuth + JWT)      │  │
+│  │              │  │  (OCR, PDF,  │  │                      │  │
+│  │ -  Retrieval  │  │   PPTX, DOCX)│  │                      │  │
+│  │ -  Reranking  │  │              │  │                      │  │
+│  │ -  Generation │  │              │  │                      │  │
+│  └──────────────┘  └──────────────┘  └──────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+         │                    │                      │
+         ▼                    ▼                      ▼
+┌─────────────────┐  ┌─────────────────┐  ┌──────────────────┐
+│  FAISS Vector   │  │     Redis       │  │   PostgreSQL     │
+│    Database     │  │   (Cache)       │  │ (Users, Sessions)│
+│                 │  │                 │  │    (Planned)     │
+│ -  Embeddings    │  │ -  Query Cache   │  │                  │
+│ -  Fast Search   │  │ -  Result Cache  │  │                  │
+└─────────────────┘  └─────────────────┘  └──────────────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    External Services                          │
+│  -  Google Gemini API (LLM)                                   │
+│  -  Tavily API (Web Search)                                   │
+│  -  Tesseract OCR (Text Extraction)                           │
+└──────────────────────────────────────────────────────────────┘
 ```
+
+### **Data Flow:**
+
+1. **Document Upload** → OCR/Parsing → Chunking → Embedding → FAISS Index
+2. **User Query** → Embedding → FAISS Search + Web Search → Reranking → LLM Generation → Streaming Response
+3. **Concept Map** → Topic Analysis → Entity Extraction → Relationship Mapping → Graph Generation
+4. **Quiz** → Document Analysis → Question Generation → Answer Validation
 
 ---
 
 ## 🚀 Setup & Installation
 
 ### Prerequisites
-- Python 3.9 or higher
-- Node.js 16+ and npm
-- Redis server (for caching)
-- Tesseract OCR (for handwritten notes)
-- Git
+- **Python 3.9+** installed
+- **Node.js 16+** and npm
+- **Redis server** (for caching)
+- **Git** for version control
 
 ### 1. Clone Repository
 ```
@@ -182,22 +210,6 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-#### Install Tesseract OCR
-
-**Windows:**
-1. Download from: https://github.com/UB-Mannheim/tesseract/wiki
-2. Install to `C:\Program Files\Tesseract-OCR\`
-3. Add to PATH environment variable
-
-**Linux:**
-```
-sudo apt-get install tesseract-ocr
-```
-
-**Mac:**
-```
-brew install tesseract
-```
 
 ### 3. Frontend Setup
 ```
@@ -206,325 +218,173 @@ npm install
 cd ..
 ```
 
-### 4. Redis Setup
 
-**Windows:**
-- Download from: https://github.com/microsoftarchive/redis/releases
-- Or use Docker: `docker run -d -p 6379:6379 redis`
-
-**Linux:**
-```
-sudo apt-get install redis-server
-sudo systemctl start redis
-```
-
-**Mac:**
-```
-brew install redis
-brew services start redis
-```
 
 ---
 
-## ⚙️ Configuration
-
-### 1. Create Environment File
-
-Create `.env` in the root directory:
-
-```
-# LLM API Keys
-GEMINI_API_KEY=your_gemini_api_key_here
-OPENAI_API_KEY=your_openai_api_key_here
-
-# Web Search APIs
-TAVILY_API_KEY=your_tavily_api_key_here
-SERPAPI_API_KEY=your_serpapi_api_key_here
-
-# Google OAuth
-GOOGLE_CLIENT_ID=your_google_client_id_here
-GOOGLE_CLIENT_SECRET=your_google_client_secret_here
-GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback
-
-# JWT Secret
-JWT_SECRET_KEY=your_super_secret_jwt_key_here_make_it_long_and_random
-
-# Tesseract Path (Windows only)
-TESSERACT_PATH=C:\Program Files\Tesseract-OCR\tesseract.exe
-
-# Redis Configuration
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
-# Application Settings
-DEBUG=True
-LOG_LEVEL=INFO
-```
-
-### 2. Frontend Environment
-
-Create `frontend/.env`:
-
-```
-REACT_APP_GOOGLE_CLIENT_ID=your_google_client_id_here
-REACT_APP_API_URL=http://localhost:8000
-```
-
-### 3. Get API Keys
-
-#### Google Gemini API
-1. Visit: https://makersuite.google.com/app/apikey
-2. Create API key
-3. Add to `.env` as `GEMINI_API_KEY`
-
-#### Tavily API (Web Search)
-1. Visit: https://tavily.com/
-2. Sign up and get API key
-3. Add to `.env` as `TAVILY_API_KEY`
-
-#### Google OAuth
-1. Visit: https://console.cloud.google.com/
-2. Create new project: "RAG Study Assistant"
-3. Enable Google+ API
-4. Configure OAuth consent screen
-5. Create OAuth 2.0 credentials (Web application)
-6. Add authorized origins: `http://localhost:3000`, `http://localhost:8000`
-7. Add redirect URIs: `http://localhost:3000/auth/callback`, `http://localhost:8000/auth/google/callback`
-8. Copy Client ID and Client Secret to `.env`
-
----
 
 ## 📖 Usage Guide
 
 ### Starting the Application
 
-#### 1. Start Redis
+#### Step 1: Start Redis
 ```
-# Check if Redis is running
+# Verify Redis is running
 redis-cli ping
-# Should return: PONG
+# Expected output: PONG
+
+# If not running, start it:
+# Windows: redis-server
+# Linux: sudo systemctl start redis
+# Mac: brew services start redis
 ```
 
-#### 2. Start Backend
+#### Step 2: Start Backend
 ```
-# From root directory with venv activated
+# From root directory with virtual environment activated
 uvicorn src.main:app --reload --port 8000
 ```
 
-Backend will be available at: http://localhost:8000
+**Backend will be available at:** http://localhost:8000
 
-#### 3. Start Frontend
+**API Documentation:** http://localhost:8000/docs
+
+#### Step 3: Start Frontend
 ```
 cd frontend
 npm start
 ```
 
-Frontend will be available at: http://localhost:3000
+**Frontend will open automatically at:** http://localhost:3000
+
+---
 
 ### Using the Application
 
-#### 1. **Upload Documents**
-- Click "Upload Documents" button
-- Select PDFs, PPTX, DOCX, or images
-- Wait for processing (OCR may take time for images)
-- Documents are chunked and indexed automatically
+#### 1️⃣ Upload Documents
 
-#### 2. **Ask Questions**
-- Type your question in the chat input
-- Choose search mode:
-  - **Quick**: Fast, document-only
-  - **Deep**: Comprehensive with web search
-- View answers with confidence scores and sources
+1. Click **"📤 Upload Documents"** button in the sidebar
+2. Select your files:
+   - ✅ PDFs
+   - ✅ PowerPoint (.pptx)
+   - ✅ Word Documents (.docx)
+   - ✅ Images (with OCR for handwritten notes)
+3. Click **"Upload"**
+4. Wait for processing (OCR may take 10-30 seconds for images)
+5. Documents are automatically:
+   - Chunked into semantic segments
+   - Embedded using sentence transformers
+   - Indexed in FAISS for fast retrieval
 
-#### 3. **Generate Concept Maps**
-- Navigate to "Concept Maps" section
-- Enter a topic from your study materials
-- Click "Generate Map"
-- Explore interactive visualization
-- Export as PNG or JPEG
-
-#### 4. **Take Quizzes**
-- Go to "Quiz" section
-- Select difficulty and question count
-- Answer questions based on your documents
-- Get instant feedback and explanations
-
-#### 5. **Manage Sessions**
-- View all chat sessions in sidebar
-- Click pencil icon to rename sessions
-- Export conversations as Markdown or PDF
-- Delete old sessions
+**💡 Tip:** Upload multiple files at once for batch processing!
 
 ---
 
+#### 2️⃣ Ask Questions
+
+1. Type your question in the chat input at the bottom
+2. Choose search mode:
+   - **⚡ Quick Mode**: Fast document-only search (2-3 seconds)
+   - **🔍 Deep Mode**: Comprehensive with web search (5-8 seconds)
+3. Press **Enter** or click send button
+4. Watch the AI generate your answer in real-time
+5. Review:
+   - **Answer** with streaming generation
+   - **Confidence Score** (0-100%)
+   - **Sources** with document references and web links
+
+**💡 Tip:** Use "Quick" for straightforward questions, "Deep" for complex topics needing web context!
+
 ---
 
-## 🐛 Troubleshooting
+#### 3️⃣ Generate Concept Maps
 
-### Common Issues
+1. Navigate to **"🗺️ Concept Maps"** section
+2. Click **"+ New Concept Map"**
+3. Enter a topic from your study materials
+   - Example: "Neural Networks", "Photosynthesis", "Quantum Mechanics"
+4. Click **"Generate Map"**
+5. Wait 10-20 seconds for AI to:
+   - Extract key concepts
+   - Identify relationships
+   - Build knowledge graph
+6. Interact with the map:
+   - **Click nodes** to view definitions
+   - **Zoom** and **pan** to explore
+   - **Toggle fullscreen** for better view
+7. Export your map:
+   - 🖼️ **PNG** - High quality, lossless (recommended)
+   - 📷 **JPEG** - Smaller file size
 
-#### 1. **Redis Connection Error**
-```
-ConnectionRefusedError: [Errno 111] Connection refused
-```
+**💡 Tip:** Color coding shows source type - Blue (web), Green (documents), Purple (both)!
 
-**Solution:**
-```
-# Check if Redis is running
-redis-cli ping
+---
 
-# If not, start Redis
-# Windows (if installed)
-redis-server
+#### 4️⃣ Take Quizzes
 
-# Linux
-sudo systemctl start redis
+1. Go to **"📝 Quiz"** section
+2. Click **"Generate New Quiz"**
+3. Select options:
+   - **Topic**: Choose from your uploaded documents
+   - **Difficulty**: Easy, Medium, or Hard
+   - **Number of Questions**: 5-20 questions
+4. Click **"Create Quiz"**
+5. Answer questions one by one
+6. Get instant feedback:
+   - ✅ Correct answers highlighted
+   - ❌ Explanations for incorrect answers
+   - 📚 Source references for learning
+7. View your score and performance summary
 
-# Mac
-brew services start redis
-```
+**💡 Tip:** Review incorrect answers to identify knowledge gaps!
 
-#### 2. **Tesseract OCR Not Found**
-```
-TesseractNotFoundError: tesseract is not installed
-```
+---
 
-**Solution:**
-- Install Tesseract (see Installation section)
-- Windows: Add to PATH or set `TESSERACT_PATH` in `.env`
-- Verify: `tesseract --version`
+#### 5️⃣ Manage Chat Sessions
 
-#### 3. **API Key Invalid**
-```
-401 Unauthorized: Invalid API key
-```
+1. View all sessions in the left sidebar
+2. **Rename a session**:
+   - Hover over session
+   - Click ✏️ pencil icon
+   - Type new title
+   - Press Enter to save
+3. **Export conversations**:
+   - Click 📥 download icon
+   - Choose format:
+     - **Markdown** - Plain text with formatting
+     - **PDF** - Professional document with colors
+4. **Delete old sessions**:
+   - Click 🗑️ trash icon
+   - Confirm deletion
 
-**Solution:**
-- Check `.env` file has correct API keys
-- Verify no extra spaces or quotes around keys
-- Ensure `.env` is in root directory
-- Restart backend after changing `.env`
-
-#### 4. **Frontend Can't Connect to Backend**
-```
-Network Error: Failed to fetch
-```
-
-**Solution:**
-- Verify backend is running: http://localhost:8000/docs
-- Check `frontend/.env` has correct `REACT_APP_API_URL`
-- Check for CORS issues in browser console
-- Restart both frontend and backend
-
-#### 5. **OAuth Login Failed**
-```
-OAuth callback error
-```
-
-**Solution:**
-- Verify redirect URIs in Google Cloud Console match exactly
-- Check Client ID and Secret in `.env`
-- Ensure OAuth consent screen is configured
-- Add your email as test user in Google Cloud Console
-
-#### 6. **Document Upload Fails**
-```
-500 Internal Server Error
-```
-
-**Solution:**
-- Check file format is supported (PDF, PPTX, DOCX, images)
-- Verify file size is under limit (50MB)
-- Check backend logs for specific error
-- Ensure sufficient disk space
-
-#### 7. **Slow Response Times**
-**Solution:**
-- Check Redis is running (caching helps performance)
-- Reduce `top_k` parameter in queries
-- Use "Quick" mode instead of "Deep"
-- Consider upgrading hardware/server resources
-
-#### 8. **Vector Search Returns No Results**
-```
-No relevant documents found
-```
-
-**Solution:**
-- Verify documents are uploaded and processed
-- Check FAISS index exists in `data/faiss/`
-- Try rephrasing the question
-- Upload more relevant documents
+**💡 Tip:** Organize sessions by subject (e.g., "Biology Ch.3", "ML Algorithms") for easy access!
 
 ---
 
 
+## 📞 Contact
 
-## 🤝 Contributing
 
-Contributions are welcome! Please follow these steps:
+### 📧 Get in Touch
+- **Email**: arhaan.ali2004@gmail.com
+- **GitHub**: [@ArhaanAli04](https://github.com/ArhaanAli04)
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+### 🔗 Project Links
+
+- **Live Demo**: [Coming Soon - Deployment in progress]
+
+
 
 ---
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🙏 Acknowledgments
 
-- **LangChain** - RAG orchestration framework
-- **FastAPI** - Modern Python web framework
-- **React Flow** - Interactive graph visualization
-- **FAISS** - Efficient similarity search
-- **Google Gemini** - LLM API
-- **Tavily** - Academic web search
 
----
 
-## 📞 Contact
 
-**Project Maintainer**: Your Name
-- Email: your.email@example.com
-- GitHub: [@yourusername](https://github.com/yourusername)
-- LinkedIn: [Your LinkedIn](https://linkedin.com/in/yourprofile)
-
-**Project Link**: [https://github.com/yourusername/rag-study-assistant](https://github.com/yourusername/rag-study-assistant)
-
----
-
-## 🗺️ Roadmap
-
-- [x] Core RAG pipeline
-- [x] Document ingestion (PDF, PPTX, DOCX, images)
-- [x] Hybrid search (vector + keyword)
-- [x] Web search integration
-- [x] Session management
-- [x] Concept map generation
-- [x] Quiz generation
-- [x] Export functionality (Markdown, PDF, Images)
-- [x] OAuth authentication
-- [ ] PostgreSQL integration
-- [ ] Docker deployment
-- [ ] Cloud storage for documents
-- [ ] Advanced analytics dashboard
-- [ ] Mobile application
-- [ ] Collaborative study sessions
-- [ ] Audio/video content support
-
----
-
-<p align="center">
-  Made with ❤️ for students everywhere
-</p>
-```
-
-***
 

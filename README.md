@@ -19,7 +19,6 @@ An AI-powered study companion that transforms your documents into an interactive
 - [Usage Guide](#-usage-guide)
 - [API Documentation](#-api-documentation)
 - [Troubleshooting](#-troubleshooting)
-- [Project Structure](#-project-structure)
 - [Contributing](#-contributing)
 
 ---
@@ -361,7 +360,8 @@ Frontend will be available at: http://localhost:3000
 ## 🔌 API Documentation
 
 ### Authentication
-
+<details>
+<summary>Click to expand API endpoints</summary>
 #### Google OAuth Login
 ```
 GET /auth/google/login
@@ -585,6 +585,7 @@ Content-Type: application/json
     }
   ]
 }
+</details>
 ```
 
 ---

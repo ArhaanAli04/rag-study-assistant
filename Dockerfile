@@ -22,7 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend code
 COPY src/ ./src/
-COPY .env .
+
 
 # Create necessary directories
 RUN mkdir -p src/data/uploads src/data/faiss_indexes src/logs
@@ -35,5 +35,4 @@ ENV PYTHONUNBUFFERED=1
 ENV TESSERACT_PATH=/usr/bin/tesseract
 
 # Change to src directory and run uvicorn
-WORKDIR /app/src
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]

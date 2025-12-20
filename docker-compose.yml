@@ -1,0 +1,68 @@
+
+services:
+  # ==================== Backend Service ====================
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    ports:
+      - "8000:8000"
+    volumes:
+      # Persist uploaded files and FAISS indexes
+      - ./src/data:/app/src/data
+      - ./src/logs:/app/src/logs
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - DATABASE_URL=sqlite:///./data/app.db
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=HS256
+      - FRONTEND_URL=http://localhost:3000
+    env_file:
+      - .env
+    depends_on:
+      - redis
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  # ==================== Frontend Service ====================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: rag-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+  # ==================== Redis Service ====================
+  redis:
+    image: redis:7-alpine
+    container_name: rag-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    networks:
+      - rag-network
+
+# ==================== Volumes ====================
+volumes:
+  redis-data:
+
+# ==================== Networks ====================
+networks:
+  rag-network:
+    driver: bridge

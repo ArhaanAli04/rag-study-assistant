@@ -6,6 +6,7 @@ import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import QuizPage from "./pages/QuizPage";
 import ConceptMapPage from "./pages/ConceptMapPage";
+import AuthCallback from "./pages/AuthCallback";
 
 function AppRoutes() {
   const { isAuthenticated } = useAuth();
@@ -14,6 +15,9 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
+
+       {/* ← ADD OAUTH CALLBACK ROUTE */}
+      <Route path="/auth/callback" element={<AuthCallback />} />
       <Route
         path="/chat"
         element={isAuthenticated ? <ChatPage /> : <Navigate to="/login" replace />}

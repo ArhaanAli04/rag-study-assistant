@@ -17,6 +17,8 @@ from auth import (
     get_db, get_password_hash, authenticate_user, verify_password,
     create_access_token, get_current_user,get_current_user_optional
 )
+from starlette.middleware.sessions import SessionMiddleware
+import secrets
 from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
@@ -45,8 +47,12 @@ from concept_map_schemas import (
     DeleteConceptMapResponse,
     SourceStatistics
 )
-
+from routes.auth_routes import router as auth_router
 app = FastAPI(title="RAG Study Assistant API")
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
+)
 # ADD CORS MIDDLEWARE HERE
 app.add_middleware(
     CORSMiddleware,
@@ -55,6 +61,7 @@ app.add_middleware(
     allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
     allow_headers=["*"],  # Allow all headers
 )
+app.include_router(auth_router)
 logger = setup_logging()
 index_builder = IndexBuilder()
 bm25_index = BM25KeywordIndex()
@@ -323,6 +330,13 @@ async def change_password(
     """
     Change user password after verifying current password
     """
+     # Check if user is OAuth user (no password)
+    if not current_user.hashed_password or current_user.oauth_provider:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot change password for OAuth users. Manage your password through Google."
+        )
+    
     # Verify current password
     if not verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(
@@ -357,7 +371,10 @@ async def get_profile(
 ):
     return {
         "email": current_user.email,
-        "name": current_user.name if hasattr(current_user, 'name') else "",
+        "name": current_user.name if hasattr(current_user, 'name') and current_user.name else current_user.username,
+        "username": current_user.username if hasattr(current_user, 'username') else "",
+        "profile_picture": current_user.profile_picture if hasattr(current_user, 'profile_picture') else None,
+        "oauth_provider": current_user.oauth_provider if hasattr(current_user, 'oauth_provider') else None,
         "created_at": current_user.created_at if hasattr(current_user, 'created_at') else None
     }
 

@@ -9,27 +9,36 @@ class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     email = Column(String, unique=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True)
+    username = Column(String, nullable=True) 
     name = Column(String, nullable=True)  
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    profile_picture = Column(String, nullable=True)  # From Google
+    oauth_provider = Column(String, nullable=True)  # "google" or None
     is_active = Column(Boolean, default=True)
     doc_version = Column(Integer, default=0)  # increments on document upload
+
+
+    # Relationships
+    documents = relationship("Document", back_populates="user", cascade="all, delete-orphan")
+    sessions = relationship("Session", back_populates="user", cascade="all, delete-orphan")
 
 class Session(Base):
     __tablename__ = "sessions"
     id = Column(Integer, primary_key=True)
-    user_id = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     title = Column(String, nullable=True)
     topic = Column(String, nullable=True, default="General")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.datetime.utcnow)
 
-    messages = relationship("Message", back_populates="session")
+    user = relationship("User", back_populates="sessions")
+    messages = relationship("Message", back_populates="session", cascade="all, delete-orphan")
 
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True)
-    user_id = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     session_id = Column(Integer, ForeignKey("sessions.id"))
     role = Column(String)  # 'user' or 'assistant'
     content = Column(Text)
@@ -48,17 +57,20 @@ from sqlalchemy import Boolean
 class Document(Base):
     __tablename__ = "documents"
     id = Column(Integer, primary_key=True)
-    user_id = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     file_name = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
     file_hash = Column(String, nullable=False)
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+
+    user = relationship("User", back_populates="documents")
 
 class FailedQuery(Base):
     __tablename__ = "failed_queries"
     id = Column(Integer, primary_key=True)
-    user_id = Column(String, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=True)
     query = Column(Text, nullable=False)
     confidence = Column(Integer, nullable=True)  # 0-100 scale

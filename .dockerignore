@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+.venv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+frontend/
+*.log
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Data (we'll mount these as volumes)
+src/data/uploads/*
+src/data/faiss_indexes/*
+!src/data/.gitkeep
+
+# Env files (will be passed separately)
+.env.local
+.env.*.local
+
+# Git
+.git/
+.gitignore

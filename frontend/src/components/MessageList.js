@@ -1,9 +1,10 @@
 import React from 'react';
 import { ThumbsUp, ThumbsDown, FileText, Copy, Check } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm'; // ✅ ADD THIS IMPORT
+import remarkGfm from 'remark-gfm';
 import { cn } from '../lib/utils';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
 export default function MessageList({ 
   messages, 
   streamingAnswer,
@@ -14,6 +15,48 @@ export default function MessageList({
   onCancelComment
 }) {
   const [copiedId, setCopiedId] = useState(null);
+  const [userProfile, setUserProfile] = useState({ name: '', profilePicture: '' }); // ← ADD THIS
+
+  // ← ADD THIS: Fetch user profile
+  useEffect(() => {
+    const fetchUserProfile = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        const response = await fetch('http://localhost:8000/user/profile', {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUserProfile({
+            name: data.name || '',
+            profilePicture: data.profile_picture || ''
+          });
+        }
+      } catch (error) {
+        console.error('Failed to fetch user profile:', error);
+      }
+    };
+
+    fetchUserProfile();
+  }, []);
+
+  // ← ADD THIS: Get user initials
+  const getUserInitials = () => {
+    if (userProfile.name && userProfile.name.trim()) {
+      const nameParts = userProfile.name.trim().split(' ');
+      
+      if (nameParts.length >= 2) {
+        return (nameParts[0][0] + nameParts[nameParts.length - 1][0]).toUpperCase();
+      } else {
+        return userProfile.name.substring(0, 2).toUpperCase();
+      }
+    }
+    
+    return 'US'; // Default fallback
+  };
 
   const handleCopyQuery = (text, messageId) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -21,6 +64,7 @@ export default function MessageList({
       setTimeout(() => setCopiedId(null), 2000);
     });
   };
+
   return (
     <>
       {messages.map((msg, idx) => (
@@ -52,7 +96,7 @@ export default function MessageList({
               {msg.role === "assistant" ? (
                 <div className="prose prose-sm max-w-none text-foreground">
                   <ReactMarkdown
-                    remarkPlugins={[remarkGfm]} // ✅ ADD THIS LINE
+                    remarkPlugins={[remarkGfm]}
                     components={{
                       p: ({ children }) => <p className="mb-2 last:mb-0 leading-relaxed">{children}</p>,
                       strong: ({ children }) => <strong className="font-semibold text-white">{children}</strong>,
@@ -65,7 +109,6 @@ export default function MessageList({
                       ul: ({ children }) => <ul className="list-disc ml-4 mb-2">{children}</ul>,
                       ol: ({ children }) => <ol className="list-decimal ml-4 mb-2">{children}</ol>,
                       li: ({ children }) => <li className="mb-1">{children}</li>,
-                      // ✅ ADD TABLE STYLING
                       table: ({ children }) => (
                         <div className="overflow-x-auto my-4">
                           <table className="min-w-full border-collapse border border-[#374151] rounded-lg">
@@ -92,7 +135,6 @@ export default function MessageList({
                           {children}
                         </td>
                       ),
-                      // ✅ ADD LINK STYLING
                       a: ({ children, href }) => (
                         <a 
                           href={href} 
@@ -141,7 +183,6 @@ export default function MessageList({
             {/* Feedback Buttons (only for assistant messages) */}
             {msg.role === 'assistant' && msg.id && (
               <div className="flex items-center gap-2 mt-3">
-                {/* Copy Button */}
                 <button
                   onClick={() => handleCopyQuery(msg.content, msg.id)}
                   className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all"
@@ -176,7 +217,7 @@ export default function MessageList({
               </div>
             )}
 
-            {/* Comment Box (appears after thumbs down) */}
+            {/* Comment Box */}
             {showCommentFor === msg.id && (
               <div className="mt-3 animate-slide-down">
                 <textarea
@@ -204,13 +245,29 @@ export default function MessageList({
             )}
           </div>
 
-          {/* User Avatar (right side for user) */}
+          {/* ← UPDATED: User Avatar with Profile Picture */}
           {msg.role === "user" && (
             <div className="flex flex-col items-end gap-2">
-            <div className="w-8 h-8 mt-1 rounded-full bg-primary flex items-center justify-center text-sm font-semibold text-white flex-shrink-0">
-              JD
-            </div>
-            {/* ✅ COPY BUTTON */}
+              <button
+                className="w-8 h-8 mt-1 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-sm font-semibold text-white hover:scale-105 transition-transform cursor-pointer overflow-hidden flex-shrink-0"
+                title={userProfile.name || 'User'}
+              >
+                {userProfile.profilePicture ? (
+                  <img 
+                    src={userProfile.profilePicture} 
+                    alt="Profile" 
+                    className="w-full h-full object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.parentElement.textContent = getUserInitials();
+                    }}
+                  />
+                ) : (
+                  getUserInitials()
+                )}
+              </button>
+              
+              {/* Copy Button */}
               <button
                 onClick={() => handleCopyQuery(msg.content, msg.id)}
                 className="flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-white/5 rounded-lg transition-all"
@@ -233,7 +290,7 @@ export default function MessageList({
         </div>
       ))}
 
-      {/* Streaming Answer (with typing indicator) */}
+      {/* Streaming Answer */}
       {streamingAnswer && (
         <div className="animate-fade-in flex gap-3 mb-6">
           <div className="w-8 h-8 mt-1 rounded-full bg-secondary flex items-center justify-center text-sm font-semibold flex-shrink-0">

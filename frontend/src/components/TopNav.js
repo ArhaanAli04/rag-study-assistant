@@ -16,6 +16,8 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
   const [showHelpModal, setShowHelpModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [userName, setUserName] = useState('');
+  const [profilePicture, setProfilePicture] = useState('');
+  const [isOAuthUser, setIsOAuthUser] = useState(false);
   const settingsRef = useRef(null);
 
 
@@ -45,6 +47,8 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
         if (response.ok) {
           const data = await response.json();
           setUserName(data.name || '');
+          setProfilePicture(data.profile_picture || '');
+          setIsOAuthUser(data.oauth_provider === 'google');
         }
       } catch (error) {
         console.error('Failed to fetch user profile:', error);
@@ -208,7 +212,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
                   <User className="w-4 h-4" />
                   <span>Account Settings</span>
                 </button>
-                
+                {!isOAuthUser && (
                 <button 
                   className="settings-item"
                   onClick={() => {
@@ -220,7 +224,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
                   <Key className="w-4 h-4" />
                   <span>Change Password</span>
                 </button>
-
+                )}
                 
 
                 <button 
@@ -265,13 +269,26 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
 
         {/* User Avatar & Logout */}
         <div className="flex items-center gap-2 ml-2">
-          {/* User Avatar with Dynamic Initials */}
+          {/* User Avatar with Dynamic Initials or Profile Picture */}
           <button
             onClick={() => setShowSettings(!showSettings)}
-            className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-sm font-semibold text-white hover:scale-105 transition-transform cursor-pointer"
+            className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-sm font-semibold text-white hover:scale-105 transition-transform cursor-pointer overflow-hidden"
             title={userName || user?.email || 'User'}
           >
-            {getUserInitials()}
+            {profilePicture ? (
+              <img 
+                src={profilePicture} 
+                alt="Profile" 
+                className="w-full h-full object-cover"
+                onError={(e) => {
+                  // Fallback to initials if image fails to load
+                  e.target.style.display = 'none';
+                  e.target.parentElement.textContent = getUserInitials();
+                }}
+              />
+            ) : (
+              getUserInitials()
+            )}
           </button>
 
           {/* Logout Button */}

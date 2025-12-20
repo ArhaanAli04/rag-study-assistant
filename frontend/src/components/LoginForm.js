@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Mail, Lock, Sparkles, AlertCircle } from "lucide-react";
-
+import GoogleLoginButton from "./GoogleLoginButton";
 export default function LoginForm({ onSubmit, error }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -54,6 +54,23 @@ export default function LoginForm({ onSubmit, error }) {
             <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
+
+        {/* ← ADD GOOGLE LOGIN BUTTON */}
+        <div className="mb-6">
+          <GoogleLoginButton />
+        </div>
+
+        {/* ← ADD DIVIDER */}
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-border/50"></div>
+          </div>
+          <div className="relative flex justify-center text-sm">
+            <span className="px-4 bg-[rgba(20,20,20,0.8)] text-muted-foreground">
+              Or continue with email
+            </span>
+          </div>
+        </div>
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="space-y-5">

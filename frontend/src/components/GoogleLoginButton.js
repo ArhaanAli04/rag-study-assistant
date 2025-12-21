@@ -1,7 +1,9 @@
 export default function GoogleLoginButton() {
   const handleGoogleLogin = () => {
-    // Redirect to backend OAuth endpoint
-    window.location.href = 'http://localhost:8000/auth/google/login';
+    const apiBase =
+      process.env.REACT_APP_API_URL || "http://localhost:8000"; // fallback only for local dev
+
+    window.location.href = `${apiBase}/auth/google/login`;
   };
 
   return (

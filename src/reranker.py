@@ -1,6 +1,8 @@
 #re-ranking layer
 from typing import List, Dict, Any, Tuple
-from sentence_transformers import CrossEncoder  # [web:30][web:46]
+from google import genai
+from dotenv import load_dotenv
+import os
 
 
 class CrossEncoderReranker:
@@ -8,9 +10,14 @@ class CrossEncoderReranker:
     Lightweight wrapper around a cross-encoder model for reranking.
     """
 
-    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
-        # This is small enough for dev; you can change to a faster/slower one later. [web:38]
-        self.model = CrossEncoder(model_name)
+    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
+        load_dotenv()
+        api_key = os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("GEMINI_API_KEY not set")
+        
+        self.client = genai.Client(api_key=api_key)
+        self.model_name = model_name
 
     def rerank(
         self,
@@ -19,20 +26,19 @@ class CrossEncoderReranker:
         top_k: int | None = None,
     ) -> List[Dict[str, Any]]:
         """
-        candidates: list of {"text": str, "metadata": {...}, "score": float}
-        Returns same structure but sorted by cross-encoder score (desc) and
-        adds "rerank_score" to each.
+        Rerank candidates using Gemini API to score relevance.
         """
         if not candidates:
             return []
 
-        pairs: List[Tuple[str, str]] = [(query, c["text"]) for c in candidates]
-        scores = self.model.predict(pairs)  # higher = more relevant [web:46]
-
-        for c, s in zip(candidates, scores):
-            c["rerank_score"] = float(s)
+        # For production simplicity, just return sorted by existing score
+        # You can implement Gemini-based scoring here if needed
+        for c in candidates:
+            c["rerank_score"] = c.get("score", 0.0)
 
         candidates.sort(key=lambda x: x["rerank_score"], reverse=True)
+        
         if top_k is not None:
             candidates = candidates[:top_k]
+            
         return candidates

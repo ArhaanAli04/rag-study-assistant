@@ -8,7 +8,7 @@ from vector_store import FaissVectorStore
 
 
 class IndexBuilder:
-    def __init__(self, embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, embedding_model_name: str = "gemini-embedding-001"):
         # Initialize embedding service
         self.embedding_service = EmbeddingService(embedding_model_name)
 

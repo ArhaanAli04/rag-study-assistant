@@ -21,7 +21,6 @@ def get_db():
     finally:
         db.close()
 
-
 @router.get("/google/login")
 async def google_login(request: Request):
     """
@@ -30,7 +29,10 @@ async def google_login(request: Request):
     """
     try:
         google = get_google_oauth_client()
-        redirect_uri = settings.GOOGLE_REDIRECT_URI
+        
+        # ✅ Get BASE_URL from environment (dynamic for production)
+        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        redirect_uri = f"{base_url}/auth/google/callback"
         
         logger.info(f"Initiating Google OAuth with redirect_uri: {redirect_uri}")
         

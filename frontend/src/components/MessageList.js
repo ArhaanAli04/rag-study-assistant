@@ -257,10 +257,14 @@ export default function MessageList({
                     src={userProfile.profilePicture} 
                     alt="Profile" 
                     className="w-full h-full object-cover"
+                    crossOrigin="anonymous"
+                    referrerPolicy="no-referrer"
                     onError={(e) => {
+                      console.error('Image load failed:', userProfile.profilePicture);
                       e.target.style.display = 'none';
-                      e.target.parentElement.textContent = getUserInitials();
+                      e.target.parentElement.innerText = getUserInitials();
                     }}
+                    onLoad={() => console.log('Profile image loaded successfully')}
                   />
                 ) : (
                   getUserInitials()

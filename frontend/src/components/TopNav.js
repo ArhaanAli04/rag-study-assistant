@@ -280,11 +280,15 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
                 src={profilePicture} 
                 alt="Profile" 
                 className="w-full h-full object-cover"
+                crossOrigin="anonymous"
+                referrerPolicy="no-referrer"
                 onError={(e) => {
+                  console.error('Image load failed:', profilePicture);
                   // Fallback to initials if image fails to load
                   e.target.style.display = 'none';
-                  e.target.parentElement.textContent = getUserInitials();
+                  e.target.parentElement.innerText = getUserInitials();
                 }}
+                onLoad={() => console.log('TopNav profile image loaded')}
               />
             ) : (
               getUserInitials()

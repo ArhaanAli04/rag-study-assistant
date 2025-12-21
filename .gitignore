@@ -16,7 +16,7 @@ uploads/
 data/
 *.db
 *.bin
-*.json
+src/data/*.json
 src/data/*.db
 src/data/*.faiss
 # Environment / secrets

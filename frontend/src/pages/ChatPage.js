@@ -4,6 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import SessionSidebar from "../components/SessionSidebar";
 import ChatWindow from "../components/ChatWindow";
 import TopNav from "../components/TopNav";
+import { API_BASE_URL } from '../config/api';
 
 export default function ChatPage() {
   const { user, logout } = useAuth();
@@ -27,7 +28,7 @@ export default function ChatPage() {
   const fetchSessions = async () => {
     try {
         const token = localStorage.getItem("token");
-        const resp = await fetch("http://localhost:8000/sessions", {
+        const resp = await fetch(`${API_BASE_URL}/sessions`, {
         headers: { Authorization: `Bearer ${token}` },
         });
         
@@ -58,8 +59,8 @@ export default function ChatPage() {
     console.log("handleDeleteSession called with ID:", sessionId);
     try {
       const token = localStorage.getItem("token");
-      console.log("Sending DELETE request to:", `http://localhost:8000/sessions/${sessionId}`);
-      const resp = await fetch(`http://localhost:8000/sessions/${sessionId}`, {
+      
+      const resp = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

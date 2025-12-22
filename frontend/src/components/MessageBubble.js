@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { API_BASE_URL } from '../config/api';
 
 export default function MessageBubble({ message }) {
   const [feedback, setFeedback] = useState(null);
@@ -19,7 +20,7 @@ export default function MessageBubble({ message }) {
   const sendFeedback = async (type, commentText) => {
     try {
       const token = localStorage.getItem("token");
-      await fetch(`http://localhost:8000/messages/${message.id}/feedback`, {
+      await fetch(`${API_BASE_URL}/messages/${message.id}/feedback`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

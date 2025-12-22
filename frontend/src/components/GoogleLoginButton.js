@@ -1,9 +1,8 @@
+import { API_BASE_URL } from "../config/api";
+
 export default function GoogleLoginButton() {
   const handleGoogleLogin = () => {
-    const apiBase =
-      process.env.REACT_APP_API_URL || "http://localhost:8000"; // fallback only for local dev
-
-    window.location.href = `${apiBase}/auth/google/login`;
+    window.location.href = `${API_BASE_URL}/auth/google/login`;
   };
 
   return (

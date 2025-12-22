@@ -5,6 +5,7 @@ import TopNav from "../components/TopNav";
 import DocumentList from "../components/DocumentList";
 import DocumentUpload from "../components/DocumentUpload";
 import { FileText, Upload, Trash2, AlertCircle } from "lucide-react";
+import { API_BASE_URL } from '../config/api';
 
 export default function DocumentsPage() {
   const { user, logout } = useAuth();
@@ -23,7 +24,7 @@ export default function DocumentsPage() {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:8000/documents", {
+      const response = await fetch(`${API_BASE_URL}/documents`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
@@ -50,7 +51,7 @@ export default function DocumentsPage() {
       const formData = new FormData();
       formData.append("file", file);
 
-      const response = await fetch("http://localhost:8000/upload", {
+      const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
@@ -77,7 +78,7 @@ export default function DocumentsPage() {
 
     try {
       const token = localStorage.getItem("token");
-      const response = await fetch(`http://localhost:8000/documents/${documentId}`, {
+      const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
         method: "DELETE",
         headers: { Authorization: `Bearer ${token}` },
       });

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { apiRequest } from "../services/apiClient";
+import { API_BASE_URL } from '../config/api';
 
 export function useAuth() {
   const [token, setToken] = useState(() => localStorage.getItem("token"));
@@ -19,7 +20,7 @@ export function useAuth() {
     formData.append("username", email);
     formData.append("password", password);
 
-    const resp = await fetch("http://localhost:8000/login", {
+    const resp = await fetch(`${API_BASE_URL}/login`, {
       method: "POST",
       headers: {
         "Content-Type": "application/x-www-form-urlencoded",

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Mail, Calendar, Trash2, FileText } from 'lucide-react';
+import { API_BASE_URL } from '../config/api';
 
 export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
@@ -27,7 +28,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
       const token = localStorage.getItem('token');
       
       // Fetch profile data
-      const profileResponse = await fetch('http://localhost:8000/user/profile', {
+      const profileResponse = await fetch(`${API_BASE_URL}/user/profile`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -42,7 +43,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
       }
 
       // Fetch user stats
-      const statsResponse = await fetch('http://localhost:8000/user/stats', {
+      const statsResponse = await fetch(`${API_BASE_URL}/user/stats`, {
         headers: {
           'Authorization': `Bearer ${token}`,
         },
@@ -70,7 +71,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/user/profile', {
+      const response = await fetch(`${API_BASE_URL}/user/profile`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -99,7 +100,7 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const handleDeleteAccount = async () => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/user/delete', {
+      const response = await fetch(`${API_BASE_URL}/user/delete`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,

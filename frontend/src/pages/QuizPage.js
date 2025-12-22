@@ -5,6 +5,7 @@ import TopNav from "../components/TopNav";
 import QuizGenerator from "../components/QuizGenerator";
 import QuizDisplay from "../components/QuizDisplay";
 import { Brain, ArrowLeft } from "lucide-react";
+import { API_BASE_URL } from '../config/api';
 
 export default function QuizPage() {
   const { user, logout } = useAuth();
@@ -20,7 +21,7 @@ export default function QuizPage() {
       setError(null);
       
       const token = localStorage.getItem("token");
-      const response = await fetch("http://localhost:8000/quiz", {
+      const response = await fetch(`${API_BASE_URL}/quiz`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

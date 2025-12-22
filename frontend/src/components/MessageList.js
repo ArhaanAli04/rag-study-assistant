@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { cn } from '../lib/utils';
 import { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../config/api';
 
 export default function MessageList({ 
   messages, 
@@ -22,7 +23,7 @@ export default function MessageList({
     const fetchUserProfile = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch(`${API_BASE_URL}/user/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

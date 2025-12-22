@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import HelpSupportModal from './HelpSupportModal';
 import ChangePasswordModal from './ChangePasswordModal';
 import AccountSettingsModal from './AccountSettingsModal';
+import { API_BASE_URL } from '../config/api';
 
 export default function TopNav({ user, onLogout, onToggleSidebar }) {
   const navigate = useNavigate();
@@ -38,7 +39,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
     const fetchUserProfile = async () => {
       try {
         const token = localStorage.getItem('token');
-        const response = await fetch('http://localhost:8000/user/profile', {
+        const response = await fetch(`${API_BASE_URL}/user/profile`, {
           headers: {
             'Authorization': `Bearer ${token}`,
           },

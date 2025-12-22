@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Sparkles, AlertCircle, Globe, FileText } from 'lucide-react';
+import { API_BASE_URL } from '../config/api';
 
 const CreateMapForm = ({ onMapCreated, onCancel }) => {
   const [topic, setTopic] = useState('');
@@ -31,7 +32,7 @@ const CreateMapForm = ({ onMapCreated, onCancel }) => {
     try {
       const token = localStorage.getItem('token');
       
-      const response = await fetch('http://localhost:8000/api/concepts/generate', {
+      const response = await fetch(`${API_BASE_URL}/api/concepts/generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

@@ -6,6 +6,7 @@ import MapListView from "../components/MapListView";
 import CreateMapForm from "../components/CreateMapForm";
 import ConceptMapViewer from "../components/ConceptMapViewer";
 import { Network, ArrowLeft } from "lucide-react";
+import { API_BASE_URL } from '../config/api';
 
 export default function ConceptMapPage() {
   const { user, logout } = useAuth();
@@ -31,7 +32,7 @@ export default function ConceptMapPage() {
     
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:8000/api/concepts/maps', {
+      const response = await fetch(`${API_BASE_URL}/api/concepts/maps`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -58,7 +59,7 @@ export default function ConceptMapPage() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/api/concepts/maps/${mapId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/concepts/maps/${mapId}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -87,7 +88,7 @@ export default function ConceptMapPage() {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/api/concepts/maps/${mapId}`, {
+      const response = await fetch(`${API_BASE_URL}/api/concepts/maps/${mapId}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`

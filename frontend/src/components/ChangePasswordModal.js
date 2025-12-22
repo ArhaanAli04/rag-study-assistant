@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-
+import { API_BASE_URL } from '../config/api';
 // Change Password Modal Component
 export default function ChangePasswordModal({ onClose }) {
   const [currentPassword, setCurrentPassword] = useState('');
@@ -34,7 +34,7 @@ export default function ChangePasswordModal({ onClose }) {
     try {
       const token = localStorage.getItem('token');
       
-      const response = await fetch('http://localhost:8000/change-password', {
+      const response = await fetch(`${API_BASE_URL}/change-password`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

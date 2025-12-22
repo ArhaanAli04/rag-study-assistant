@@ -4,6 +4,7 @@ import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
 import { exportChatAsMarkdown, exportChatAsPDF } from "../utils/exportUtils";
 import ExportChatMenu from "./ExportChatMenu";
+import { API_BASE_URL } from '../config/api';
 
 export default function ChatWindow({ sessionId, onSessionCreated }) {
   const [messages, setMessages] = useState([]);
@@ -35,7 +36,7 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       const token = localStorage.getItem("token");
       
       // Fetch session info to get title
-      const sessionResp = await fetch(`http://localhost:8000/sessions`, {
+      const sessionResp = await fetch(`${API_BASE_URL}/sessions`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
@@ -48,7 +49,7 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
       }
       
       // Fetch messages
-      const resp = await fetch(`http://localhost:8000/sessions/${sid}/messages`, {
+      const resp = await fetch(`${API_BASE_URL}/sessions/${sid}/messages`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       
@@ -83,7 +84,7 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     }
 
     try {
-      const response = await fetch(`http://localhost:8000/messages/${messageId}/feedback`, {
+      const response = await fetch(`${API_BASE_URL}/messages/${messageId}/feedback`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -122,7 +123,7 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
 
     const token = localStorage.getItem("token");
 
-    const url = new URL("http://localhost:8000/chat/stream");
+    const url = new URL("/chat/stream",API_BASE_URL);
     url.searchParams.append("query", query);
     url.searchParams.append("session_id", sessionId || 0);
     url.searchParams.append("top_k", 5);

@@ -1,6 +1,7 @@
 import { Plus, MessageSquare, Trash2,Edit2 } from 'lucide-react';
 import { useState } from 'react'; 
 import SessionRenameModal from './SessionRenameModal';
+import { API_BASE_URL } from '../config/api';
 
 export default function SessionSidebar({
   sessions,
@@ -138,7 +139,7 @@ export default function SessionSidebar({
   const handleRename = async (sessionId, newTitle) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch(`http://localhost:8000/sessions/${sessionId}/rename`, {
+      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/rename`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',

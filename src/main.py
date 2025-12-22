@@ -57,8 +57,9 @@ app.add_middleware(
 # Get allowed origins from environment or use defaults
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:8000"
+    "http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app"
 ).split(",")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,

@@ -1032,7 +1032,6 @@ async def chat_stream(
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
     )
 
 

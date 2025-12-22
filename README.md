@@ -118,10 +118,10 @@ An AI-powered study companion that transforms your documents into an interactive
 
 ### Infrastructure & Tools
 - **Git & GitHub** - Version control
-- **Docker** - Containerization (planned)
-- **Render.com** - Backend hosting (planned)
-- **Vercel** - Frontend hosting (planned)
-- **PostgreSQL** - User data and chat history (planned)
+- **Docker** - Containerization 
+- **Render.com** - Backend hosting 
+- **Vercel** - Frontend hosting 
+- **SQLite** - User data and chat history 
 
 ---
 
@@ -242,7 +242,9 @@ redis-cli ping
 #### Step 2: Start Backend
 ```
 # From root directory with virtual environment activated
-uvicorn src.main:app --reload --port 8000
+cd src
+
+uvicorn main:app --reload 
 ```
 
 **Backend will be available at:** http://localhost:8000
@@ -371,7 +373,7 @@ npm start
 
 ### 🔗 Project Links
 
-- **Live Demo**: [Coming Soon - Deployment in progress]
+- **Live Demo**: https://rag-study-assistant-chi.vercel.app
 
 
 

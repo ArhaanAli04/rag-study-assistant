@@ -1,28 +1,44 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# Virtual env
+# Virtual environments
 venv/
+.venv/
+env/
 
-# IDE
+# IDE / OS
 .vscode/
 .idea/
+.DS_Store
+Thumbs.db
 
-# Data / indexes / uploads
-uploads/
-data/
-*.db
-*.bin
-src/data/*.json
-src/data/*.db
-src/data/*.faiss
 # Environment / secrets
 .env
-*.log
-src/logs/
-
-.env.local
 *.env
+.env.*
+!.env.example
+!frontend/.env.production
+
+# Runtime data, indexes, uploads, logs
+data/
+uploads/
+logs/
+*.db
+*.sqlite
+*.sqlite3
+*.bin
+*.faiss
+*.index
+*.log
+
+# Binaries
+*.exe
+
+# Personal Claude Code settings (.claude/settings.json is shared and committed)
+.claude/settings.local.json

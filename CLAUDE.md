@@ -31,14 +31,14 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  35005ef "readme updates" (history is labelled by build day; last labelled "day 20a")
-Uncommitted:  native multi-turn chat history — build_prompt returns a Gemini contents payload,
-              history is read before logging the current message, window raised to 20 messages
-              (src/llm_client.py, src/main.py, src/session_service.py)
-Untracked:    CLAUDE.md, docs/improvements.md, docs/improvement-tracker.md,
-              docs/claude-cheatsheet.md, .claude/ (skills + hooks)
-Next:         P0 items in docs/improvement-tracker.md (suggested first: G6 semantic-cache leak)
-Blockers:     none recorded
+Last commit:  972bfc3 "Add CLAUDE.md, improvement audit and tracker, and Claude Code skills and hooks"
+              — LOCAL ONLY: don't push until G6, G7 and G8 are fixed (it documents those holes)
+Pushed:       origin/master = 73d8bae (native multi-turn chat history), on top of 69ae920 (repo
+              cleanup + .gitignore); both 2026-09-12
+Uncommitted:  this Current Status update (CLAUDE.md) and the T3 note (docs/improvement-tracker.md)
+Untracked:    none (the Tesseract installer is still on disk, ignored by *.exe)
+Next:         G6 semantic-cache leak (/run-item G6), then G8 → G7 → B1
+Blockers:     none — but master must not be pushed until G6, G7 and G8 are done
 ```
 
 ---
@@ -147,7 +147,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 ### Working
 - Email/password and Google OAuth login; profile, change password, user stats
 - PDF/PPTX/DOCX upload, hash-based versioning, per-user hybrid retrieval
-- Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`), multi-turn history (uncommitted)
+- Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`), multi-turn history (commit 73d8bae)
 - Tavily web augmentation with a domain allowlist; Redis web-result cache (1 h)
 - Sessions: list, rename, delete, automatic topic tags; chat export to Markdown / PDF (frontend)
 - Thumbs up/down feedback → `messages.feedback` and `failed_queries`; `GET /analytics/failed-queries`
@@ -207,7 +207,7 @@ Found while writing this file; evidence and direction live under each ID.
 | Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
 | `pytest.ini` is ignored (`[tool:pytest]` header) | T1 | P1 |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
-| Committed installer, stray/dead files, drifted requirements files, unused deps | T3 | P2 |
+| Dead code, drifted requirements files, unused deps, installer still in git history | T3 | P2 |
 
 ---
 
@@ -344,7 +344,7 @@ found and deleted.
 hit are then grouped into one larger "parent" block so the model gets surrounding context
 (small-to-big retrieval).
 
-**Native multi-turn `contents` (uncommitted).** Prior turns are sent as real user/model turns
+**Native multi-turn `contents`.** Prior turns are sent as real user/model turns
 and retrieved context is attached only to the current turn, so old context isn't re-sent
 every turn and the model can resolve references across turns.
 
@@ -362,7 +362,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 - **Chat endpoints:** delete `POST /chat` (the frontend only streams) vs. extract a shared pipeline that both call.
 - **Index persistence:** save/load FAISS + BM25 to disk vs. a hosted vector DB (`qdrant-client` is already installed). Render's filesystem is ephemeral unless a persistent disk is attached.
 - **Dependencies:** remove unused packages vs. keep those tied to planned items (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); reconcile or delete `src/requirements.txt`, which has drifted from the root file.
-- **Dead code and repo hygiene:** delete `MessageBubble.js`, `src/frontend.py`, `document_delete_service.py` (or wire it in), the root `stop` file, and the committed Tesseract installer.
+- **Dead code and repo hygiene:** delete `MessageBubble.js`, `src/frontend.py`, and `document_delete_service.py` (or wire it in). The Tesseract installer is untracked now but still in git history; purging it would need a history rewrite and force-push.
 
 ---
 

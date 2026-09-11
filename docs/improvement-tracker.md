@@ -61,7 +61,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | I1 | Per-user/ANN FAISS indexing instead of brute-force + post-hoc filter | Not Started | |
 | I2 | Persist BM25 index to disk; avoid full rebuild on every add | Not Started | |
 | CO3 | Content-hash embedding cache | Not Started | |
-| T3 | Repo hygiene: committed installer, stray/dead files, drifted requirements files, unused deps | Not Started | |
+| T3 | Repo hygiene: committed installer, stray/dead files, drifted requirements files, unused deps | Not Started | 2026-09-12 (69ae920): installer untracked and now ignored via `*.exe` (still in git history); stray `stop` and unused resume sample deleted; .gitignore extended. Remaining: dead code, requirements reconcile, unused deps, `DATABASE_URL`, Docker Redis DB |
 
 ---
 

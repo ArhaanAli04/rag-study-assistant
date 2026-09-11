@@ -59,12 +59,17 @@ def add_message(db: DBSession, session_id: int, user_id: int, role: str, content
 def get_recent_messages(
     db: DBSession,
     session_id: int,
-    limit: int = 6,
+    limit: int = 20,
 ):
-    return (
+    """
+    Return the most recent `limit` messages for the session in chronological order
+    (oldest first), ready to pass directly to llm_client.build_prompt as prior turns.
+    """
+    rows = (
         db.query(Message)
         .filter(Message.session_id == session_id)
         .order_by(Message.id.desc())
         .limit(limit)
         .all()
     )
+    return list(reversed(rows))  # convert to chronological order here

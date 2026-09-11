@@ -665,15 +665,20 @@ async def chat(
     # 1) Get or create session
     chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
     message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
-    # 2) Log user message
+
+    # 2) Fetch prior history BEFORE adding the current user message
+    #    so the current question is not duplicated in the conversation context.
+    recent_msgs_db = get_recent_messages(db, chat_session.id)
+    recent_messages = [{"role": m.role, "content": m.content} for m in recent_msgs_db]
+
+    # 3) Log user message
     add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
-    
+
     # ✅ TOPIC DETECTION - Auto-tag session on first message or if still "General"
-    
     if message_count == 0 or chat_session.topic == "General":
         try:
             topic_result = topic_classifier.classify_topic(body.query)
-            if topic_result['confidence'] > 0.3:  # Only update if confident
+            if topic_result['confidence'] > 0.3:
                 chat_session.topic = topic_result['topic']
                 db.commit()
                 logger.info(
@@ -683,7 +688,7 @@ async def chat(
         except Exception as e:
             logger.error(f"Topic classification error: {e}")
 
-    # 3) Query decomposition
+    # 4) Query decomposition
     subqueries = query_decomposer.decompose(body.query)
 
     all_context_chunks: List[Dict[str, Any]] = []
@@ -694,51 +699,40 @@ async def chat(
         retrieval_result = retrieval_service.hybrid_retrieve(
             query=subq,
             user_id=user_id_str,
-            doc_version=doc_version,  # PASS VERSION
+            doc_version=doc_version,
             top_k=body.top_k,
             rerank_top_k=5,
         )
         child_chunks = retrieval_result["results"]
-        # LOG retrieval for inspection
         top_docs = [c["metadata"].get("document_id", "N/A") for c in child_chunks[:3]]
-        logger.info("RETRIEVAL subq='%s' conf=%.2f fallback=%s top_docs=%s", 
-                    subq[:40], retrieval_result["confidence"], 
+        logger.info("RETRIEVAL subq='%s' conf=%.2f fallback=%s top_docs=%s",
+                    subq[:40], retrieval_result["confidence"],
                     retrieval_result["fallback_used"], top_docs)
         all_candidates = retrieval_result.get("all_candidates", child_chunks)
 
-        # Parent-document expansion
         parent_chunks = retrieval_service.expand_to_parent_context(
             top_results=child_chunks,
             all_results=all_candidates,
             max_parents=3,
         )
 
-        # Combine child + parents for this sub-query
         all_context_chunks.extend(child_chunks + parent_chunks)
 
         final_confidence = max(final_confidence, retrieval_result["confidence"])
         any_fallback = any_fallback or retrieval_result["fallback_used"]
 
-    # 4) Contextual compression across all sub-queries
+    # 5) Contextual compression across all sub-queries
     compressed_context = compressor.compress(all_context_chunks)
 
-    # 5) Get recent history for prompt
-    recent_msgs_db = get_recent_messages(db, chat_session.id, limit=10)
-    recent_messages = [
-        {"role": m.role, "content": m.content}
-        for m in recent_msgs_db
-    ]
-
-    # NEW: Determine grounding level based on confidence
+    # 6) Determine grounding level based on confidence
     if final_confidence >= 0.7:
-        grounding_level = "strict"      # Rich context → strict grounding
+        grounding_level = "strict"
     elif final_confidence >= 0.3:
-        grounding_level = "loose"       # Some context → partial grounding
+        grounding_level = "loose"
     else:
-        grounding_level = "none"        # No context → full model knowledge
+        grounding_level = "none"
 
-    
-    # 6) Build prompt + call LLM with retry and circuit breaker handling
+    # 7) Build multi-turn prompt payload + call LLM
     try:
         prompt = llm_client.build_prompt(
             question=body.query,
@@ -896,18 +890,24 @@ async def chat_stream(
         return StreamingResponse(cached_stream(), media_type="text/event-stream",
                                 headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
 
-    # 1) Session + log user message
+    # 1) Session setup
     chat_session = get_or_create_session(db, user_id_int, session_id, query)
-    # ✅ CHECK MESSAGE COUNT BEFORE ADDING
     message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
+
+    # Fetch prior history BEFORE adding the current user message
+    recent_messages = [
+        {"role": m.role, "content": m.content}
+        for m in get_recent_messages(db, chat_session.id)
+    ]
+
+    # Log current user message
     add_message(db, chat_session.id, user_id_int, role="user", content=query)
 
-    #  ADD TOPIC DETECTIon for new response 
-    
-    if message_count ==0 or chat_session.topic == "General":
+    # Topic detection
+    if message_count == 0 or chat_session.topic == "General":
         try:
             topic_result = topic_classifier.classify_topic(query)
-            if topic_result['confidence'] > 0.3:  # Only update if confident
+            if topic_result['confidence'] > 0.3:
                 chat_session.topic = topic_result['topic']
                 db.commit()
                 logger.info(
@@ -916,7 +916,6 @@ async def chat_stream(
                 )
         except Exception as e:
             logger.error(f"Topic classification error: {e}")
-    
 
     # 2) Retrieval + processing
     subqueries = query_decomposer.decompose(query)
@@ -932,7 +931,6 @@ async def chat_stream(
         child_chunks = retrieval_result["results"]
         all_candidates = retrieval_result.get("all_candidates", child_chunks)
 
-        # Parent-document expansion
         parent_chunks = retrieval_service.expand_to_parent_context(
             top_results=child_chunks,
             all_results=all_candidates,
@@ -943,9 +941,8 @@ async def chat_stream(
         any_fallback = any_fallback or retrieval_result["fallback_used"]
 
     compressed_context = compressor.compress(all_context_chunks)
-    recent_messages = [{"role": m.role, "content": m.content} for m in get_recent_messages(db, chat_session.id, limit=20)]
 
-    # 3) Determine grounding + build prompt
+    # 3) Determine grounding + build multi-turn prompt payload
     grounding_level = "strict" if final_confidence >= 70.0 else "loose" if final_confidence >= 30.0 else "none"
 
     prompt = llm_client.build_prompt(
@@ -1094,7 +1091,7 @@ D) [option D]
 Do NOT include answers. Make the questions educational and accurate."""
 
     try:
-        quiz_text = llm_client.generate_answer(prompt)
+        quiz_text = llm_client.generate_answer({"current_user_text": prompt, "contents": []})
     except RuntimeError as e:
         logger.error(f"LLM error in /quiz: {e}")
         raise HTTPException(

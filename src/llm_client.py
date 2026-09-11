@@ -1,5 +1,6 @@
-from typing import List, Dict,AsyncGenerator
-from google import genai  # [web:91][web:94]
+from typing import List, Dict, AsyncGenerator
+from google import genai
+from google.genai import types as genai_types
 from dotenv import load_dotenv
 import os
 import time
@@ -8,6 +9,7 @@ import random
 class LLMClient:
     """
     Gemini-based client with a grounded RAG prompt and citation requirements.
+    Uses native multi-turn conversation format for proper memory across turns.
     """
 
     def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
@@ -60,24 +62,15 @@ class LLMClient:
             "Also provide advantages or benefits, disadvantages or limitations, and comparisons if relevant.\n"
             "Provide applications or use cases if there are any.\n"
         )
-    def build_prompt(
+    def _build_system_instruction(
         self,
-        question: str,
-        context_chunks: List[Dict],
-        recent_messages: List[Dict],
-        grounding_level: str = "strict",  # can be: "strict", "loose", "none"
-        mode: str = "detailed",
+        grounding_level: str,
+        mode: str,
     ) -> str:
-        """
-        Build a single text prompt for Gemini:
-        - Includes system-like instructions at top
-        - Includes recent chat history
-        - Includes retrieved context with provenance
-        - Asks for citations in [Source: ...] / [Web: ...] form
-        """
+        """Build the system instruction string for the Gemini config."""
         if grounding_level == "strict":
             grounding_instructions = (
-                "You are an AI study assistant helping a student...\n"
+                "You are an AI study assistant helping a student.\n"
                 "Use ONLY the information contained in the provided context snippets.\n"
                 "If the context does not mention the topic at all, reply exactly like this:\n"
                 "\"I am not sure because the provided context does not contain information about this question.\"\n"
@@ -93,29 +86,43 @@ class LLMClient:
                 "Cite local documents as [Source: filename, Page X] and web pages as [Web: URL] whenever possible.\n"
                 "Avoid obvious guessing; if you are uncertain, say so clearly.\n"
             )
-        else:  # grounding_level == "none"
+        else:
             grounding_instructions = (
                 "You are an AI study assistant.\n"
                 "You may use your general knowledge freely, without being limited to the context snippets.\n"
                 "If you use information that clearly comes from a source in the context, you may still cite it.\n"
             )
-        mode_instructions = self._mode_instructions(mode)
-
-        system_instructions = (
-            grounding_instructions +
-            mode_instructions +
-            "Use clear language suitable for a student.\n"
+        return (
+            grounding_instructions
+            + self._mode_instructions(mode)
+            + "Use clear language suitable for a student.\n"
             "Avoid copying long passages verbatim from the context; paraphrase instead.\n"
+            "You have access to the full conversation history above — use it to resolve pronouns, "
+            "follow-up references, and context from earlier turns.\n"
         )
 
-        # Conversation history
-        history_lines = []
-        for m in recent_messages[::-1]:  # reverse to chronological
-            role = "User" if m["role"] == "user" else "Assistant"
-            history_lines.append(f"{role}: {m['content']}")
-        history_block = "\n".join(history_lines)
+    def build_prompt(
+        self,
+        question: str,
+        context_chunks: List[Dict],
+        recent_messages: List[Dict],
+        grounding_level: str = "strict",
+        mode: str = "detailed",
+    ) -> Dict:
+        """
+        Build a multi-turn conversation payload for Gemini.
 
-        # Context with provenance
+        Returns a dict with keys:
+          - 'contents': list of {role, parts} objects for prior turns
+          - 'current_user_text': the text of the current user turn (injected with context)
+          - 'system_instruction': top-level system prompt string
+
+        recent_messages should NOT include the current question — pass only prior turns.
+        Messages are expected in chronological order (oldest first).
+        """
+        system_instruction = self._build_system_instruction(grounding_level, mode)
+
+        # Build context block to attach to the current user turn
         context_lines = []
         for c in context_chunks:
             meta = c["metadata"]
@@ -128,47 +135,87 @@ class LLMClient:
             context_lines.append(f"[CONTEXT FROM {src}]\n{c['text']}")
         context_block = "\n\n".join(context_lines)
 
-        prompt = (
-            f"{system_instructions}\n"
-            f"Conversation so far:\n{history_block}\n\n"
-            f"Context snippets:\n{context_block}\n\n"
-            f"User question: {question}\n\n"
-            "Now produce the best possible answer following the citation rules."
-        )
-        return prompt
+        # Build prior-turn contents list (role: "user" / "model")
+        contents = []
+        for m in recent_messages:  # already chronological (oldest first)
+            gemini_role = "user" if m["role"] == "user" else "model"
+            contents.append({"role": gemini_role, "parts": [{"text": m["content"]}]})
 
-    def _call_gemini_with_retry(self, prompt: str, max_retries: int = 3) -> str:
+        # Current user turn: attach retrieved context so the model can cite it
+        if context_block:
+            current_user_text = (
+                f"Context snippets:\n{context_block}\n\n"
+                f"User question: {question}\n\n"
+                "Now produce the best possible answer following the citation rules above."
+            )
+        else:
+            current_user_text = (
+                f"User question: {question}\n\n"
+                "Produce the best possible answer."
+            )
+
+        return {
+            "system_instruction": system_instruction,
+            "contents": contents,
+            "current_user_text": current_user_text,
+        }
+
+    def _build_api_contents(self, prompt_payload: Dict) -> tuple:
+        """
+        Convert the prompt_payload dict into (contents, config) ready for the Gemini API.
+        contents is a list of Content objects; config carries the system instruction.
+        """
+        prior_contents = []
+        for turn in prompt_payload.get("contents", []):
+            prior_contents.append(
+                genai_types.Content(
+                    role=turn["role"],
+                    parts=[genai_types.Part(text=turn["parts"][0]["text"])],
+                )
+            )
+        # Append the current user turn
+        prior_contents.append(
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=prompt_payload["current_user_text"])],
+            )
+        )
+        config = genai_types.GenerateContentConfig(
+            system_instruction=prompt_payload.get("system_instruction", ""),
+        )
+        return prior_contents, config
+
+    def _call_gemini_with_retry(self, prompt_payload: Dict, max_retries: int = 3) -> str:
         self._check_circuit()
         last_exc: Exception | None = None
+
+        contents, config = self._build_api_contents(prompt_payload)
 
         for attempt in range(max_retries):
             try:
                 resp = self.client.models.generate_content(
                     model=self.model_name,
-                    contents=prompt,
+                    contents=contents,
+                    config=config,
                 )
                 self._record_success()
                 return resp.text or ""
             except Exception as e:
                 last_exc = e
                 self._record_failure()
-                # backoff with jitter
                 if attempt < max_retries - 1:
                     delay = min(8, 1 * (2 ** attempt)) + random.uniform(0, 0.5)
                     time.sleep(delay)
                 else:
-                    # all retries failed
                     break
 
-        # After retries, if circuit now open, raise a cleaner error up
         raise RuntimeError(f"LLM call failed after retries: {last_exc}")
-    
-    def generate_answer(self, prompt: str) -> str:
-        
-        return self._call_gemini_with_retry(prompt)
+
+    def generate_answer(self, prompt_payload: Dict) -> str:
+        return self._call_gemini_with_retry(prompt_payload)
     
     def generate_followups(self, question: str, answer: str, mode: str = "detailed") -> List[str]:
-        prompt = (
+        followup_text = (
             "You are an AI tutor.\n"
             "Given the user's original question and your answer, propose 2-3 short follow-up questions "
             "that a curious student might ask next to deepen understanding.\n"
@@ -176,13 +223,17 @@ class LLMClient:
             f"User question: {question}\n\n"
             f"Your answer: {answer}\n"
         )
-        
-        text = self._call_gemini_with_retry(prompt)
+        # Single-turn call — build a minimal payload
+        payload = {
+            "system_instruction": "You are a helpful AI tutor.",
+            "contents": [],
+            "current_user_text": followup_text,
+        }
+        text = self._call_gemini_with_retry(payload)
         lines = [l.strip("- ").strip() for l in text.split("\n") if l.strip()]
         return [l for l in lines if len(l) > 0][:3]
     
     def verify_answer(self, question: str, answer: str, sources: List[Dict]) -> str:
-        # build a compact source summary
         src_text = ""
         for s in sources[:8]:
             if "url" in s:
@@ -190,7 +241,7 @@ class LLMClient:
             else:
                 src_text += f"- Local: {s.get('file_name','')} page {s.get('page_num')}\n"
 
-        prompt = (
+        verify_text = (
             "You are a careful verifier.\n"
             "Given a user's question, an AI-generated answer, and a list of sources, "
             "check whether the answer is fully supported by the sources.\n"
@@ -200,29 +251,32 @@ class LLMClient:
             f"Answer: {answer}\n\n"
             f"Sources list:\n{src_text}\n"
         )
-        return self._call_gemini_with_retry(prompt)
-    
-    def stream_answer(self, prompt: str) :
+        payload = {
+            "system_instruction": "You are a careful verifier.",
+            "contents": [],
+            "current_user_text": verify_text,
+        }
+        return self._call_gemini_with_retry(payload)
+
+    def stream_answer(self, prompt_payload: Dict):
         """
-        Stream tokens from Gemini and yield them one by one.
+        Stream tokens from Gemini using the multi-turn contents format.
         """
         self._check_circuit()
-        
+
+        contents, config = self._build_api_contents(prompt_payload)
+
         try:
-            
-            response =  self.client.models.generate_content_stream(
+            response = self.client.models.generate_content_stream(
                 model=self.model_name,
-                contents=[prompt],
-                
+                contents=contents,
+                config=config,
             )
-            
             self._record_success()
             for chunk in response:
                 text = getattr(chunk, "text", None)
                 if text:
-                    # Yield text chunks to FastAPI StreamingResponse
                     yield text
-                    
         except Exception as e:
             self._record_failure()
             raise RuntimeError(f"Streaming LLM call failed: {e}")

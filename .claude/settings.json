@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py",
+            "args": ["-3", "${CLAUDE_PROJECT_DIR}/.claude/hooks/session_context.py"],
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py",
+            "args": ["-3", "${CLAUDE_PROJECT_DIR}/.claude/hooks/guard_commands.py"],
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "py",
+            "args": ["-3", "${CLAUDE_PROJECT_DIR}/.claude/hooks/ruff_check.py"],
+            "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "py",
+            "args": ["-3", "${CLAUDE_PROJECT_DIR}/.claude/hooks/edit_reminders.py"],
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

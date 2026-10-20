@@ -31,14 +31,16 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  972bfc3 "Add CLAUDE.md, improvement audit and tracker, and Claude Code skills and hooks"
-              — LOCAL ONLY: don't push until G6, G7 and G8 are fixed (it documents those holes)
-Pushed:       origin/master = 73d8bae (native multi-turn chat history), on top of 69ae920 (repo
-              cleanup + .gitignore); both 2026-09-12
-Uncommitted:  this Current Status update (CLAUDE.md) and the T3 note (docs/improvement-tracker.md)
-Untracked:    none (the Tesseract installer is still on disk, ignored by *.exe)
-Next:         G6 semantic-cache leak (/run-item G6), then G8 → G7 → B1
-Blockers:     none — but master must not be pushed until G6, G7 and G8 are done
+Last commit:  34c03f4 "Update CLAUDE.md status after cleanup and docs commits; note T3 progress"
+              — master is 2 commits ahead of origin; 972bfc3 documents the G6/G7/G8 holes
+Pushed:       origin/master = 73d8bae (native multi-turn chat history), 2026-09-12
+Branches:     develop created 2026-10-20 from master — LOCAL ONLY; first push of develop and
+              master is the Day 3 release (docs/timeline.md)
+Uncommitted:  timeline + /run-day setup (docs/timeline.md, .claude/skills/run-day/, cheatsheet,
+              CLAUDE.md, .gitignore) — to be committed on develop as "day 00"
+Untracked:    none (planning docx/pdf files and the Tesseract installer are gitignored)
+Next:         Day 1 — G6 semantic-cache isolation, G4 CORS, O2 debug prints (/run-day 1)
+Blockers:     none — but nothing is pushed until G6, G7 and G8 are done (Day 3)
 ```
 
 ---
@@ -59,7 +61,7 @@ rag-study-assistant/
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
 ├── tests/                    ← pytest parser tests (pdf/docx/pptx) + samples/
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
-├── docs/                     ← improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
+├── docs/                     ← timeline.md (44-day build plan), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
 ├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
@@ -185,9 +187,10 @@ the evidence and direction for each ID. When status changes, update the tracker,
 - **P1 — planned:** G2, G3, G5, E2, S1, O1, R2, R3, C1, C2, I3, CO1, CO2, CO4, CO5, I6, B2, T1, T2
 - **P2 — deferred until usage grows:** R4, E3, C3, A1, I1, I2, CO3, T3
 
-Suggested order: G6 → G8 → G7 → B1 → I4,I5,I6 → R5 → E4 → R1, fitting the tiny P0s (G4, G1,
-O2) into any session; then CO4 → G5 → C2 → C3. Work one item or coupled group per session —
-see `docs/claude-cheatsheet.md` for groupings and prerequisites.
+Order: `docs/timeline.md` sequences every item (plus Docker, refactor, CI/CD, Langfuse,
+LangGraph and UI work) into 44 days — one day per session, started with `/run-day <N>`. It
+moves I4/I5/I6 to the pgvector migration (Day 15) and E4 to just after the refactor (Day 11).
+See `docs/claude-cheatsheet.md` for groupings and prerequisites.
 
 ---
 
@@ -368,7 +371,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 
 ## Claude Code Setup
 
-- **Skills** (`.claude/skills/`, user-invoked only): `/run-item <ID>` writes a brief to `docs/briefs/<ID>.md`, stops for approval, then implements with a check after each file; `/pre-commit` runs checks and reports, with no git writes.
+- **Skills** (`.claude/skills/`, user-invoked only): `/run-day <N>` reads Day N of `docs/timeline.md`, writes a brief to `docs/briefs/dayNN.md`, stops for approval, then implements checkpoint by checkpoint — the default way to start a day; `/run-item <ID>` does the same for a single tracker item outside the timeline; `/pre-commit` runs checks and reports, with no git writes.
 - **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell), session-start context (git state and In Progress items), bug-only ruff check on edited `.py` files, and reminders after editing this repo's trap files.
 - **Workflow, anchor and resume prompts:** `docs/claude-cheatsheet.md`.
 

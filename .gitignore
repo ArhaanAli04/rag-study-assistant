@@ -40,5 +40,11 @@ logs/
 # Binaries
 *.exe
 
+# Personal planning docs (build timelines)
+f1_build_timeline.docx
+rag_build_timeline.docx
+f1_daily_command_sequence.pdf
+rag_daily_command_sequence.pdf
+
 # Personal Claude Code settings (.claude/settings.json is shared and committed)
 .claude/settings.local.json

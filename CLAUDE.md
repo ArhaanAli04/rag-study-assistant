@@ -61,7 +61,7 @@ rag-study-assistant/
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
 ├── tests/                    ← pytest parser tests (pdf/docx/pptx) + samples/
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
-├── docs/                     ← timeline.md (44-day build plan), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
+├── docs/                     ← timeline.md (51-day build plan), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
 ├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
@@ -188,8 +188,11 @@ the evidence and direction for each ID. When status changes, update the tracker,
 - **P2 — deferred until usage grows:** R4, E3, C3, A1, I1, I2, CO3, T3
 
 Order: `docs/timeline.md` sequences every item (plus Docker, refactor, CI/CD, Langfuse,
-LangGraph and UI work) into 44 days — one day per session, started with `/run-day <N>`. It
-moves I4/I5/I6 to the pgvector migration (Day 15) and E4 to just after the refactor (Day 11).
+LangGraph, study-feature and UI work) into 51 days — one day per session, started with
+`/run-day <N>`. It moves I4/I5/I6 to the pgvector migration (Day 15) and E4 to just after the
+refactor (Day 11). New study features (Days 37–45): concept catalogue, mastery model + Progress
+page, adaptive Practice quiz, flashcards, living concept map, PDF citation viewer, Feynman mode,
+study guide. Deferred: exam planner (builds on the mastery model).
 See `docs/claude-cheatsheet.md` for groupings and prerequisites.
 
 ---
@@ -216,6 +219,7 @@ Found while writing this file; evidence and direction live under each ID.
 
 ## Conventions for This Repo
 
+- **No backend work without its UI (owner's rule).** Every user-visible backend capability — a new endpoint, response field, status, flag, score, or feature — ships with its frontend integration **in the same day/PR**: the screen or control that uses it, plus loading, empty, and error states. Never "UI later". Briefs list the UI changes for every deliverable; if something is genuinely backend-only (internal refactor, tracing, migrations), the brief says so explicitly. The UI overhaul phase restyles existing screens — it is not where features first get wired in.
 - **Run the backend from `src/`.** Imports are bare module names (`from db import ...`). Root-level scripts and Alembic add `src` to `sys.path` themselves.
 - **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Don't copy the semantic cache's unscoped pattern (G6).
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.

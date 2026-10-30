@@ -72,6 +72,15 @@ If there are no decisions, write "None".
 - New dependencies, each marked "needs approval" (none unless the user approves)
 - Checkpoints: split the work into steps of ≤ ~10 file operations; the user confirms between them
 
+## UI integration
+Required (CLAUDE.md rule: no backend work without its UI). For every deliverable that adds or
+changes an endpoint, response field, status, flag, score, or feature:
+- the frontend file(s) that will call or render it, and the control or screen the user sees
+- loading, empty, and error states
+Deliverables that are genuinely backend-only (refactor, tracing, migrations, tests) are listed
+here as "backend-only — no user-visible change", with the reason. If the timeline day has no
+UI bullet but the work is user-visible, add the UI work to the plan anyway and say so.
+
 ## Verification
 The timeline's Verify/Test bullets made concrete: tests to add or run, manual checks, and — for
 retrieval, prompt, or cache changes — what to measure before and after (eval harness once E4
@@ -104,12 +113,56 @@ decision.
    "Risks & open questions" instead of fixing them.
 4. If a check fails twice for the same reason, stop and report as the global
    "When You Are Stuck" rule describes.
-5. Append an `## Outcome` section to the brief: files changed (one line each), checks run and
-   their results, timeline bullets deferred or dropped (with the reason), and any before/after
-   numbers for the tracker's Notes column.
-6. Summarize in chat: the same file-by-file list and check results.
+5. **UI integration check — before declaring the day done.** For each new or changed
+   endpoint, response field, status or flag from today, find its caller in `frontend/src/`
+   (search for the route path or field name). Any without a caller is unfinished work: wire
+   it in now, or stop and ask — never leave it for "the UI phase".
+6. Append an `## Outcome` section to the brief: files changed (one line each), checks run and
+   their results, a **UI integration** table (backend change → frontend file → what the user
+   sees, or "backend-only" with the reason), timeline bullets deferred or dropped (with the
+   reason), and any before/after numbers for the tracker's Notes column.
+7. **Post material — never skip, even on infrastructure days.** Read the "Day → post
+   mapping" in `docs/posts/README.md` and find every post today feeds (post 9 is fed every
+   day). Append one entry to the `## Material log` of each of those post files, newest last:
+
+   ```markdown
+   ### Day N — YYYY-MM-DD — <day title>
+   - Takeaway: <one sentence a non-expert would understand>
+   - Numbers: <measured before/after values with what was measured, or "none today">
+   - Screenshots / diagrams to capture:
+     - [ ] <specific screen or diagram, using demo documents only>
+   - Lesson / quote: <one honest line — a surprise, a mistake, a trade-off>
+   - Concept source: docs/briefs/dayNN.md#the-concept
+   ```
+
+   Post 9 gets a single line instead: `- Day N — <what shipped> — <one number or lesson>`.
+   Use only numbers that were actually measured today; never estimate. Leave the post's other
+   sections (hook, outline, visuals) untouched unless the user asks. If today's day is not in
+   the mapping table, add only the post 9 line and mention the gap in chat.
+8. **Learning notes — check every day.** Open `docs/learning/ai-concepts.md` (gitignored; if
+   it is missing, say so and skip this step). Compare what was actually built today against
+   its 19 concept headings. For each concept today's work used or changed:
+   - If the section still holds the "_Not covered yet_" placeholder, replace it with:
+     ```markdown
+     **What it is** — plain words, 2–4 lines.
+     **Why this project needed it** — the concrete problem in this app it solved.
+     **How we used it** — files (path:line), approach, decisions taken and why, Day N.
+     **What it's doing** — simple bullet points of what happens at runtime, step by step.
+     **Results** — numbers measured today (with what and on what set), or "none yet".
+     ```
+   - If the section is already filled, append `#### Day N update — YYYY-MM-DD` with only what
+     changed: new behaviour, new decisions, new numbers. Never rewrite earlier days' text.
+   - Write only from what was built and measured today — never from the plan or estimates.
+   If today touched none of the 19 concepts, write nothing and say "no concept notes today".
+9. Summarize in chat: the same file-by-file list, check results and UI integration table,
+   which concept sections were written or updated, then list the screenshots the user should
+   capture now while the app state is fresh.
 
 ## STOP — hand control back to the user
+
+Files Claude may write in Phase 3: the approved plan's files, the brief's `## Outcome`, the
+`## Material log` sections in `docs/posts/`, and concept sections in
+`docs/learning/ai-concepts.md`.
 
 Do NOT run `git add`, `git commit`, `git push`, `git merge`, `git checkout`, `git stash`,
 `git reset`, `gh pr …`, or any git command other than `git status`, `git log`, `git diff`, and

@@ -46,5 +46,8 @@ rag_build_timeline.docx
 f1_daily_command_sequence.pdf
 rag_daily_command_sequence.pdf
 
+# Personal learning notes (written by /run-day, local only)
+docs/learning/
+
 # Personal Claude Code settings (.claude/settings.json is shared and committed)
 .claude/settings.local.json

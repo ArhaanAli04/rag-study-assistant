@@ -52,6 +52,7 @@ Review only added or changed lines. Report each finding with file:line.
 | Retrieved or web text placed in the system instruction; new per-turn variation added to it | CLAUDE.md, G5, CO4 |
 | New third-party imports, or any dependency-file change | Global: no new dependencies without approval |
 | `import main` / `from main import` in eval or experiment code | CLAUDE.md |
+| New or changed endpoint, response field, status, or flag with no caller in `frontend/src/` (search for the route path or field name) — unless the brief marks it backend-only | CLAUDE.md: no backend work without its UI |
 
 ## 5. Dependencies — only if a requirements file changed
 
@@ -86,9 +87,10 @@ If Docker isn't running, mark this step as skipped with that reason.
 
 1. A table: Step | Result (pass / fail / skipped + reason) | Notes.
 2. Findings from step 4, each with file:line.
-3. If the work came from `/run-item`, remind the user of their manual steps: commit, update the
-   tracker row and CLAUDE.md's Current Status, and check that the brief has an `## Outcome`
-   section.
+3. If the work came from `/run-day` or `/run-item`, remind the user of their manual steps:
+   commit, update the tracker rows and CLAUDE.md's Current Status, and check that the brief has
+   an `## Outcome` section (with its UI integration table for `/run-day`) and that today's
+   post Material log entries were written.
 4. A suggested commit message (text only) that a future reader with no context would
    understand.
 

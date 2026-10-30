@@ -1,6 +1,6 @@
 # RAG Study Assistant — Build Timeline
 
-44 days · 5–6 hours of focused work per day · FastAPI · Gemini · PostgreSQL + pgvector · Redis · LangGraph · Langfuse · Docker · GitHub Actions · React
+51 days · 5–6 hours of focused work per day · FastAPI · Gemini · PostgreSQL + pgvector · Redis · LangGraph · Langfuse · Docker · GitHub Actions · React
 
 > Source of truth for the day-by-day plan. `/run-day <N>` reads the `### Day N` section below.
 > `rag_build_timeline.docx` (gitignored) is a printable copy generated from this file — edit
@@ -21,9 +21,10 @@
 | 8 | 23–24 | Golden set as a Langfuse dataset (E3), CI eval gate, confidence + cache threshold tuning |
 | 9 | 25–29 | Reranker (R1), RRF (R4), parallelism (CO2), rewriting (C2, R2, R3), tokens (C1), cache (CO5, CO1) |
 | 10 | 30–34 | LangGraph port, corrective RAG, verification (G2), moderation (G3), injection (G5), memory (C3), tools (A1) |
-| 11 | 35–38 | Auth hardening, rate limits, background ingestion, quizzes from documents (S1), flashcards |
-| 12 | 39–42 | Modern chat-AI design system, chat UX, rich answers + citations, study pages, mobile + a11y |
-| 13 | 43–44 | Load testing, security review, docs, v1.0 |
+| 11 | 35–36 | Header-based streaming, refresh tokens, rate limits, background ingestion with progress |
+| 12 | 37–45 | Concept catalogue (S1), mastery + Progress, adaptive Practice, flashcards, living map, PDF viewer, Feynman mode, study guide |
+| 13 | 46–49 | Design system, new navigation, chat UX, rich answers, restyle of every page incl. Progress, Practice and the viewer, mobile + a11y |
+| 14 | 50–51 | UI integration audit, load testing, security review, docs, v1.0 |
 
 ## How every day runs
 
@@ -32,6 +33,7 @@
 - End of day: /pre-commit, git status, commit ("day NN - description"), push the branch, open a PR into develop, merge once CI is green
 - Release days: PR develop → master, tag the version, confirm the Render and Vercel deploys
 - Update docs/improvement-tracker.md (Status + before/after numbers in Notes) and the CLAUDE.md Current Status block
+- Every user-visible backend change ships with its UI the same day (CLAUDE.md rule): briefs list the UI work, the Outcome confirms it
 - Never force-push develop or master; every new dependency is confirmed before it is added
 
 ---
@@ -68,6 +70,7 @@ Focus: Security P0s (G6, G8, G7, G4, G1, O2, B1), branching model, first push
   - Uvicorn access log also records query strings: add a logging filter that strips them (or run with --no-access-log) in both the Dockerfile CMD and the local command
   - Treat already-logged tokens as exposed: delete local src/logs/app.log*, and plan to rotate JWT_SECRET_KEY on release day (every user logs in again)
 - G1 — call sanitize_query() at the top of both chat endpoints and return a friendly refusal over SSE; it is a stop-gap until real moderation lands on Day 32 (G3)
+- UI: ChatWindow.js renders the refusal as a normal assistant message, not a broken stream or a blank bubble
 - Test: a log-formatter test asserting no record ever contains "token="; an SSE test that an injection phrase is refused
 - Verify: run a streamed chat locally, then search app.log and the console output for "token=" — zero hits
 
@@ -84,6 +87,7 @@ Focus: Security P0s (G6, G8, G7, G4, G1, O2, B1), branching model, first push
   - Move deletion into an account service that removes sessions, messages, documents, concept maps + nodes, failed_queries and files on disk in one transaction
   - Index entries: mark FAISS chunks deleted for now; true removal arrives with pgvector on Day 15
 - Test: register → upload → chat → delete account → assert nothing of that user remains; a "../evil.pdf" upload lands inside uploads/<user_id>/
+- After the B1 fix, delete the g6-*@example.com test accounts from Day 1 via DELETE /user/delete and confirm their uploads and rows are gone
 - Release: develop → master (first push of both branches)
   - git status, merge with --no-ff, push master and develop, tag v0.1.0
   - Rotate JWT_SECRET_KEY on Render and flush the semantic cache key
@@ -120,6 +124,7 @@ Focus: Docker-first local dev, offline test suite, GitHub Actions CI, branch pro
   - main.py builds singletons at import time (IndexBuilder makes an embedding call) — add the smallest seam needed to import it without network; full dependency injection comes on Day 9
 - Smoke tests: register/login/me, upload a sample PDF, list/delete documents, /chat/stream event order (metadata → token… → message_id → [DONE]), sessions list/rename/delete, feedback, concept-map generate with mocked LLM, /health
 - Frontend: replace the default CRA App.test.js with render tests for the login page and the chat window
+- Fix test_table_extraction_on_image: write outputs to tmp_path instead of tests/samples/, stop double-cleaning the image, move the existence check first, assert real table output; then remove the *_cleaned*.jpg ignore line
 - Verify: python -m pytest tests passes with no API keys set and no network, in under a minute
 - Note: these tests are the safety net for the Phase 3 refactor — the refactor does not start until they are green
 
@@ -255,6 +260,7 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Postgres full-text (ts_rank_cd) replaces BM25Okapi — measure the difference on E4 before deleting rank-bm25
 - I5: deleting a document cascades to its chunks and removes the file
 - I6: register_document reports new / changed / unchanged; unchanged skips indexing and the doc_version bump; changed deletes the old version's chunks
+- UI: deleted documents disappear from the list and from citations immediately; re-uploading an unchanged file shows "already indexed" instead of a duplicate
 - Verify: restart the backend → documents are still retrieved (I4); a deleted document is never cited again
 
 ### Day 16 — Faster ingestion — batch embeddings, embedding cache (I3, CO3), reindex
@@ -271,6 +277,7 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Branch: feature/day17-r5-concept-maps
 - ConceptMapRetriever receives the shared retrieval service through dependency injection; no second IndexBuilder or embedding call
 - Test: a document indexed through the pipeline is returned by the concept-map retriever
+- UI: CreateMapForm's existing "use documents" toggle now works; ConceptNodeDetails shows the source document and page for document-derived nodes
 - Update CLAUDE.md Data & State: indexes now persist in Postgres
 - Release: develop → master; run alembic upgrade, the data migration and reindex on production; tag v0.3.0
 - Verify: generate a concept map with "use documents" on — nodes cite the uploaded material
@@ -432,7 +439,8 @@ Focus: LangGraph port, corrective RAG, verification (G2), moderation (G3), injec
 ### Day 32 — Answer verification and real moderation (G2, G3)
 
 - Branch: feature/day32-g2-g3
-- G2: verify_answer node for loose/none grounding (or a sample) → a warning flag in the metadata event → a badge in the UI
+- G2: verify_answer node for loose/none grounding (or a sample) → a warning flag in the metadata event
+- UI: MessageList.js shows a "some claims may not be supported by your sources" badge on flagged answers; a moderation refusal renders as a normal message
 - G3: replace the keyword list and sanitize_query with Gemini safety settings plus a moderation classification call, in one safety node used by every entry point
 - Verify: red-team prompts and rephrased unsafe requests are caught; normal study questions are not
 
@@ -450,14 +458,15 @@ Focus: LangGraph port, corrective RAG, verification (G2), moderation (G3), injec
 - Branch: feature/day34-c3-a1
 - C3: embed each Q+A pair into a session_memory table (pgvector); retrieve the top-k older turns with the rewritten query; token-budgeted recent window; deleted with the session
 - A1: tools — search_documents, web_search, generate_quiz, make_concept_map — callable by the model for open-ended requests; the deterministic RAG path stays the default
-- Verify: a long session recalls something said 30 turns ago; tool calls show up as spans in Langfuse
+- UI: a small "searched your notes / searched the web / made a quiz" indicator above answers when tools ran; tool results (a quiz, a map) open on their own page
+- Verify: a long session recalls something said 30 turns ago; tool calls show up as spans in Langfuse and as indicators in the chat
 - Release: develop → master, tag v0.5.0
 
 ---
 
-## Phase 11 — BACKEND HARDENING & STUDY FEATURES (Days 35–38)
+## Phase 11 — BACKEND HARDENING (Days 35–36)
 
-Focus: Auth hardening, rate limits, background ingestion, quizzes from documents (S1), flashcards
+Focus: Header-based streaming, refresh tokens, rate limits, background ingestion with progress
 
 ### Day 35 — Auth hardening — header-based streaming, refresh tokens, rate limits
 
@@ -465,7 +474,11 @@ Focus: Auth hardening, rate limits, background ingestion, quizzes from documents
 - Fetch-based SSE client sending an Authorization header; remove ?token= from /chat/stream (finishes G8)
 - Short-lived access tokens (~15 min) + rotating refresh token in an httpOnly, Secure, SameSite cookie; refresh_tokens table with revocation; /auth/logout revokes
 - Rate limiting per user/IP on /chat/stream, /upload, /login, /register backed by Redis (slowapi — new dependency, confirm)
-- Verify: an access token is useless after expiry; logout kills the refresh token; the limit returns 429 with Retry-After
+- UI:
+  - ChatWindow.js switches to the fetch-based stream; the API client refreshes the access token silently and retries once
+  - A clear "too many requests — try again in N s" message on 429, using Retry-After
+  - Session expiry sends the user to login with a message instead of failing silently
+- Verify: an access token is useless after expiry; logout kills the refresh token; the limit returns 429 with Retry-After and the UI shows it
 
 ### Day 36 — Background document ingestion with progress
 
@@ -473,77 +486,172 @@ Focus: Auth hardening, rate limits, background ingestion, quizzes from documents
 - /upload returns 202 with the document id; indexing runs in the background
 - Decision: FastAPI BackgroundTasks (no dependency, dies with the process) vs. a Redis-backed worker such as arq or RQ (new dependency, survives restarts)
 - documents.status (queued, parsing, embedding, ready, failed) + progress + failure reason; GET /documents/{id}/status
-- Verify: a large PDF uploads instantly and the status moves to ready; a corrupt file ends in failed with a reason
+- UI:
+  - DocumentUpload.js / DocumentList.js show a progress bar and status per document, polling the status endpoint
+  - Failed documents show the reason and a retry button; chat notes when a document is still indexing
+- Verify: a large PDF uploads instantly and the status moves to ready in the UI; a corrupt file ends in failed with a reason
 
-### Day 37 — Quizzes built from your documents (S1)
+---
 
-- Branch: feature/day37-s1-quizzes
-- S1: Gemini structured output (response schema from Pydantic models) for quizzes and concept maps; delete the hand-written JSON parser
-- Quiz questions generated from retrieved chunks of selected documents, each with its source document + page
-- Persist quizzes, attempts and answers; score history per topic in /user/stats
-- Verify: every question links to a real page; a retaken quiz updates the history
+## Phase 12 — STUDY FEATURES (Days 37–45)
 
-### Day 38 — Flashcards with spaced repetition — release
+Focus: Concept catalogue (S1), mastery + Progress, adaptive Practice, flashcards, living map, PDF viewer, Feynman mode, study guide
 
-- Branch: feature/day38-flashcards
-- Flashcards generated from documents with citations (structured output)
-- SM-2 scheduling (ease factor, interval, due date) and a review endpoint; "due today" count
+### Day 37 — Concept catalogue and structured output (S1)
+
+- Branch: feature/day37-s1-concepts
+- S1: Gemini structured output (response schema from Pydantic models) for quizzes, concept maps and study guides; delete the hand-written JSON parser
+- At indexing time, extract each document's concepts into a concepts table: name, definition, document + pages, prerequisite links — the shared backbone for mastery, Practice, the living map, Feynman mode and study guides
+- Re-extraction when a document version changes; concepts deleted with their document
+- UI:
+  - Documents page shows each document's concept count and an expandable concept list, with an "extracting concepts…" status while the job runs
+- Verify: concepts for a sample PDF all point to real pages; deleting the document removes them
+
+### Day 38 — Mastery model (#1) and the Progress page
+
+- Branch: feature/day38-mastery-progress
+- mastery_events table (quiz answer, flashcard review, Feynman result, chat question about a concept) feeding a mastery score per user × concept
+- Start simple: an Elo-style update with time decay — knowledge tracing is the concept to explain; keep the update function isolated so it can be swapped later
+- GET /progress: mastery per concept grouped by document, weakest first, trend over time
+- UI:
+  - New /progress page and a Progress link in the top navigation
+  - Concepts grouped by document with a mastery bar each; a weakest-five section with a "Practise these" button; trend sparkline
+  - Empty state ("take a quiz to start tracking"), loading and error states
+- Verify: answering questions moves the scores in the expected direction and the Progress page reflects it
+
+### Day 39 — Adaptive quiz (#2) — backend, with a working flow on the current Quiz page
+
+- Branch: feature/day39-adaptive-quiz
+- Questions generated from retrieved chunks of the chosen concepts or documents, each citing its source document + page
+- Question types:
+  - Multiple choice with wrong options built from common misconceptions, so a wrong answer reveals which misunderstanding it is
+  - Fill-in-the-blank and numeric
+  - Short answer graded by an LLM against a rubric, with feedback on what was missing
+- Concept selection targets weak mastery first; difficulty moves with your answers
+- Persist quizzes, attempts and answers; every answer writes a mastery event
+- UI:
+  - The current QuizGenerator / QuizDisplay run an adaptive quiz end to end today (every question type answerable, explanation shown after each) — Day 40 redesigns it as Practice
+- Verify: a quiz on a weak concept generates cited questions; the short-answer grader gives specific feedback
+
+### Day 40 — Practice page (#2) — quiz UI
+
+- Branch: feature/day40-practice-page
+- Quiz becomes Practice: /practice route with /quiz redirecting; navigation label updated
+- Modes: adaptive (weakest concepts), by topic, by document
+- Renderers for every question type; after each answer an explanation with a citation link to the source page (opens the viewer once Day 43 lands — document + page text until then)
+- Results screen: score, mastery change per concept, "practise the misses again"; quiz history list
+- Loading, empty and error states for every step
+- Verify: a full adaptive quiz in the browser updates the Progress page
+
+### Day 41 — Flashcards with spaced repetition
+
+- Branch: feature/day41-flashcards
+- Cards generated from concepts with citations (structured output); SM-2 scheduling (ease factor, interval, due date); every review writes a mastery event
+- UI:
+  - Flashcards tab on Practice: flip card, Again / Hard / Good / Easy, cards remaining
+  - "N cards due today" on the Progress page and as a badge on the Practice nav link
+- Verify: a reviewed card's next due date follows SM-2; due counts update in both places
+
+### Day 42 — Living concept map (#3)
+
+- Branch: feature/day42-living-map
+- Maps built from the concept catalogue, so documents are a real source (builds on R5); prerequisite edges produce a suggested learning path
+- Map endpoint returns mastery per node
+- UI:
+  - Mastery colour overlay (red → green) with an on/off toggle and legend
+  - Learning-path view highlighting the next concept to study
+  - ConceptNodeDetails.js actions: explain it, quiz me (Practice filtered to that concept), open source page, chat about it
+- Verify: after a quiz the quizzed nodes change colour; every node action opens the right place
+
+### Day 43 — PDF citation viewer (#8)
+
+- Branch: feature/day43-citation-viewer
+- Store each chunk's page and character position at indexing time (reindex once with the Day 16 script)
+- Authenticated file endpoint serving the user's own document (user-scoped, never a public URL)
+- Highlight by locating the chunk's text in the PDF text layer — needs a PDF renderer such as react-pdf (new dependency — confirm)
+- UI:
+  - Chat: clicking a citation opens a side panel at the highlighted passage, without leaving the conversation
+  - /documents/:id: full viewer; select text → "explain this" / "quiz me on this"
+  - Citations on Practice (Day 40) and the concept map (Day 42) now open the same viewer
+- Note: PPTX and DOCX open at the slide/section with the text shown — no PDF page to render; converting them to PDF is a later improvement
+- Verify: a citation from chat lands on the right page with the passage highlighted; another user's document id returns 404
+
+### Day 44 — Feynman mode (#4) — explain it back
+
+- Branch: feature/day44-feynman-mode
+- "Explain back" chat mode: the student explains a concept; a judge compares it with the concept's source chunks and returns covered / missing / wrong points, each with a citation; writes a mastery event
+- Judge rubric and calibration reuse the Day 12 LLM-as-judge work
+- UI:
+  - Fourth option in the Chat mode selector
+  - Structured feedback card: covered / missing / wrong, with citation chips that open the viewer
+  - Launch points: a concept-map node and a weak concept on Progress, pre-focused on that concept
+- Verify: a deliberately incomplete explanation gets the missing points flagged with correct citations
+
+### Day 45 — Study guide per document (#10) — release
+
+- Branch: feature/day45-study-guide
+- One study guide per document version (structured output): summary, key definitions, formula sheet, likely exam questions — every item cited; cached and regenerated when the document changes
+- UI:
+  - "Study guide" tab in the document viewer, citations clickable to the page
+  - Generate / regenerate button with progress; export to PDF
+- Verify: every cited page contains the claim; a new document version gets a fresh guide
 - Release: develop → master, tag v0.6.0
 
 ---
 
-## Phase 12 — UI OVERHAUL (Days 39–42)
+## Phase 13 — UI OVERHAUL (Days 46–49)
 
-Focus: Modern chat-AI design system, chat UX, rich answers + citations, study pages, mobile + a11y
+Focus: Design system, new navigation, chat UX, rich answers, restyle of every page incl. Progress, Practice and the viewer, mobile + a11y
 
-### Day 39 — Design system — fonts, tokens, dark mode, app shell
+### Day 46 — Design system — fonts, tokens, dark mode, app shell, navigation
 
-- Branch: feature/day39-design-system
+- Branch: feature/day46-design-system
 - Fonts: Inter or Geist Sans for the interface, Geist Mono or JetBrains Mono for code, optional Source Serif 4 for long answers — self-hosted via @fontsource (new dependency) or Google Fonts
 - Tailwind theme tokens: colours, radii, spacing, type scale; dark mode with the system preference as default
 - Decision: shadcn/ui components (Radix + Tailwind, adds Radix packages) vs. hand-built components on Tailwind; lucide-react icons stay
-- App shell: collapsible sidebar with sessions grouped by Today / Previous 7 days, centred ~768px chat column
+- App shell and navigation: Chat · Documents · Practice · Concept Maps · Progress; collapsible sidebar with sessions grouped by Today / Previous 7 days; centred ~768px chat column
+- Note: this phase restyles screens that already work — no feature is wired in for the first time here
 
-### Day 40 — Chat experience
+### Day 47 — Chat experience
 
-- Branch: feature/day40-chat-ux
-- Auto-growing composer: Enter to send, Shift+Enter for a newline, attach button, answer-mode selector
+- Branch: feature/day47-chat-ux
+- Auto-growing composer: Enter to send, Shift+Enter for a newline, attach button, mode selector (quick / detailed / step-by-step / explain back)
 - Stop generation (AbortController on the fetch stream), regenerate, edit and resend, copy
 - Smooth token rendering, auto-scroll that pauses when the user scrolls up, typing indicator, skeleton loaders
 - Verify: stop mid-answer leaves a clean partial message; regenerate replaces it
 
-### Day 41 — Rich answers and citations
+### Day 48 — Rich answers and citations
 
-- Branch: feature/day41-rich-answers
+- Branch: feature/day48-rich-answers
 - Code blocks with syntax highlighting and a copy button (react-syntax-highlighter or shiki — new dependency)
-- Math with remark-math + rehype-katex (new dependencies) — essential for STEM study material
-- Styled GFM tables; citation chips [1] with a hover card (document, page, snippet); sources panel; confidence/grounding badge; verification warning from Day 32
+- Math with remark-math + rehype-katex (new dependencies) — essential for STEM material; also in Practice, flashcards and study guides
+- Styled GFM tables; citation chips [1] with a hover card (document, page, snippet) opening the viewer panel; restyled confidence, grounding and verification badges and the Feynman feedback card
 
-### Day 42 — Documents and study pages, responsive and accessible — release
+### Day 49 — Study pages, responsive and accessible — release
 
-- Branch: feature/day42-study-ui
-- Drag-and-drop upload with progress and indexing status (Day 36); a documents library page
-- Quiz, flashcard and concept-map pages restyled on the new design system
-- Mobile layout (sidebar as a drawer), keyboard shortcuts (Ctrl+K new chat, / to focus), focus rings, aria labels; Lighthouse accessibility ≥ 90
-- Toasts for errors; designed empty states
+- Branch: feature/day49-study-ui
+- Restyle Documents (library, upload progress, viewer, study guide), Practice (quiz + flashcards), Concept Maps and Progress on the new design system
+- Mobile layout (sidebar and viewer panel as drawers), keyboard shortcuts (Ctrl+K new chat, / to focus), focus rings, aria labels; Lighthouse accessibility ≥ 90
+- Toasts for errors; designed empty states everywhere
 - Release: develop → master, tag v0.7.0
 
 ---
 
-## Phase 13 — POLISH & LAUNCH (Days 43–44)
+## Phase 14 — POLISH & LAUNCH (Days 50–51)
 
-Focus: Load testing, security review, docs, v1.0
+Focus: UI integration audit, load testing, security review, docs, v1.0
 
-### Day 43 — Performance and security review
+### Day 50 — Integration audit, performance and security review
 
-- Branch: feature/day43-perf-security
+- Branch: feature/day50-audit-perf-security
+- UI integration audit: list every endpoint and response field and confirm each has a frontend caller with loading, empty and error states — fix any gap before launch
 - Load test chat and upload (locust — new dependency — or k6 run outside the repo); set p95 targets; tune the DB pool
 - /security-review over everything since v0.1.0; pip-audit and npm audit
 - Decision: purge the Tesseract installer from git history — needs a history rewrite and force-push, so only with explicit agreement
 
-### Day 44 — Docs and v1.0
+### Day 51 — Docs and v1.0
 
-- Branch: feature/day44-docs-v1
+- Branch: feature/day51-docs-v1
 - Rewrite README.md so nothing in it drifts from the code; refresh docs/architecture.png
 - Bring CLAUDE.md fully up to date; every tracker item marked Done or Skipped with notes
 - Demo GIF/video and live links

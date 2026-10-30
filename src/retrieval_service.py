@@ -1,4 +1,5 @@
 
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 from functools import lru_cache
 
@@ -14,6 +15,9 @@ from web_search_client import WebSearchClient
 from web_cache import get_cached_web_results, set_cached_web_results
 from web_scraper import fetch_and_extract_text
 from context_compressor import SimpleContextCompressor
+
+# A child of the app logger reuses its handlers; calling setup_logging() again would duplicate every line.
+logger = logging.getLogger("rag_assistant.retrieval")
 
 
 class RetrievalService:
@@ -398,7 +402,7 @@ class RetrievalService:
                 # Web results confidence: 40-75 range
                 web_confidence = min(75.0, 40.0 + (len(reranked) * 5) + (avg_score * 20))
                 final_confidence = max(final_confidence, web_confidence)
-                print(f"DEBUG: Web fallback confidence: {web_confidence:.1f} (avg rerank score: {avg_score:.3f})")
+                logger.debug("Web fallback confidence: %.1f (avg rerank score: %.3f)", web_confidence, avg_score)
 
         result_payload: Dict[str, Any] = {
             "query": query,

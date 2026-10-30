@@ -37,6 +37,9 @@ logs/
 *.index
 *.log
 
+# Written by test_table_extraction_on_image until Day 5 moves it to tmp_path
+tests/samples/*_cleaned*.jpg
+
 # Binaries
 *.exe
 
@@ -45,6 +48,9 @@ f1_build_timeline.docx
 rag_build_timeline.docx
 f1_daily_command_sequence.pdf
 rag_daily_command_sequence.pdf
+
+# Personal learning notes (written by /run-day, local only)
+docs/learning/
 
 # Personal Claude Code settings (.claude/settings.json is shared and committed)
 .claude/settings.local.json

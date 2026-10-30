@@ -12,12 +12,12 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 
 | ID | Improvement | Status | Notes |
 |----|---|---|---|
-| G6 | Scope semantic cache by `user_id` (fixes cross-user leak of answers and document text) | Not Started | |
+| G6 | Scope semantic cache by `user_id` (fixes cross-user leak of answers and document text) | Done | Day 1. Per-user key `semantic_cache:{user_id}` plus a `user_id` check per entry; exact `doc_version` match. 7/7 offline tests. Live: user B got 0 of A's sources; A's repeat was a HIT (score 1.000). Legacy key flushed locally; Render flush (DB 0 and 1) on Day 3 |
 | G7 | Per-user upload directory with server-generated, sanitized filenames | Not Started | |
 | G8 | Stop logging JWTs (full request URLs, OAuth redirect URL) | Not Started | |
-| G4 | Fix CORS: use `ALLOWED_ORIGINS` instead of `allow_origins=["*"]` | Not Started | |
+| G4 | Fix CORS: use `ALLOWED_ORIGINS` instead of `allow_origins=["*"]` | Done | Day 1. With the allowlist, a foreign origin's preflight returns 400 and no allow-origin header (before: 200 and its origin echoed back). Render: Vercel URL only, set at the Day 3 release |
 | G1 | Wire `sanitize_query()` into `/chat` and `/chat/stream`, or remove it | Not Started | |
-| O2 | Remove/convert stray `print("DEBUG: ...")` statements | Not Started | |
+| O2 | Remove/convert stray `print("DEBUG: ...")` statements | Done | Day 1. 3 prints removed: 2 deleted (`main.py` cached stream), 1 now `logger.debug` (`retrieval_service.py`) |
 | E1 | Fix or replace broken RAGAS integration in `rag_metrics.py` | Not Started | |
 | E4 | Retrieval eval harness (Recall@k, MRR, nDCG@k) that exercises the real pipeline | Not Started | |
 | R1 | Implement a real reranker (cross-encoder or LLM-based) | Not Started | |

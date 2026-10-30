@@ -31,16 +31,16 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  34c03f4 "Update CLAUDE.md status after cleanup and docs commits; note T3 progress"
-              — master is 2 commits ahead of origin; 972bfc3 documents the G6/G7/G8 holes
+Last commit:  day 01 - scope semantic cache per user (G6), CORS allowlist (G4), debug prints to
+              logging (O2) — on develop, local only
 Pushed:       origin/master = 73d8bae (native multi-turn chat history), 2026-09-12
-Branches:     develop created 2026-10-20 from master — LOCAL ONLY; first push of develop and
-              master is the Day 3 release (docs/timeline.md)
-Uncommitted:  timeline + /run-day setup (docs/timeline.md, .claude/skills/run-day/, cheatsheet,
-              CLAUDE.md, .gitignore) — to be committed on develop as "day 00"
+Branches:     develop and master local only (develop = day 00 + day 01); first push is the
+              Day 3 release
+Uncommitted:  none
 Untracked:    none (planning docx/pdf files and the Tesseract installer are gitignored)
-Next:         Day 1 — G6 semantic-cache isolation, G4 CORS, O2 debug prints (/run-day 1)
-Blockers:     none — but nothing is pushed until G6, G7 and G8 are done (Day 3)
+Next:         Day 2 — G8 JWTs out of logs + G1 sanitize_query (/run-day 2)
+Blockers:     four g6-*@example.com test accounts wait for the B1 fix on Day 3; nothing is
+              pushed until the Day 3 release
 ```
 
 ---
@@ -160,9 +160,8 @@ not the user's documents); returns plain text, unparsed and not persisted.
 
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
-- Semantic cache leaks across users (G6); ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
+- Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
 - `sanitize_query()` is never called (G1); `verify_answer()` is never called (G2); keyword safety lists differ between endpoints (G3)
-- CORS allowlist is defined but `*` is used (G4); debug `print()` calls in the request path (O2)
 - RAGAS eval is non-functional (E1); word-overlap metrics (E2); hardcoded sample eval data and no retrieval metrics (E4)
 - Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
 - Alembic is configured but effectively unused (see Known Issues)
@@ -221,7 +220,7 @@ Found while writing this file; evidence and direction live under each ID.
 
 - **No backend work without its UI (owner's rule).** Every user-visible backend capability — a new endpoint, response field, status, flag, score, or feature — ships with its frontend integration **in the same day/PR**: the screen or control that uses it, plus loading, empty, and error states. Never "UI later". Briefs list the UI changes for every deliverable; if something is genuinely backend-only (internal refactor, tracing, migrations), the brief says so explicitly. The UI overhaul phase restyles existing screens — it is not where features first get wired in.
 - **Run the backend from `src/`.** Imports are bare module names (`from db import ...`). Root-level scripts and Alembic add `src` to `sys.path` themselves.
-- **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Don't copy the semantic cache's unscoped pattern (G6).
+- **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
 - **`/chat` and `/chat/stream` duplicate the pipeline.** Mirror any change in both until they are consolidated (see Open Decisions). The frontend uses only `/chat/stream`.
 - **Retrieved text is untrusted** (uploaded documents and web pages). Never put it in the system instruction; keep it delimited in the final user turn (G5).
@@ -230,7 +229,11 @@ Found while writing this file; evidence and direction live under each ID.
 - **Measure retrieval and prompt changes** with the eval harness once E4 exists, and record before/after numbers in the tracker's Notes column.
 - **`requirements.txt` is UTF-16LE with CRLF.** Preserve the encoding when editing. Docker installs the root file; `src/requirements.txt` is a different, older local pin set (it adds `torch` and `transformers` and lacks `Authlib` and `bcrypt`), so don't treat it as a mirror (T3).
 - **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID).
-- **Git history** is on `master`, with commit messages in a "day NN - description" style.
+- **Git flow** (since Day 1): `master` = released code, `develop` = integration branch.
+  - Each timeline day runs on `feature/dayNN-<ids>-<slug>`, branched from `develop` and merged back into `develop` (via PR) at the end of the day.
+  - Release days (every 3–5 days, marked in `docs/timeline.md`) merge `develop` → `master` with `--no-ff`, push both, and tag `vX.Y.Z`.
+  - Nothing is pushed before the Day 3 release (commit 972bfc3 documents the G6/G7/G8 holes).
+  - Commit messages use the "day NN - description" style. Never force-push `develop` or `master`.
 
 ---
 
@@ -274,9 +277,9 @@ The backend reads the root `.env`. `load_dotenv()` finds it by searching upward 
 | `JWT_SECRET_KEY` | yes | JWT signing (`auth.py`) and `SessionMiddleware` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `config/oauth_config.py` |
 | `JWT_ALGORITHM`, `JWT_EXPIRATION_MINUTES` | no | `HS256`, `10080` (7 days) |
-| `REDIS_URL` | no | `redis://localhost:6379/0` for `cache.py` / `web_cache.py`; `/1` for `semantic_cache.py` |
+| `REDIS_URL` | no | Code defaults: `redis://localhost:6379/0` for `cache.py` / `web_cache.py`; `/1` for `semantic_cache.py`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380). When `REDIS_URL` is set, the semantic cache shares that DB (0); it gets a separate setting on Day 4 |
 | `BASE_URL`, `FRONTEND_URL` | no | OAuth redirects; `http://localhost:8000`, `http://localhost:3000` |
-| `ALLOWED_ORIGINS` | no | read but ignored (G4) |
+| `ALLOWED_ORIGINS` | no | Comma-separated CORS allowlist (entries trimmed). Default: `http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app`. On Render: only `https://rag-study-assistant-chi.vercel.app` |
 | `TESSERACT_PATH`, `PORT` | no | OCR binary path; uvicorn port in the Dockerfile (default 8000) |
 
 Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (default
@@ -303,9 +306,16 @@ attached — not verified for this deployment.
 ```
 query_cache:{sha256(user_id::doc_version::query)}  DB 0            TTL 3600s  /search results                cache.py
 websearch:{query}                                  DB 0            TTL 3600s  Tavily chunks, no embeddings   web_cache.py
-semantic_cache_entries                             DB 1 (default)  no TTL     one JSON list of ≤ 64 entries
-                                                                              shared by all users (G6, CO5)  semantic_cache.py
+semantic_cache:{user_id}                           REDIS_URL's DB  no TTL     one JSON list of ≤ 64 entries
+                                                   (code default 1)           per user; entries also carry
+                                                                              user_id, doc_version, mode     semantic_cache.py
 ```
+
+**Legacy key (pre–Day 1):** `semantic_cache_entries` held every user's entries in one list.
+The code no longer reads it, but it still holds leaked data. Delete it on **both DB 0 and DB 1**,
+because which DB it landed in depended on whether `REDIS_URL` was set:
+- Locally: `docker exec rag-redis redis-cli -n 0 DEL semantic_cache_entries` and the same with `-n 1`.
+- On Render's Redis: the same `DEL` on DB 0 and DB 1 (Day 3 release checklist).
 
 When adding a key: list it here with its TTL and how it is scoped to the user.
 

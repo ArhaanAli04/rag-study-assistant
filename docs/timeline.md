@@ -87,6 +87,7 @@ Focus: Security P0s (G6, G8, G7, G4, G1, O2, B1), branching model, first push
   - Move deletion into an account service that removes sessions, messages, documents, concept maps + nodes, failed_queries and files on disk in one transaction
   - Index entries: mark FAISS chunks deleted for now; true removal arrives with pgvector on Day 15
 - Test: register → upload → chat → delete account → assert nothing of that user remains; a "../evil.pdf" upload lands inside uploads/<user_id>/
+- After the B1 fix, delete the g6-*@example.com test accounts from Day 1 via DELETE /user/delete and confirm their uploads and rows are gone
 - Release: develop → master (first push of both branches)
   - git status, merge with --no-ff, push master and develop, tag v0.1.0
   - Rotate JWT_SECRET_KEY on Render and flush the semantic cache key
@@ -123,6 +124,7 @@ Focus: Docker-first local dev, offline test suite, GitHub Actions CI, branch pro
   - main.py builds singletons at import time (IndexBuilder makes an embedding call) — add the smallest seam needed to import it without network; full dependency injection comes on Day 9
 - Smoke tests: register/login/me, upload a sample PDF, list/delete documents, /chat/stream event order (metadata → token… → message_id → [DONE]), sessions list/rename/delete, feedback, concept-map generate with mocked LLM, /health
 - Frontend: replace the default CRA App.test.js with render tests for the login page and the chat window
+- Fix test_table_extraction_on_image: write outputs to tmp_path instead of tests/samples/, stop double-cleaning the image, move the existence check first, assert real table output; then remove the *_cleaned*.jpg ignore line
 - Verify: python -m pytest tests passes with no API keys set and no network, in under a minute
 - Note: these tests are the safety net for the Phase 3 refactor — the refactor does not start until they are green
 

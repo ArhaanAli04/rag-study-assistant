@@ -91,8 +91,9 @@ If Docker isn't running, mark this step as skipped with that reason.
    commit, update the tracker rows and CLAUDE.md's Current Status, and check that the brief has
    an `## Outcome` section (with its UI integration table for `/run-day`) and that today's
    post Material log entries were written.
-4. A suggested commit message (text only) that a future reader with no context would
-   understand.
+4. A suggested commit message (text only): one short line in the `day NN - description` style
+   that a future reader with no context would understand. No body, and no Claude credit or
+   `Co-Authored-By` trailer.
 
 ## STOP — hand control back to the user
 

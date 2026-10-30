@@ -11,7 +11,14 @@ import redis
 from index_builder import IndexBuilder  # to reuse same embedding model
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/1")  # separate DB for semantic cache
-SEM_CACHE_KEY = "semantic_cache_entries"
+SEM_CACHE_KEY_PREFIX = "semantic_cache"
+
+
+def _cache_key(user_id: int) -> str:
+    # One Redis key per user makes cross-user reads impossible by construction and
+    # gives each user their own eviction budget (G6).
+    return f"{SEM_CACHE_KEY_PREFIX}:{user_id}"
+
 
 def _to_json_safe(obj):
     """
@@ -36,38 +43,47 @@ def _to_json_safe(obj):
 
 class SemanticCache:
     """
-    Very simple semantic cache stored as a list in Redis.
+    Very simple semantic cache stored as one list per user in Redis.
     Not production-grade, but enough to demonstrate the idea.
     """
 
-    def __init__(self, index_builder: IndexBuilder):
-        self.r = redis.from_url(REDIS_URL)
+    def __init__(self, index_builder: IndexBuilder, redis_client: Optional[redis.Redis] = None):
+        self.r = redis_client if redis_client is not None else redis.from_url(REDIS_URL)
         self.index_builder = index_builder
-        # TEMP: clear old bad entries once
-        
 
-    def _load_entries(self) -> List[Dict[str, Any]]:
-        val = self.r.get(SEM_CACHE_KEY)
+    def _load_entries(self, user_id: int) -> List[Dict[str, Any]]:
+        val = self.r.get(_cache_key(user_id))
         if not val:
             return []
         try:
             return json.loads(val)
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            logger.warning("Semantic cache for user %s is corrupt; ignoring it", user_id)
             return []
 
-    def _save_entries(self, entries: List[Dict[str, Any]]):
+    def _save_entries(self, user_id: int, entries: List[Dict[str, Any]]) -> None:
         safe_entries = _to_json_safe(entries)
-        self.r.set(SEM_CACHE_KEY, json.dumps(safe_entries))
+        self.r.set(_cache_key(user_id), json.dumps(safe_entries))
 
-    def lookup(self, query: str, threshold: float = 0.92, user_doc_version: Optional[int] = None,mode: Optional[str] = None) -> Optional[Dict[str, Any]]:
-        entries = self._load_entries()
-        relevant_entries = [e for e in entries 
-                       if (not user_doc_version or e.get("doc_version") == user_doc_version)
-                       and (not mode or e.get("mode") == mode)]
-        
+    def lookup(
+        self,
+        query: str,
+        user_id: int,
+        user_doc_version: int,
+        mode: str,
+        threshold: float = 0.92,
+    ) -> Optional[Dict[str, Any]]:
+        entries = self._load_entries(user_id)
+        # The user_id check is a backstop in case an entry ever lands under the wrong key.
+        # doc_version is compared exactly: version 0 is a real version, not "no filter".
+        relevant_entries = [e for e in entries
+                            if e.get("user_id") == user_id
+                            and e.get("doc_version") == user_doc_version
+                            and e.get("mode") == mode]
+
         if not relevant_entries:
             return None
-        
+
         q_emb = np.array(self.index_builder.embed_texts([query])[0])
         best_sim = -1.0
         best_entry = None
@@ -81,27 +97,35 @@ class SemanticCache:
                 best_sim = sim
                 best_entry = e
         if best_sim >= threshold:
-            logger.info("CACHE HIT: query='%s', score=%.3f, mode=%s", query[:50], best_sim, mode)
+            logger.info("CACHE HIT: user_id=%s query='%s', score=%.3f, mode=%s", user_id, query[:50], best_sim, mode)
             return best_entry["value"]
-        logger.info("CACHE MISS: query='%s', mode=%s", query[:50], mode)
+        logger.info("CACHE MISS: user_id=%s query='%s', mode=%s", user_id, query[:50], mode)
         return None
 
 
-    def store(self, query: str, value: Dict[str, Any], user_doc_version: int,mode: str, max_entries: int = 64):
+    def store(
+        self,
+        query: str,
+        value: Dict[str, Any],
+        user_id: int,
+        user_doc_version: int,
+        mode: str,
+        max_entries: int = 64,
+    ) -> None:
         q_emb = self.index_builder.embed_texts([query])[0]
-        entries = self._load_entries()
+        entries = self._load_entries(user_id)
         safe_value = _to_json_safe(value)
-        
-        # ADD doc_version to both value and entry metadata
+
         safe_value["doc_version"] = user_doc_version
-        safe_value["mode"] = mode  # ADD MODE TO STORED VALUE
+        safe_value["mode"] = mode
         entries.append({
-            "query": query, 
-            "embedding": list(map(float, q_emb)), 
+            "query": query,
+            "embedding": list(map(float, q_emb)),
             "value": safe_value,
-            "doc_version": user_doc_version,  # NEW: store version with entry
-            "mode": mode,  # NEW: store mode with entry
+            "user_id": user_id,
+            "doc_version": user_doc_version,
+            "mode": mode,
         })
         if len(entries) > max_entries:
             entries = entries[-max_entries:]
-        self._save_entries(entries)
+        self._save_entries(user_id, entries)

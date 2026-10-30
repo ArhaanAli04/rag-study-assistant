@@ -129,8 +129,10 @@ decision.
    ### Day N — YYYY-MM-DD — <day title>
    - Takeaway: <one sentence a non-expert would understand>
    - Numbers: <measured before/after values with what was measured, or "none today">
-   - Screenshots / diagrams to capture:
-     - [ ] <specific screen or diagram, using demo documents only>
+   - Capture now (only what depends on today's app state and can't be recreated later):
+     - [ ] <specific live screen, using demo documents only — or "nothing today">
+   - Make when writing the post (recreatable any time from git, the brief or this log):
+     - [ ] <code card, diagram, table card, re-runnable terminal output>
    - Lesson / quote: <one honest line — a surprise, a mistake, a trade-off>
    - Concept source: docs/briefs/dayNN.md#the-concept
    ```
@@ -155,8 +157,13 @@ decision.
    - Write only from what was built and measured today — never from the plan or estimates.
    If today touched none of the 19 concepts, write nothing and say "no concept notes today".
 9. Summarize in chat: the same file-by-file list, check results and UI integration table,
-   which concept sections were written or updated, then list the screenshots the user should
-   capture now while the app state is fresh.
+   which concept sections were written or updated. Then visuals, in two separate lists:
+   - **Capture now** — only screens that depend on the app's current state (a live feature
+     with today's demo data, a trace, an eval run that is expensive to repeat). If none, say
+     "nothing to capture today".
+   - **Make later, when writing the post** — code cards, diagrams, table cards and any terminal
+     output that can be re-run; these need no action today.
+   Ask the user to act only on the first list.
 
 ## STOP — hand control back to the user
 

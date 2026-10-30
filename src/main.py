@@ -53,16 +53,20 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 )
-# ADD CORS MIDDLEWARE HERE
-# Get allowed origins from environment or use defaults
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app"
-).split(",")
+# Explicit allowlist: with "*" and credentials, Starlette echoes back any Origin that sends a cookie (G4).
+# Entries are stripped because "https://x.app " in an env var would never match the browser's Origin.
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app"
+    ).split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
     allow_headers=["*"],  # Allow all headers
@@ -658,7 +662,7 @@ async def chat(
             followups=[],
         )
     # 0) Semantic cache lookup
-    cached = semantic_cache.lookup(body.query,user_doc_version=doc_version,mode=body.mode)
+    cached = semantic_cache.lookup(body.query, user_id=user_id_int, user_doc_version=doc_version, mode=body.mode)
     if cached is not None:
         return ChatResponse(**cached)
 
@@ -787,7 +791,7 @@ async def chat(
     }
 
     # 8) Store in semantic cache
-    semantic_cache.store(body.query, resp_dict, doc_version,body.mode)
+    semantic_cache.store(body.query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=body.mode)
 
     # NEW: log low-confidence queries for later analysis
     if final_confidence < 0.3:
@@ -834,7 +838,7 @@ async def chat_stream(
         return StreamingResponse(safe_stream(), media_type="text/plain")
 
     # Semantic cache (non-blocking lookup)
-    cached = semantic_cache.lookup(query, user_doc_version=doc_version, mode=mode)
+    cached = semantic_cache.lookup(query, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
     if cached:
         # Create/update session for cached response
         chat_session = get_or_create_session(db, user_id_int, session_id, query)
@@ -879,11 +883,9 @@ async def chat_stream(
                 content=cached_answer,
                 sources=",".join([str(s.get("file_name", s.get("url", ""))) for s in cached.get("sources", [])])
             )
-            
-            print(f"DEBUG: Created message with ID: {assistant_msg_id}")  # ← ADD THIS
+
             # Send message ID
             yield f"data: {json.dumps({'type': 'message_id', 'data': assistant_msg_id})}\n\n"
-            print(f"DEBUG: Sent message_id event")  # ← ADD THIS
             # Send DONE
             yield "data: [DONE]\n\n"
         
@@ -1013,7 +1015,7 @@ async def chat_stream(
                 "sources": [c["metadata"] for c in compressed_context],
                 "followups": [],
             }
-            semantic_cache.store(query, resp_dict, doc_version, mode)
+            semantic_cache.store(query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
 
         except RuntimeError as e:
             error_type = UserFriendlyError.classify_error(e)

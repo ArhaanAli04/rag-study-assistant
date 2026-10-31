@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, Request, Depends, Query, Body
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import os
@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 import time
 # Service imports
 from db import Document, User,init_db,SessionLocal,Message,Session as ChatSession
-from document_service import register_document
+from document_service import register_upload
 from indexing_pipeline import IndexingPipeline
 from index_builder import IndexBuilder
 from keyword_index import BM25KeywordIndex
@@ -20,7 +20,7 @@ from auth import (
 from starlette.middleware.sessions import SessionMiddleware
 import secrets
 from pydantic import BaseModel, EmailStr, validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Awaitable, Callable
 from enum import Enum
 from session_service import (
     get_or_create_session,
@@ -35,6 +35,10 @@ from fastapi.responses import StreamingResponse
 import json
 from topic_classifier import topic_classifier
 from error_handler import UserFriendlyError
+from chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
+from account_service import delete_user_account
+from dataclasses import asdict
+from upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
 from fastapi.middleware.cors import CORSMiddleware
 from concept_models import ConceptMap, ConceptMapNode
 # Add these imports to your existing imports
@@ -53,16 +57,20 @@ app.add_middleware(
     SessionMiddleware,
     secret_key=os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
 )
-# ADD CORS MIDDLEWARE HERE
-# Get allowed origins from environment or use defaults
-ALLOWED_ORIGINS = os.getenv(
-    "ALLOWED_ORIGINS",
-    "http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app"
-).split(",")
+# Explicit allowlist: with "*" and credentials, Starlette echoes back any Origin that sends a cookie (G4).
+# Entries are stripped because "https://x.app " in an env var would never match the browser's Origin.
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "ALLOWED_ORIGINS",
+        "http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app"
+    ).split(",")
+    if origin.strip()
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
     allow_headers=["*"],  # Allow all headers
@@ -78,7 +86,6 @@ query_decomposer = QueryDecomposer()
 semantic_cache = SemanticCache(index_builder=index_builder)
 compressor = SimpleContextCompressor()
 
-UPLOAD_DIR = "uploads"
 
 class SearchRequest(BaseModel):
     query: str
@@ -172,36 +179,35 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-):
-    # NEW: validate upload
+) -> Dict[str, Any]:
     await validate_upload(file)
-    if not os.path.exists(UPLOAD_DIR):
-        os.makedirs(UPLOAD_DIR)
-
-    file_location = os.path.join(UPLOAD_DIR, file.filename)
+    original_name = display_name(file.filename)
+    try:
+        stored_path = new_upload_path(UPLOAD_ROOT, current_user.id, file_extension(original_name))
+    except UnsafeUploadPath:
+        logger.error(f"Refused upload path for user {current_user.id}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not store the file.")
+    file_location = str(stored_path)
     content = await file.read()
     with open(file_location, "wb") as f:
         f.write(content)
 
-    logger.info(f"Uploaded file saved: {file.filename} by user {current_user.id}")
+    logger.info(f"Uploaded file saved: {original_name} as {file_location} by user {current_user.id}")
 
-    # 1) Register document with versioning
-    doc = register_document(current_user.id, file_location)
+    doc = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT)
 
-    # 2) Index document for this user (FAISS + BM25)
     num_chunks = indexing_pipeline.index_document(
-        file_location,
+        doc.file_path,
         user_id=str(current_user.id),
         subject_tags=None,
         document_id=doc.id,
+        file_name=original_name,
     )
 
-    # ADD THESE 3 LINES:
-    current_user.doc_version += 1  # bump version
+    current_user.doc_version += 1
     db.commit()
     return {
-        "filename": file.filename,
-        "saved_path": file_location,
+        "filename": original_name,
         "document_id": doc.id,
         "chunks_indexed": num_chunks,
         "doc_version": current_user.doc_version
@@ -269,19 +275,15 @@ async def get_documents(
     return result
 
 @app.middleware("http")
-async def timing_middleware(request: Request, call_next):
+async def log_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    # Path only, never request.url: /chat/stream carries the JWT in ?token= (G8).
     start_time = time.perf_counter()
     response = await call_next(request)
     process_time = (time.perf_counter() - start_time) * 1000
-    logger.info(f"REQ {request.method} {request.url.path} {process_time:.1f}ms")
+    logger.info(f"REQ {request.method} {request.url.path} {response.status_code} {process_time:.1f}ms")
     response.headers["X-Process-Time"] = str(process_time)
-    return response
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url}")
-    response = await call_next(request)
-    logger.info(f"Response Status: {response.status_code} for {request.method} {request.url}")
     return response
 
 @app.exception_handler(Exception)
@@ -431,15 +433,16 @@ async def get_user_stats(
 async def delete_account(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
-):
-    # Delete all user data
-    db.query(Message).filter(Message.user_id == str(current_user.id)).delete()
-    db.query(Session).filter(Session.user_id == str(current_user.id)).delete()
-    db.query(Document).filter(Document.user_id == str(current_user.id)).delete()
-    db.delete(current_user)
-    db.commit()
-    
-    return {"message": "Account deleted successfully"}
+) -> Dict[str, Any]:
+    summary = delete_user_account(
+        db,
+        current_user,
+        indexes=[index_builder.get_index(), bm25_index],
+        semantic_cache=semantic_cache,
+        retrieval_cache=retrieval_service,
+        upload_root=UPLOAD_ROOT,
+    )
+    return {"message": "Account deleted successfully", "deleted": asdict(summary)}
 
 @app.post("/search")
 async def semantic_search(
@@ -465,24 +468,6 @@ async def semantic_search(
     )
     return {"results": results}
 
-def sanitize_query(q: str) -> str:
-    q_lower = q.lower()
-
-    # Very simple heuristic: block common injection phrases
-    injection_phrases = [
-        "ignore previous instructions",
-        "you are now",
-        "disregard all earlier",
-        "system prompt",
-    ]
-    if any(p in q_lower for p in injection_phrases):
-        # Either block or strip; here we block
-        raise HTTPException(
-            status_code=400,
-            detail="Query rejected due to unsafe or prompt-injection-like content.",
-        )
-
-    return q
 from sqlalchemy import func, desc
 @app.get("/sessions")
 async def get_sessions(
@@ -636,6 +621,20 @@ async def chat(
     user_id_str = str(current_user.id)
     doc_version = current_user.doc_version  # GET VERSION
 
+    # Refused turns are not stored: a stored one would be replayed to Gemini as history.
+    injection_phrase = find_injection_phrase(body.query)
+    if injection_phrase is not None:
+        logger.warning(f"Prompt-injection phrase {injection_phrase!r} refused for user {user_id_int} on /chat")
+        return ChatResponse(
+            answer=INJECTION_REFUSAL,
+            session_id=body.session_id or 0,
+            confidence=0.0,
+            fallback_used=False,
+            grounding_level="none",
+            sources=[],
+            followups=[],
+        )
+
     # SAFETY GUARDRAILS - EARLY RETURN
     unsafe_keywords = ["suicide", "kill myself", "nuke", "die","self harm","explosives", "terrorist", "make a bomb"]
     q_lower = body.query.lower()
@@ -658,7 +657,7 @@ async def chat(
             followups=[],
         )
     # 0) Semantic cache lookup
-    cached = semantic_cache.lookup(body.query,user_doc_version=doc_version,mode=body.mode)
+    cached = semantic_cache.lookup(body.query, user_id=user_id_int, user_doc_version=doc_version, mode=body.mode)
     if cached is not None:
         return ChatResponse(**cached)
 
@@ -787,7 +786,7 @@ async def chat(
     }
 
     # 8) Store in semantic cache
-    semantic_cache.store(body.query, resp_dict, doc_version,body.mode)
+    semantic_cache.store(body.query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=body.mode)
 
     # NEW: log low-confidence queries for later analysis
     if final_confidence < 0.3:
@@ -826,15 +825,31 @@ async def chat_stream(
     user_id_str = str(current_user.id)
     doc_version = getattr(current_user, 'doc_version', 0)
 
-    # Safety check first
+    # Refusals go out as a 200 event stream: EventSource can't read the body of a 400 or
+    # a text/plain reply and would show a connection error instead. Not stored (see /chat).
+    injection_phrase = find_injection_phrase(query)
+    if injection_phrase is not None:
+        logger.warning(f"Prompt-injection phrase {injection_phrase!r} refused for user {user_id_int} on /chat/stream")
+        return StreamingResponse(
+            refusal_sse_events(INJECTION_REFUSAL, session_id, mode),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
+
     unsafe_keywords = ["explosive", "bomb", "suicide", "self harm"]
     if any(k in query.lower() for k in unsafe_keywords):
-        async def safe_stream():
-            yield "I'm unable to assist with that request. Please seek help from trusted professionals.\n"
-        return StreamingResponse(safe_stream(), media_type="text/plain")
+        return StreamingResponse(
+            refusal_sse_events(
+                "I'm unable to assist with that request. Please seek help from trusted professionals.",
+                session_id,
+                mode,
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     # Semantic cache (non-blocking lookup)
-    cached = semantic_cache.lookup(query, user_doc_version=doc_version, mode=mode)
+    cached = semantic_cache.lookup(query, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
     if cached:
         # Create/update session for cached response
         chat_session = get_or_create_session(db, user_id_int, session_id, query)
@@ -879,11 +894,9 @@ async def chat_stream(
                 content=cached_answer,
                 sources=",".join([str(s.get("file_name", s.get("url", ""))) for s in cached.get("sources", [])])
             )
-            
-            print(f"DEBUG: Created message with ID: {assistant_msg_id}")  # ← ADD THIS
+
             # Send message ID
             yield f"data: {json.dumps({'type': 'message_id', 'data': assistant_msg_id})}\n\n"
-            print(f"DEBUG: Sent message_id event")  # ← ADD THIS
             # Send DONE
             yield "data: [DONE]\n\n"
         
@@ -1013,7 +1026,7 @@ async def chat_stream(
                 "sources": [c["metadata"] for c in compressed_context],
                 "followups": [],
             }
-            semantic_cache.store(query, resp_dict, doc_version, mode)
+            semantic_cache.store(query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
 
         except RuntimeError as e:
             error_type = UserFriendlyError.classify_error(e)

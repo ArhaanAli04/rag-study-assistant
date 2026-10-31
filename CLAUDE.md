@@ -31,14 +31,19 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  972bfc3 "Add CLAUDE.md, improvement audit and tracker, and Claude Code skills and hooks"
-              — LOCAL ONLY: don't push until G6, G7 and G8 are fixed (it documents those holes)
-Pushed:       origin/master = 73d8bae (native multi-turn chat history), on top of 69ae920 (repo
-              cleanup + .gitignore); both 2026-09-12
-Uncommitted:  this Current Status update (CLAUDE.md) and the T3 note (docs/improvement-tracker.md)
-Untracked:    none (the Tesseract installer is still on disk, ignored by *.exe)
-Next:         G6 semantic-cache leak (/run-item G6), then G8 → G7 → B1
-Blockers:     none — but master must not be pushed until G6, G7 and G8 are done
+Last commit:  day 03 - per-user upload storage (G7), working account deletion (B1), login
+              notice — on develop, local only
+Pushed:       origin/master = 73d8bae (native multi-turn chat history), 2026-09-12
+Branches:     develop and master local only (develop = day 00–03); first push is the v0.1.0
+              release
+Uncommitted:  none
+Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
+              docs/posts/assets/ are gitignored)
+Next:         v0.1.0 release — develop → master --no-ff, push both, tag v0.1.0 (checklist in
+              docs/briefs/day03.md, "Release checklist"), then Day 4 (/run-day 4)
+Blockers:     Render release steps: rotate JWT_SECRET_KEY and set ALLOWED_ORIGINS before the
+              deploy; DEL semantic_cache_entries on Render Redis DB 0 and DB 1; then verify
+              /health, email + Google login, streamed chat
 ```
 
 ---
@@ -59,7 +64,7 @@ rag-study-assistant/
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
 ├── tests/                    ← pytest parser tests (pdf/docx/pptx) + samples/
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
-├── docs/                     ← improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
+├── docs/                     ← timeline.md (51-day build plan), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
 ├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
@@ -70,9 +75,9 @@ rag-study-assistant/
 
 | Area | Modules | Notes |
 |---|---|---|
-| App & data | `main.py`, `db.py`, `concept_models.py`, `models.py` | `db.py`: Base, SQLite engine, ORM models, startup column migrations. `models.py`: `DocumentChunk` data model |
+| App & data | `main.py`, `db.py`, `concept_models.py`, `models.py`, `account_service.py` | `db.py`: Base, SQLite engine, ORM models, startup column migrations. `models.py`: `DocumentChunk` data model. `account_service.py`: `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
 | Auth | `auth.py`, `routes/auth_routes.py`, `services/oauth_service.py`, `config/oauth_config.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
-| Ingestion | `indexing_pipeline.py`, `chunk_builder.py`, `chunking.py`, `pdf_utils.py`, `pptx_pipeline.py`, `pptx_utils.py`, `docx_utils.py`, `text_preprocessing.py`, `document_service.py`, `utils_file.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning |
+| Ingestion | `indexing_pipeline.py`, `chunk_builder.py`, `chunking.py`, `pdf_utils.py`, `pptx_pipeline.py`, `pptx_utils.py`, `docx_utils.py`, `text_preprocessing.py`, `document_service.py`, `utils_file.py`, `upload_storage.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
 | OCR / tables | `unified_parser.py`, `ocr_utils.py`, `image_preprocessing.py`, `pdf_table_utils.py`, `table_utils.py` | not reachable from `/upload` (images are rejected) |
 | Indexes | `embedding_service.py`, `index_builder.py`, `vector_store.py`, `keyword_index.py` | in-memory FAISS + BM25 (see Known Issues) |
 | Retrieval | `retrieval_service.py`, `query_decomposer.py`, `query_preprocessor.py`, `reranker.py`, `context_compressor.py`, `web_search_client.py`, `web_scraper.py` | `reranker.py` does no real reranking |
@@ -118,10 +123,15 @@ React 18.
 
 ## How Requests Flow
 
-**Upload** — `POST /upload`: extension check (`.pdf` / `.pptx` / `.docx`, ≤ 50 MB) → save to
-`uploads/<client filename>` → `register_document` (returns the existing row if the file hash
-matches, otherwise creates a new version) → `IndexingPipeline`: chunk → embed → FAISS add +
-BM25 rebuild → `User.doc_version += 1`.
+**Upload** — `POST /upload`: extension check (`.pdf` / `.pptx` / `.docx`, ≤ 50 MB) → save to a
+server-generated `uploads/{user_id}/{uuid}{ext}` (resolved path must stay inside `uploads/`; the
+client's basename is kept only as the display name) → `register_upload`: a new name or hash
+creates a new version of `(user_id, file_name)`; an identical re-upload returns the existing row —
+if that row is already per-user the new copy is deleted, if it points at a pre-Day 3 flat path the
+row is moved to the new per-user copy (the shared legacy file is left alone) →
+`IndexingPipeline` on the row's `file_path`, with `file_name` passed for citations: chunk → embed →
+FAISS add + BM25 rebuild → `User.doc_version += 1`. An identical re-upload is still re-indexed
+(duplicate chunks, I6).
 
 **Chat** — the frontend only calls `GET /chat/stream` (`ChatWindow.js`); `POST /chat` is an
 older, divergent copy of the same pipeline.
@@ -147,7 +157,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 ### Working
 - Email/password and Google OAuth login; profile, change password, user stats
 - PDF/PPTX/DOCX upload, hash-based versioning, per-user hybrid retrieval
-- Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`), multi-turn history (commit 73d8bae)
+- Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`; the frontend sends `step-by-step`, normalized since Day 2 — before that it silently got the detailed prompt), multi-turn history (commit 73d8bae)
 - Tavily web augmentation with a domain allowlist; Redis web-result cache (1 h)
 - Sessions: list, rename, delete, automatic topic tags; chat export to Markdown / PDF (frontend)
 - Thumbs up/down feedback → `messages.feedback` and `failed_queries`; `GET /analytics/failed-queries`
@@ -158,9 +168,8 @@ not the user's documents); returns plain text, unparsed and not persisted.
 
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
-- Semantic cache leaks across users (G6); ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
-- `sanitize_query()` is never called (G1); `verify_answer()` is never called (G2); keyword safety lists differ between endpoints (G3)
-- CORS allowlist is defined but `*` is used (G4); debug `print()` calls in the request path (O2)
+- Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
+- Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called at the top of both chat endpoints; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); keyword safety lists differ between endpoints (G3)
 - RAGAS eval is non-functional (E1); word-overlap metrics (E2); hardcoded sample eval data and no retrieval metrics (E4)
 - Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
 - Alembic is configured but effectively unused (see Known Issues)
@@ -172,7 +181,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Retrieval eval harness (E4); golden eval set + CI gate (E3); any CI/CD workflow
 - Query expansion / HyDE (R3); agentic tool use (A1); ANN or per-user indexes (I1); embedding cache (CO3)
 - Rate limiting, refresh tokens, PostgreSQL, quiz persistence
-- Frontend tests beyond the default CRA `App.test.js`
+- Frontend tests beyond `components/MessageList.test.js` and `components/ChatWindow.test.js` (refusal rendering, Day 2); the default CRA `App.test.js` was deleted, and an App smoke test comes on Day 5. Run with `cd frontend; npm test -- --watchAll=false`
 
 ---
 
@@ -185,9 +194,13 @@ the evidence and direction for each ID. When status changes, update the tracker,
 - **P1 — planned:** G2, G3, G5, E2, S1, O1, R2, R3, C1, C2, I3, CO1, CO2, CO4, CO5, I6, B2, T1, T2
 - **P2 — deferred until usage grows:** R4, E3, C3, A1, I1, I2, CO3, T3
 
-Suggested order: G6 → G8 → G7 → B1 → I4,I5,I6 → R5 → E4 → R1, fitting the tiny P0s (G4, G1,
-O2) into any session; then CO4 → G5 → C2 → C3. Work one item or coupled group per session —
-see `docs/claude-cheatsheet.md` for groupings and prerequisites.
+Order: `docs/timeline.md` sequences every item (plus Docker, refactor, CI/CD, Langfuse,
+LangGraph, study-feature and UI work) into 51 days — one day per session, started with
+`/run-day <N>`. It moves I4/I5/I6 to the pgvector migration (Day 15) and E4 to just after the
+refactor (Day 11). New study features (Days 37–45): concept catalogue, mastery model + Progress
+page, adaptive Practice quiz, flashcards, living concept map, PDF citation viewer, Feynman mode,
+study guide. Deferred: exam planner (builds on the mastery model).
+See `docs/claude-cheatsheet.md` for groupings and prerequisites.
 
 ---
 
@@ -201,9 +214,8 @@ Found while writing this file; evidence and direction live under each ID.
 | Concept maps search a separate, empty index, so "use documents" finds nothing | R5 | P0 |
 | Deleting a document leaves its chunks searchable | I5 | P0 |
 | Re-uploading an identical file duplicates its chunks | I6 | P1 |
-| Uploads share one directory across users; filenames aren't sanitized | G7 | P0 |
-| JWTs are written to logs (request URLs, OAuth redirect) | G8 | P0 |
-| `DELETE /user/delete` crashes (wrong `Session` class) | B1 | P0 |
+| Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
+| Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
 | Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
 | `pytest.ini` is ignored (`[tool:pytest]` header) | T1 | P1 |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
@@ -213,8 +225,9 @@ Found while writing this file; evidence and direction live under each ID.
 
 ## Conventions for This Repo
 
+- **No backend work without its UI (owner's rule).** Every user-visible backend capability — a new endpoint, response field, status, flag, score, or feature — ships with its frontend integration **in the same day/PR**: the screen or control that uses it, plus loading, empty, and error states. Never "UI later". Briefs list the UI changes for every deliverable; if something is genuinely backend-only (internal refactor, tracing, migrations), the brief says so explicitly. The UI overhaul phase restyles existing screens — it is not where features first get wired in.
 - **Run the backend from `src/`.** Imports are bare module names (`from db import ...`). Root-level scripts and Alembic add `src` to `sys.path` themselves.
-- **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Don't copy the semantic cache's unscoped pattern (G6).
+- **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
 - **`/chat` and `/chat/stream` duplicate the pipeline.** Mirror any change in both until they are consolidated (see Open Decisions). The frontend uses only `/chat/stream`.
 - **Retrieved text is untrusted** (uploaded documents and web pages). Never put it in the system instruction; keep it delimited in the final user turn (G5).
@@ -223,7 +236,11 @@ Found while writing this file; evidence and direction live under each ID.
 - **Measure retrieval and prompt changes** with the eval harness once E4 exists, and record before/after numbers in the tracker's Notes column.
 - **`requirements.txt` is UTF-16LE with CRLF.** Preserve the encoding when editing. Docker installs the root file; `src/requirements.txt` is a different, older local pin set (it adds `torch` and `transformers` and lacks `Authlib` and `bcrypt`), so don't treat it as a mirror (T3).
 - **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID).
-- **Git history** is on `master`, with commit messages in a "day NN - description" style.
+- **Git flow** (since Day 1): `master` = released code, `develop` = integration branch.
+  - Each timeline day runs on `feature/dayNN-<ids>-<slug>`, branched from `develop` and merged back into `develop` (via PR) at the end of the day.
+  - Release days (every 3–5 days, marked in `docs/timeline.md`) merge `develop` → `master` with `--no-ff`, push both, and tag `vX.Y.Z`.
+  - Nothing is pushed before the Day 3 release (commit 972bfc3 documents the G6/G7/G8 holes).
+  - Commit messages use the "day NN - description" style. Never force-push `develop` or `master`.
 
 ---
 
@@ -267,9 +284,9 @@ The backend reads the root `.env`. `load_dotenv()` finds it by searching upward 
 | `JWT_SECRET_KEY` | yes | JWT signing (`auth.py`) and `SessionMiddleware` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `config/oauth_config.py` |
 | `JWT_ALGORITHM`, `JWT_EXPIRATION_MINUTES` | no | `HS256`, `10080` (7 days) |
-| `REDIS_URL` | no | `redis://localhost:6379/0` for `cache.py` / `web_cache.py`; `/1` for `semantic_cache.py` |
+| `REDIS_URL` | no | Code defaults: `redis://localhost:6379/0` for `cache.py` / `web_cache.py`; `/1` for `semantic_cache.py`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380). When `REDIS_URL` is set, the semantic cache shares that DB (0); it gets a separate setting on Day 4 |
 | `BASE_URL`, `FRONTEND_URL` | no | OAuth redirects; `http://localhost:8000`, `http://localhost:3000` |
-| `ALLOWED_ORIGINS` | no | read but ignored (G4) |
+| `ALLOWED_ORIGINS` | no | Comma-separated CORS allowlist (entries trimmed). Default: `http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app`. On Render: only `https://rag-study-assistant-chi.vercel.app` |
 | `TESSERACT_PATH`, `PORT` | no | OCR binary path; uvicorn port in the Dockerfile (default 8000) |
 
 Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (default
@@ -282,7 +299,7 @@ Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (def
 | What | Where | Survives restart? |
 |---|---|---|
 | Users, sessions, messages, documents, failed queries, concept maps | SQLite `src/data/app.db` | yes on local disk / Docker volume |
-| Uploaded files | `src/uploads/` | yes locally; not volume-mounted in Docker |
+| Uploaded files | `src/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `src/uploads/<name>`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/src/uploads`; Render: no disk, lost on every deploy |
 | FAISS vectors + chunk metadata (including chunk text) | process memory | **no** |
 | BM25 corpus | process memory | **no** |
 | L1 retrieval cache (≤ 256 entries) | class-level dict in `RetrievalService` | no |
@@ -296,9 +313,16 @@ attached — not verified for this deployment.
 ```
 query_cache:{sha256(user_id::doc_version::query)}  DB 0            TTL 3600s  /search results                cache.py
 websearch:{query}                                  DB 0            TTL 3600s  Tavily chunks, no embeddings   web_cache.py
-semantic_cache_entries                             DB 1 (default)  no TTL     one JSON list of ≤ 64 entries
-                                                                              shared by all users (G6, CO5)  semantic_cache.py
+semantic_cache:{user_id}                           REDIS_URL's DB  no TTL     one JSON list of ≤ 64 entries
+                                                   (code default 1)           per user; entries also carry
+                                                                              user_id, doc_version, mode     semantic_cache.py
 ```
+
+**Legacy key (pre–Day 1):** `semantic_cache_entries` held every user's entries in one list.
+The code no longer reads it, but it still holds leaked data. Delete it on **both DB 0 and DB 1**,
+because which DB it landed in depended on whether `REDIS_URL` was set:
+- Locally: `docker exec rag-redis redis-cli -n 0 DEL semantic_cache_entries` and the same with `-n 1`.
+- On Render's Redis: the same `DEL` on DB 0 and DB 1 (Day 3 release checklist).
 
 When adding a key: list it here with its TTL and how it is scoped to the user.
 
@@ -368,7 +392,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 
 ## Claude Code Setup
 
-- **Skills** (`.claude/skills/`, user-invoked only): `/run-item <ID>` writes a brief to `docs/briefs/<ID>.md`, stops for approval, then implements with a check after each file; `/pre-commit` runs checks and reports, with no git writes.
+- **Skills** (`.claude/skills/`, user-invoked only): `/run-day <N>` reads Day N of `docs/timeline.md`, writes a brief to `docs/briefs/dayNN.md`, stops for approval, then implements checkpoint by checkpoint — the default way to start a day; `/run-item <ID>` does the same for a single tracker item outside the timeline; `/pre-commit` runs checks and reports, with no git writes.
 - **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell), session-start context (git state and In Progress items), bug-only ruff check on edited `.py` files, and reminders after editing this repo's trap files.
 - **Workflow, anchor and resume prompts:** `docs/claude-cheatsheet.md`.
 

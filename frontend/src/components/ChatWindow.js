@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Sparkles, Download } from "lucide-react";
+import { Sparkles } from "lucide-react";
 import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
 import { exportChatAsMarkdown, exportChatAsPDF } from "../utils/exportUtils";
@@ -141,12 +141,15 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
         eventSource.close();
         setLoading(false);
 
+        // Refused turns aren't stored server-side, so they get no message_id and no feedback.
+        const isRefusal = Boolean(metadataReceived?.refused);
         const assistantMsg = {
           role: "assistant",
           content: assistantAnswer,
           id: capturedMessageId || Date.now(),
-          sources: metadataReceived?.sources || [],
-          confidence: metadataReceived?.confidence || 0,
+          sources: isRefusal ? [] : metadataReceived?.sources || [],
+          confidence: isRefusal ? 0 : metadataReceived?.confidence || 0,
+          isRefusal,
         };
         setMessages((prev) => [...prev, assistantMsg]);
         setStreamingAnswer("");

@@ -51,7 +51,6 @@ def add_message(db: DBSession, session_id: int, user_id: int, role: str, content
     
     # Get the last inserted ID
     message_id = result.lastrowid
-    print(f"DEBUG session_service: Created message ID {message_id}")  # ← ADD THI
     # Return messagwe_id
     return message_id
 

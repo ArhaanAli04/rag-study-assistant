@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Mail, Lock, Sparkles, AlertCircle } from "lucide-react";
+import { Mail, Lock, Sparkles, AlertCircle, CheckCircle } from "lucide-react";
 import GoogleLoginButton from "./GoogleLoginButton";
-export default function LoginForm({ onSubmit, error }) {
+export default function LoginForm({ onSubmit, error, notice }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -46,6 +46,13 @@ export default function LoginForm({ onSubmit, error }) {
           </h1>
           <p className="text-muted-foreground text-sm">Sign in to continue learning</p>
         </div>
+
+        {notice && (
+          <div role="status" className="mb-6 p-4 rounded-lg bg-green-500/10 border border-green-500/30 flex items-start gap-3">
+            <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-green-300">{notice}</p>
+          </div>
+        )}
 
         {/* Error Message */}
         {error && (

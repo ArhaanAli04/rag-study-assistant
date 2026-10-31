@@ -5,7 +5,8 @@
 
 | Command | When to use |
 |---|---|
-| `/run-item <ID>` | Start work on one tracker item, e.g. `/run-item G6`, or a coupled group, `/run-item I4,I5,I6`. Writes a brief to `docs/briefs/<ID>.md` and stops for your approval before implementing. |
+| `/run-day <N>` | Start a timeline day, e.g. `/run-day 1`. Reads Day N of `docs/timeline.md` and every tracker ID it names, writes `docs/briefs/dayNN.md`, and stops for your approval; then implements checkpoint by checkpoint. The default way to start each day. |
+| `/run-item <ID>` | Work on one tracker item outside the timeline, e.g. `/run-item G6`, or a coupled group, `/run-item I4,I5,I6`. Writes a brief to `docs/briefs/<ID>.md` and stops for your approval before implementing. |
 | `/pre-commit` | Before every commit: compile check, `pytest tests`, diff review against CLAUDE.md rules, frontend/Docker builds when relevant. Reports only — no git writes. |
 
 Both live in `.claude/skills/`. Only you can start them; Claude won't invoke them on its own.
@@ -42,20 +43,24 @@ state and the In Progress item automatically.
 
 ## Daily Ritual
 
+The full command-by-command checklist (setup, PRs, release days, Days 1–3 exceptions) is
+`rag_daily_command_sequence.pdf` in the repo root (gitignored, personal copy).
+
 ```
-1. cd rag-study-assistant ; claude
-   (the session-context hook shows git state and any In Progress item)
-2. Pick ONE item (or coupled group) from docs/improvement-tracker.md
-   and set its Status to "In Progress".
-3. /run-item <ID>                       (or paste the anchor prompt below)
-4. Read docs/briefs/<ID>.md → reply "go with A", "go with B", or adjustments
-5. Watch it implement. If context gets heavy: /clear → paste the resume prompt
-6. /pre-commit → review the report and the diff
-7. You: git add → git commit → git push
-8. You: tracker row → Done (+ notes, before/after numbers), CLAUDE.md Current Status → commit
+1. cd rag-study-assistant ; .\venv\Scripts\Activate.ps1
+2. git checkout develop ; git pull origin develop
+   git checkout -b <Branch: line of today's day in docs/timeline.md>
+3. claude   (the session-context hook shows git state and any In Progress item)
+4. /run-day <N>
+5. Read docs/briefs/dayNN.md → approve, answer each Decision, or adjust
+6. Watch it implement, confirming each checkpoint. If context gets heavy: /clear → resume prompt
+7. /pre-commit → review the report and the diff
+8. Tracker rows → Done (+ notes, before/after numbers), CLAUDE.md Current Status (or ask Claude)
+9. You: git status → git add -A → git commit → git push → PR into develop → merge
+10. git checkout develop ; git pull origin develop
 ```
 
-## Anchor Prompt (when not using /run-item)
+## Anchor Prompt (when not using /run-day or /run-item)
 
 ```
 This is the RAG Study Assistant project.
@@ -77,20 +82,21 @@ Context gathering only — do NOT create, edit, or delete any file except the br
 Then summarize it and wait for my go-ahead before implementing anything.
 ```
 
-## Resume Prompt (after /clear in the middle of an item)
+## Resume Prompt (after /clear in the middle of a day or item)
 
 ```
-Resume [ID]. Read docs/briefs/[ID].md — the approved option is [A/B] [plus any adjustments].
-Run `git diff` to see what is already done, then continue the brief's Plan from there.
-Same rules as /run-item Phase 3: a check after each file, no git writes,
+Resume Day [N]. Read docs/briefs/day[NN].md — approved decisions: [A/B per decision, plus any adjustments].
+Run `git diff` to see what is already done, then continue the brief's Plan from the next checkpoint.
+Same rules as /run-day Phase 3: a check after each file, confirm each checkpoint, no git writes,
 and append ## Outcome to the brief when finished.
 ```
 
+For a single item: `Resume [ID]. Read docs/briefs/[ID].md …` with the /run-item Phase 3 rules.
+
 ## Choosing the Next Item
 
-- **One item or coupled group per session** — the brief stays focused and the diff stays reviewable.
-- **Suggested order:** G6 → G8 → G7 → B1 → I4,I5,I6 → R5 → E4 → R1, fitting the tiny P0s
-  (G4, G1, O2) into any session; then CO4 → G5 → C2 → C3.
+- **One timeline day per session** — the brief stays focused and the diff stays reviewable.
+- **Order:** follow `docs/timeline.md` day by day. Use `/run-item` only for work outside it.
 - **Coupled groups and prerequisites:**
   - I4 + I5 + I6 share the index persistence and deletion code — do them together.
   - G6 before CO5 (fix the leak before tuning the cache).
@@ -117,7 +123,7 @@ against accidents, not a security boundary.
 - A hook blocked a command → read the reason. If you really want it, run it in your own terminal.
 - A check fails twice → Claude should stop and report (global "When You Are Stuck" rule); choose the approach yourself.
 - Context got large mid-item → `/clear`, then the resume prompt.
-- The brief looks wrong or stale → `/run-item <ID>` again and choose "refresh".
+- The brief looks wrong or stale → `/run-day <N>` (or `/run-item <ID>`) again and choose "refresh".
 
 ## File Locations
 
@@ -127,8 +133,12 @@ against accidents, not a security boundary.
 | `~/.claude/CLAUDE.md` | Global personal preferences |
 | `docs/improvements.md` | Evidence and direction for every item ID |
 | `docs/improvement-tracker.md` | Status of every item (you update it) |
-| `docs/briefs/<ID>.md` | Per-item brief and Outcome — your study notes |
+| `docs/timeline.md` | 51-day build plan — what `/run-day` reads (edit here, regenerate the docx) |
+| `docs/briefs/dayNN.md` | Per-day brief and Outcome — your study notes |
+| `docs/posts/` | LinkedIn series: 9 post outlines; `/run-day` appends each day's material log (mapping in `README.md`) |
+| `docs/briefs/<ID>.md` | Per-item brief and Outcome (from `/run-item`) |
 | `docs/claude-cheatsheet.md` | This file |
+| `.claude/skills/run-day/SKILL.md` | `/run-day` workflow |
 | `.claude/skills/run-item/SKILL.md` | `/run-item` workflow |
 | `.claude/skills/pre-commit/SKILL.md` | `/pre-commit` checks |
 | `.claude/settings.json` | Hook registration |

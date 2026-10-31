@@ -34,6 +34,20 @@ class BM25KeywordIndex:
         if self.tokenized_corpus:
             self.bm25 = BM25Okapi(self.tokenized_corpus)
 
+    def mark_deleted_by_user(self, user_id: str) -> int:
+        """Tombstone every entry of ``user_id``; returns how many were newly marked.
+
+        Mirrors FaissVectorStore.mark_deleted_by_user so both halves of hybrid retrieval
+        forget a deleted account. The corpus is not rebuilt, so IDF statistics still include
+        these documents until restart.
+        """
+        marked = 0
+        for meta in self.metadata:
+            if meta.get("user_id") == user_id and not meta.get("deleted"):
+                meta["deleted"] = True
+                marked += 1
+        return marked
+
     def search(self, query: str, top_k: int = 5, filters: Dict | None = None):
         if not self.bm25:
             return []
@@ -44,6 +58,8 @@ class BM25KeywordIndex:
         results = []
         for idx in indices:
             meta = self.metadata[idx]
+            if meta.get("deleted"):
+                continue
             if filters:
                 ok = True
                 for k, v in filters.items():

@@ -66,7 +66,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         if not email:
             raise HTTPException(status_code=400, detail="Email not provided by Google")
         
-        logger.info(f"Google OAuth callback for user: {email}")
+        # No identity here: the user row (and its id) isn't loaded yet, and emails stay out of logs.
+        logger.info("Google OAuth callback received")
         
         # Check if user exists
         user = db.query(User).filter(User.email == email).first()
@@ -84,7 +85,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             db.add(user)
             db.commit()
             db.refresh(user)
-            logger.info(f"Created new OAuth user: {email}")
+            logger.info(f"Created new OAuth user {user.id}")
         else:
             # Update existing user info
             user.username = name
@@ -93,7 +94,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
             if not user.oauth_provider:
                 user.oauth_provider = "google"
             db.commit()
-            logger.info(f"Updated existing user: {email}")
+            logger.info(f"Updated existing OAuth user {user.id}")
         
         # Create JWT token
         access_token = create_access_token(
@@ -105,7 +106,8 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
         redirect_url = f"{frontend_url}/auth/callback?token={access_token}"
         
-        logger.info(f"Redirecting to frontend: {redirect_url}")
+        # The redirect URL carries the JWT, and emails are personal data: log the id only (G8).
+        logger.info(f"Redirecting user {user.id} to the frontend OAuth callback")
         
         return RedirectResponse(url=redirect_url)
         

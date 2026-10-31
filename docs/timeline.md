@@ -87,7 +87,7 @@ Focus: Security P0s (G6, G8, G7, G4, G1, O2, B1), branching model, first push
   - Move deletion into an account service that removes sessions, messages, documents, concept maps + nodes, failed_queries and files on disk in one transaction
   - Index entries: mark FAISS chunks deleted for now; true removal arrives with pgvector on Day 15
 - Test: register → upload → chat → delete account → assert nothing of that user remains; a "../evil.pdf" upload lands inside uploads/<user_id>/
-- After the B1 fix, delete the g6-*@example.com test accounts from Day 1 via DELETE /user/delete and confirm their uploads and rows are gone
+- After the B1 fix, delete the g6-*@example.com test accounts from Day 1 and day02-check@example.com (user 7, from the Day 2 API check) via DELETE /user/delete and confirm their uploads and rows are gone
 - Release: develop → master (first push of both branches)
   - git status, merge with --no-ff, push master and develop, tag v0.1.0
   - Rotate JWT_SECRET_KEY on Render and flush the semantic cache key
@@ -472,6 +472,7 @@ Focus: Header-based streaming, refresh tokens, rate limits, background ingestion
 
 - Branch: feature/day35-auth-hardening
 - Fetch-based SSE client sending an Authorization header; remove ?token= from /chat/stream (finishes G8)
+- Move the OAuth callback token from ?token= to a URL fragment (#token=) so it never reaches server or proxy logs; update AuthCallback.js to read it from the hash
 - Short-lived access tokens (~15 min) + rotating refresh token in an httpOnly, Secure, SameSite cookie; refresh_tokens table with revocation; /auth/logout revokes
 - Rate limiting per user/IP on /chat/stream, /upload, /login, /register backed by Redis (slowapi — new dependency, confirm)
 - UI:

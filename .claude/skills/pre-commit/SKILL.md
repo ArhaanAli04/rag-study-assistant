@@ -64,9 +64,12 @@ Review only added or changed lines. Report each finding with file:line.
 
 ```powershell
 cd frontend; npm run build
+cd frontend; npm test -- --watchAll=false
 ```
 
-There is no lint script, and `npm test` only runs the default CRA test in watch mode — skip it.
+There is no lint script. `--watchAll=false` matters: without it `npm test` starts Jest's
+interactive watch mode and never exits. Both commands are slow on this machine (several
+minutes each), so run them in the background.
 
 ## 7. Docker — only if `Dockerfile`, `docker-compose.yml`, or `requirements.txt` changed
 

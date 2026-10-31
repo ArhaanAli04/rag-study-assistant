@@ -54,6 +54,13 @@ class RetrievalService:
             # naive eviction: pop oldest
             self._manual_l1_cache.pop(next(iter(self._manual_l1_cache)))
 
+    def l1_cache_purge_user(self, user_id: str) -> int:
+        """Drop the user's L1 entries (account deletion); returns how many were removed."""
+        stale = [key for key in self._manual_l1_cache if key[0] == user_id]
+        for key in stale:
+            del self._manual_l1_cache[key]
+        return len(stale)
+
     _manual_l1_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     # -------- Existing semantic_search (vector only) can stay if you use it elsewhere --------

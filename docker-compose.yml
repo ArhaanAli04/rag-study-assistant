@@ -13,6 +13,8 @@ services:
       # Persist uploaded files and FAISS indexes
       - ./src/data:/app/src/data
       - ./src/logs:/app/src/logs
+      # Uploads live outside the container layer so they survive container recreation (G7)
+      - uploads:/app/src/uploads
     environment:
       - REDIS_URL=redis://redis:6379/0
       - GEMINI_API_KEY=${GEMINI_API_KEY}
@@ -63,6 +65,7 @@ services:
 # ==================== Volumes ====================
 volumes:
   redis-data:
+  uploads:
 
 # ==================== Networks ====================
 networks:

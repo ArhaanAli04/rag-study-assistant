@@ -124,6 +124,7 @@ Focus: Docker-first local dev, offline test suite, GitHub Actions CI, branch pro
   - main.py builds singletons at import time (IndexBuilder makes an embedding call) — add the smallest seam needed to import it without network; full dependency injection comes on Day 9
 - Smoke tests: register/login/me, upload a sample PDF, list/delete documents, /chat/stream event order (metadata → token… → message_id → [DONE]), sessions list/rename/delete, feedback, concept-map generate with mocked LLM, /health
 - Frontend: replace the default CRA App.test.js with render tests for the login page and the chat window
+  - Since Day 3 the router works in Jest: `frontend/package.json` maps react-router-dom / react-router / react-router/dom to their CJS builds (CRA's Jest 27 ignores package `exports`), `App.js` exports `AppRoutes`, and `src/AccountDeletionFlow.test.js` is a working example (MemoryRouter + AuthProvider + AppRoutes; tests still need the TextEncoder polyfill at the top)
 - Fix test_table_extraction_on_image: write outputs to tmp_path instead of tests/samples/, stop double-cleaning the image, move the existence check first, assert real table output; then remove the *_cleaned*.jpg ignore line
 - Verify: python -m pytest tests passes with no API keys set and no network, in under a minute
 - Note: these tests are the safety net for the Phase 3 refactor — the refactor does not start until they are green

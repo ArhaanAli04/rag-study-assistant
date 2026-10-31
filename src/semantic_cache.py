@@ -65,6 +65,10 @@ class SemanticCache:
         safe_entries = _to_json_safe(entries)
         self.r.set(_cache_key(user_id), json.dumps(safe_entries))
 
+    def clear_user(self, user_id: int) -> None:
+        """Drop every cached answer of ``user_id`` (account deletion; ids can be reused)."""
+        self.r.delete(_cache_key(user_id))
+
     def lookup(
         self,
         query: str,

@@ -42,7 +42,21 @@ class FaissVectorStore:
         for meta in self.metadata:
             if meta.get("extra_metadata", {}).get("document_id") == document_id:
                 meta["deleted"] = True
-    
+
+    def mark_deleted_by_user(self, user_id: str) -> int:
+        """Tombstone every chunk of ``user_id``; returns how many were newly marked.
+
+        A flat index can't drop single vectors, so they stay in memory until restart but are
+        never returned. Needed on account deletion because SQLite reuses the highest freed
+        user id, and a new account with that id would otherwise retrieve these chunks.
+        """
+        marked = 0
+        for meta in self.metadata:
+            if meta.get("user_id") == user_id and not meta.get("deleted"):
+                meta["deleted"] = True
+                marked += 1
+        return marked
+
 
     def search(self, query_embedding: np.ndarray, top_k: int = 5, filters: dict | None = None):
         """

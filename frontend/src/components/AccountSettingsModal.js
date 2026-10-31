@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { User, Mail, Calendar, Trash2, FileText } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
+import { useAuth } from '../contexts/AuthContext';
+import { rememberAccountDeletion } from '../utils/accountDeletion';
 
 export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
@@ -17,6 +20,10 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const { logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     // Load user data and stats from backend
@@ -98,6 +105,8 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   };
 
   const handleDeleteAccount = async () => {
+    setDeleteError('');
+    setDeleting(true);
     try {
       const token = localStorage.getItem('token');
       const response = await fetch(`${API_BASE_URL}/user/delete`, {
@@ -106,17 +115,23 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
           'Authorization': `Bearer ${token}`,
         },
       });
+      const data = await response.json().catch(() => ({}));
 
-      if (response.ok) {
-        alert('Account deleted successfully');
-        localStorage.removeItem('token');
-        localStorage.removeItem('userEmail');
-        window.location.href = '/login';
-      } else {
-        alert('Failed to delete account');
+      if (!response.ok) {
+        setDeleteError(data.detail || 'Failed to delete account. Please try again.');
+        setDeleting(false);
+        return;
       }
+
+      // Stored before logout(): clearing the token makes the route guard redirect to /login
+      // and unmount this page, dropping anything passed as navigation state.
+      rememberAccountDeletion(data.deleted);
+      logout();
+      localStorage.removeItem('userEmail');
+      navigate('/login', { replace: true });
     } catch (error) {
-      alert('Error deleting account');
+      setDeleteError('Network error. Your account was not deleted. Please try again.');
+      setDeleting(false);
     }
   };
 
@@ -274,18 +289,25 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
                     ⚠️ <strong>Warning:</strong> This action cannot be undone. All your data will be permanently deleted.
                   </p>
                 </div>
+                {deleteError && (
+                  <div role="alert" className="p-3 bg-red-500/10 border border-red-500/50 rounded-lg text-red-400 text-sm">
+                    {deleteError}
+                  </div>
+                )}
                 <div className="flex gap-2">
                   <button
                     onClick={() => setShowDeleteConfirm(false)}
-                    className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors text-white"
+                    disabled={deleting}
+                    className="flex-1 px-4 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Cancel
                   </button>
                   <button
                     onClick={handleDeleteAccount}
-                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-white"
+                    disabled={deleting}
+                    className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 rounded-lg transition-colors text-white disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    Confirm Delete
+                    {deleting ? 'Deleting…' : 'Confirm Delete'}
                   </button>
                 </div>
               </div>

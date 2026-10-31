@@ -48,7 +48,7 @@ should scope everything.
     | new allowlist | Vercel app origin | 200 · echoed | echoed |
     | new allowlist | `http://evil.example` | 400 · none | none |
 - Capture now (only what depends on today's app state and can't be recreated later):
-  - [ ] Two browser windows, two demo accounts, the same question; only the account with the demo PDF shows it as a source (demo documents only). **Deferred to Day 3**, while the `g6-*` test accounts still exist (they are deleted after the B1 fix)
+  - [x] Two browser windows, two demo accounts, the same question; only the account with the demo PDF shows it as a source (demo documents only). **Deferred to Day 3**, while the `g6-*` test accounts still exist (they are deleted after the B1 fix). Captured on Day 3 with fresh demo accounts instead: `docs/posts/assets/post01-day03-two-account-isolation.png`
 - Make when writing the post (recreatable any time from git, the brief or this log):
   - [ ] Terminal: `python -m pytest tests/test_semantic_cache.py -v` showing the 7 isolation tests passing
   - [ ] Code card: the old `if not user_doc_version` filter vs. the new `semantic_cache:{user_id}` key + exact match
@@ -75,3 +75,22 @@ should scope everything.
   - [ ] Code card: the old 4-phrase list vs. the narrowed list, with "What is a system prompt?" allowed
 - Lesson / quote: "The leak was in three places, and the third (uvicorn's access log) wasn't even our code. Then the check script leaked its own token through httpx's INFO log. Logging a URL is logging a password."
 - Concept source: docs/briefs/day02.md#the-concept
+
+### Day 3 — 2026-11-01 — Per-user uploads (G7), account deletion (B1) and first release
+- Takeaway: uploaded files used to go into one shared folder under whatever name the browser sent, so two students uploading `notes.pdf` overwrote each other. Now every file gets a random name inside its owner's own folder. And "Delete account" — which always crashed — now really deletes everything: rows, files, search-index entries and cached answers.
+- Numbers:
+  - Live isolation (local backend, two fresh demo accounts, one demo PDF each, the same question): A's sources `[samples.pdf]`, B's `[table_test.pdf]` — 0 of A's sources reached B. Files stored as `uploads\8\<uuid>.pdf` and `uploads\9\<uuid>.pdf`; citations still show the original filenames.
+  - Before G7, in the local DB: two users' document rows pointed at the same file, `uploads/DL_Unit5_RNN.pdf`.
+  - Live account deletions through the UI: 3 deletes, all `200`, in 198 / 57 / 71.5 ms; `index_entries_removed` = 6 / 10 / 6 (FAISS + BM25 tombstones: 3+3, 5+5, 3+3 chunks); afterwards 0 rows in all 7 tables, no upload folder, no `semantic_cache:{id}` key.
+  - ID reuse, observed live: after test accounts 3–7 were deleted, the next new account was given **id 3** again (SQLite reuses the highest freed id). Without purging the index and caches, it would have inherited the old user 3's chunks and cached answers.
+  - Tests: backend 63 → 81 (12 upload-path, 3 re-upload, 3 account-deletion); frontend 3 → 7, including a full-router flow test.
+- Capture now (only what depends on today's app state and can't be recreated later):
+  - [x] Two browser windows, demo accounts A and B, the same question, each showing only its own PDF as a source — `docs/posts/assets/post01-day03-two-account-isolation.png` (gitignored)
+- Make when writing the post (recreatable any time from git, the brief or this log):
+  - [ ] Code card: `os.path.join("uploads", file.filename)` (before) vs. `new_upload_path(UPLOAD_ROOT, user.id, ext)` with the containment check (after)
+  - [ ] Terminal: `python -m pytest tests/test_upload_storage.py -v` — `../evil.pdf`, `..\..\evil.PDF`, `/etc/passwd.pdf` all land in `uploads/7/<uuid>.pdf`
+  - [ ] Diagram: one shared `uploads/` folder (before) vs. `uploads/{user_id}/{uuid}` (after)
+  - [ ] Diagram: deleting a user touches five stores — SQLite, disk, FAISS, BM25, Redis — DB first, then the derived copies
+  - [ ] Table card: the three live deletions (status, ms, `index_entries_removed`)
+- Lesson / quote: "Deleting a user is a distributed transaction in disguise. And the id you just freed comes straight back: our very next sign-up got id 3, the id of an account deleted a minute earlier. Every cache and index keyed by user id has to forget it, or the new person inherits the old one's notes."
+- Concept source: docs/briefs/day03.md#the-concept

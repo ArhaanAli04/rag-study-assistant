@@ -8,7 +8,7 @@ from jose import JWTError, jwt
 import time
 # Service imports
 from db import Document, User,init_db,SessionLocal,Message,Session as ChatSession
-from document_service import register_document
+from document_service import register_upload
 from indexing_pipeline import IndexingPipeline
 from index_builder import IndexBuilder
 from keyword_index import BM25KeywordIndex
@@ -36,6 +36,9 @@ import json
 from topic_classifier import topic_classifier
 from error_handler import UserFriendlyError
 from chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
+from account_service import delete_user_account
+from dataclasses import asdict
+from upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
 from fastapi.middleware.cors import CORSMiddleware
 from concept_models import ConceptMap, ConceptMapNode
 # Add these imports to your existing imports
@@ -83,7 +86,6 @@ query_decomposer = QueryDecomposer()
 semantic_cache = SemanticCache(index_builder=index_builder)
 compressor = SimpleContextCompressor()
 
-UPLOAD_DIR = "uploads"
 
 class SearchRequest(BaseModel):
     query: str
@@ -177,36 +179,35 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-):
-    # NEW: validate upload
+) -> Dict[str, Any]:
     await validate_upload(file)
-    if not os.path.exists(UPLOAD_DIR):
-        os.makedirs(UPLOAD_DIR)
-
-    file_location = os.path.join(UPLOAD_DIR, file.filename)
+    original_name = display_name(file.filename)
+    try:
+        stored_path = new_upload_path(UPLOAD_ROOT, current_user.id, file_extension(original_name))
+    except UnsafeUploadPath:
+        logger.error(f"Refused upload path for user {current_user.id}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not store the file.")
+    file_location = str(stored_path)
     content = await file.read()
     with open(file_location, "wb") as f:
         f.write(content)
 
-    logger.info(f"Uploaded file saved: {file.filename} by user {current_user.id}")
+    logger.info(f"Uploaded file saved: {original_name} as {file_location} by user {current_user.id}")
 
-    # 1) Register document with versioning
-    doc = register_document(current_user.id, file_location)
+    doc = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT)
 
-    # 2) Index document for this user (FAISS + BM25)
     num_chunks = indexing_pipeline.index_document(
-        file_location,
+        doc.file_path,
         user_id=str(current_user.id),
         subject_tags=None,
         document_id=doc.id,
+        file_name=original_name,
     )
 
-    # ADD THESE 3 LINES:
-    current_user.doc_version += 1  # bump version
+    current_user.doc_version += 1
     db.commit()
     return {
-        "filename": file.filename,
-        "saved_path": file_location,
+        "filename": original_name,
         "document_id": doc.id,
         "chunks_indexed": num_chunks,
         "doc_version": current_user.doc_version
@@ -432,15 +433,16 @@ async def get_user_stats(
 async def delete_account(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
-):
-    # Delete all user data
-    db.query(Message).filter(Message.user_id == str(current_user.id)).delete()
-    db.query(Session).filter(Session.user_id == str(current_user.id)).delete()
-    db.query(Document).filter(Document.user_id == str(current_user.id)).delete()
-    db.delete(current_user)
-    db.commit()
-    
-    return {"message": "Account deleted successfully"}
+) -> Dict[str, Any]:
+    summary = delete_user_account(
+        db,
+        current_user,
+        indexes=[index_builder.get_index(), bm25_index],
+        semantic_cache=semantic_cache,
+        retrieval_cache=retrieval_service,
+        upload_root=UPLOAD_ROOT,
+    )
+    return {"message": "Account deleted successfully", "deleted": asdict(summary)}
 
 @app.post("/search")
 async def semantic_search(

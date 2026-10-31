@@ -31,18 +31,19 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 02 - JWTs out of logs (G8), prompt-injection refusals (G1), step-by-step mode
-              fix — on develop, local only
+Last commit:  day 03 - per-user upload storage (G7), working account deletion (B1), login
+              notice — on develop, local only
 Pushed:       origin/master = 73d8bae (native multi-turn chat history), 2026-09-12
-Branches:     develop and master local only (develop = day 00–02); first push is the Day 3
+Branches:     develop and master local only (develop = day 00–03); first push is the v0.1.0
               release
 Uncommitted:  none
-Untracked:    none (planning docx/pdf files and the Tesseract installer are gitignored)
-Next:         Day 3 — G7 per-user uploads + B1 account deletion + first release, push develop
-              and master (/run-day 3)
-Blockers:     delete test accounts g6-*@example.com and day02-check@example.com (user 7) after
-              the B1 fix; rotate JWT_SECRET_KEY and flush the legacy cache key on Render at the
-              Day 3 release
+Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
+              docs/posts/assets/ are gitignored)
+Next:         v0.1.0 release — develop → master --no-ff, push both, tag v0.1.0 (checklist in
+              docs/briefs/day03.md, "Release checklist"), then Day 4 (/run-day 4)
+Blockers:     Render release steps: rotate JWT_SECRET_KEY and set ALLOWED_ORIGINS before the
+              deploy; DEL semantic_cache_entries on Render Redis DB 0 and DB 1; then verify
+              /health, email + Google login, streamed chat
 ```
 
 ---
@@ -74,9 +75,9 @@ rag-study-assistant/
 
 | Area | Modules | Notes |
 |---|---|---|
-| App & data | `main.py`, `db.py`, `concept_models.py`, `models.py` | `db.py`: Base, SQLite engine, ORM models, startup column migrations. `models.py`: `DocumentChunk` data model |
+| App & data | `main.py`, `db.py`, `concept_models.py`, `models.py`, `account_service.py` | `db.py`: Base, SQLite engine, ORM models, startup column migrations. `models.py`: `DocumentChunk` data model. `account_service.py`: `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
 | Auth | `auth.py`, `routes/auth_routes.py`, `services/oauth_service.py`, `config/oauth_config.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
-| Ingestion | `indexing_pipeline.py`, `chunk_builder.py`, `chunking.py`, `pdf_utils.py`, `pptx_pipeline.py`, `pptx_utils.py`, `docx_utils.py`, `text_preprocessing.py`, `document_service.py`, `utils_file.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning |
+| Ingestion | `indexing_pipeline.py`, `chunk_builder.py`, `chunking.py`, `pdf_utils.py`, `pptx_pipeline.py`, `pptx_utils.py`, `docx_utils.py`, `text_preprocessing.py`, `document_service.py`, `utils_file.py`, `upload_storage.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
 | OCR / tables | `unified_parser.py`, `ocr_utils.py`, `image_preprocessing.py`, `pdf_table_utils.py`, `table_utils.py` | not reachable from `/upload` (images are rejected) |
 | Indexes | `embedding_service.py`, `index_builder.py`, `vector_store.py`, `keyword_index.py` | in-memory FAISS + BM25 (see Known Issues) |
 | Retrieval | `retrieval_service.py`, `query_decomposer.py`, `query_preprocessor.py`, `reranker.py`, `context_compressor.py`, `web_search_client.py`, `web_scraper.py` | `reranker.py` does no real reranking |
@@ -122,10 +123,15 @@ React 18.
 
 ## How Requests Flow
 
-**Upload** — `POST /upload`: extension check (`.pdf` / `.pptx` / `.docx`, ≤ 50 MB) → save to
-`uploads/<client filename>` → `register_document` (returns the existing row if the file hash
-matches, otherwise creates a new version) → `IndexingPipeline`: chunk → embed → FAISS add +
-BM25 rebuild → `User.doc_version += 1`.
+**Upload** — `POST /upload`: extension check (`.pdf` / `.pptx` / `.docx`, ≤ 50 MB) → save to a
+server-generated `uploads/{user_id}/{uuid}{ext}` (resolved path must stay inside `uploads/`; the
+client's basename is kept only as the display name) → `register_upload`: a new name or hash
+creates a new version of `(user_id, file_name)`; an identical re-upload returns the existing row —
+if that row is already per-user the new copy is deleted, if it points at a pre-Day 3 flat path the
+row is moved to the new per-user copy (the shared legacy file is left alone) →
+`IndexingPipeline` on the row's `file_path`, with `file_name` passed for citations: chunk → embed →
+FAISS add + BM25 rebuild → `User.doc_version += 1`. An identical re-upload is still re-indexed
+(duplicate chunks, I6).
 
 **Chat** — the frontend only calls `GET /chat/stream` (`ChatWindow.js`); `POST /chat` is an
 older, divergent copy of the same pipeline.
@@ -208,8 +214,8 @@ Found while writing this file; evidence and direction live under each ID.
 | Concept maps search a separate, empty index, so "use documents" finds nothing | R5 | P0 |
 | Deleting a document leaves its chunks searchable | I5 | P0 |
 | Re-uploading an identical file duplicates its chunks | I6 | P1 |
-| Uploads share one directory across users; filenames aren't sanitized | G7 | P0 |
-| `DELETE /user/delete` crashes (wrong `Session` class) | B1 | P0 |
+| Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
+| Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
 | Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
 | `pytest.ini` is ignored (`[tool:pytest]` header) | T1 | P1 |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
@@ -293,7 +299,7 @@ Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (def
 | What | Where | Survives restart? |
 |---|---|---|
 | Users, sessions, messages, documents, failed queries, concept maps | SQLite `src/data/app.db` | yes on local disk / Docker volume |
-| Uploaded files | `src/uploads/` | yes locally; not volume-mounted in Docker |
+| Uploaded files | `src/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `src/uploads/<name>`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/src/uploads`; Render: no disk, lost on every deploy |
 | FAISS vectors + chunk metadata (including chunk text) | process memory | **no** |
 | BM25 corpus | process memory | **no** |
 | L1 retrieval cache (≤ 256 entries) | class-level dict in `RetrievalService` | no |

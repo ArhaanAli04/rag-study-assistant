@@ -4,9 +4,20 @@ from models import DocumentChunk
 from pdf_utils import extract_pdf_text
 from chunking import chunk_text
 
-def build_chunks_from_pdf(file_path: str, subject_tags: str = None, document_id:int |None = None) -> List[DocumentChunk]:
+def _citation_name(file_path: str, file_name: str | None) -> str:
+    # Uploads are stored under server-generated names (G7); the path's basename is only the
+    # right label for callers that don't pass the original name (ad-hoc scripts, tests).
+    return file_name or file_path.split("/")[-1].split("\\")[-1]
+
+
+def build_chunks_from_pdf(
+    file_path: str,
+    subject_tags: str | None = None,
+    document_id: int | None = None,
+    file_name: str | None = None,
+) -> List[DocumentChunk]:
     pages = extract_pdf_text(file_path)
-    file_name = file_path.split("/")[-1].split("\\")[-1]
+    file_name = _citation_name(file_path, file_name)
 
     all_chunks: List[DocumentChunk] = []
     for page in pages:
@@ -30,13 +41,18 @@ def build_chunks_from_pdf(file_path: str, subject_tags: str = None, document_id:
 from pptx_pipeline import process_pptx
 from docx_utils import extract_docx_content
 
-def build_chunks_from_pptx(file_path: str, subject_tags: str = None, document_id:int |None = None) -> List[DocumentChunk]:
+def build_chunks_from_pptx(
+    file_path: str,
+    subject_tags: str | None = None,
+    document_id: int | None = None,
+    file_name: str | None = None,
+) -> List[DocumentChunk]:
     """
     Use the existing pptx_pipeline.process_pptx to get cleaned text + chunks per slide,
     then wrap into DocumentChunk objects.
     """
     processed = process_pptx(file_path)
-    file_name = file_path.split("/")[-1].split("\\")[-1]
+    file_name = _citation_name(file_path, file_name)
 
     all_chunks: List[DocumentChunk] = []
 
@@ -62,12 +78,17 @@ def build_chunks_from_pptx(file_path: str, subject_tags: str = None, document_id
 
     return all_chunks
 
-def build_chunks_from_docx(file_path: str, subject_tags: str = None, document_id:int |None = None) -> List[DocumentChunk]:
+def build_chunks_from_docx(
+    file_path: str,
+    subject_tags: str | None = None,
+    document_id: int | None = None,
+    file_name: str | None = None,
+) -> List[DocumentChunk]:
     """
     Build chunks from DOCX paragraphs while preserving style context.
     """
     paragraphs = extract_docx_content(file_path)
-    file_name = file_path.split("/")[-1].split("\\")[-1]
+    file_name = _citation_name(file_path, file_name)
 
     all_chunks: List[DocumentChunk] = []
     current_block_lines = []

@@ -28,3 +28,4 @@ architecture, and the order I'd do it in next time.
 <!-- /run-day appends one line per day below, newest last: "Day N — <what shipped> — <one number or lesson>". -->
 - Day 1 — per-user semantic cache (G6), CORS allowlist (G4), debug prints → logging (O2), develop/feature git flow — live check: user B got 0 of user A's sources; a foreign origin's CORS preflight went from 200 to 400
 - Day 2 — JWTs out of every log (G8: path-only request logs, handler-level redaction filter, uvicorn query strings stripped) and narrow prompt-injection refusals over SSE (G1) — token lines in app.log 420 → 0; a test also caught that the UI's "Step-by-step" mode had never worked (3 modes, 2 distinct prompts)
+- Day 3 — per-user UUID upload storage (G7) and working account deletion across SQLite, disk, FAISS, BM25 and Redis (B1); release v0.1.0 prepared — live: B got 0 of A's sources, and SQLite handed a freed id (3) straight to the next sign-up, which the purge kept clean

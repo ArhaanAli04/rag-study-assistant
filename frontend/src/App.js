@@ -8,7 +8,7 @@ import QuizPage from "./pages/QuizPage";
 import ConceptMapPage from "./pages/ConceptMapPage";
 import AuthCallback from "./pages/AuthCallback";
 
-function AppRoutes() {
+export function AppRoutes() {
   const { isAuthenticated } = useAuth();
 
   return (

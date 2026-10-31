@@ -18,20 +18,35 @@ class IndexingPipeline:
         self.index_builder = index_builder
         self.bm25_index = bm25_index
 
-    def _build_chunks_for_file(self, file_path: str, subject_tags: str | None = None, document_id: int | None = None) -> List[DocumentChunk]:
+    def _build_chunks_for_file(
+        self,
+        file_path: str,
+        subject_tags: str | None = None,
+        document_id: int | None = None,
+        file_name: str | None = None,
+    ) -> List[DocumentChunk]:
         ext = os.path.splitext(file_path)[-1].lower()
         if ext == ".pdf":
-            return build_chunks_from_pdf(file_path, subject_tags=subject_tags, document_id=document_id)
+            return build_chunks_from_pdf(file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name)
         elif ext == ".pptx":
-            return build_chunks_from_pptx(file_path, subject_tags=subject_tags, document_id=document_id)
+            return build_chunks_from_pptx(file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name)
         elif ext == ".docx":
-            return build_chunks_from_docx(file_path, subject_tags=subject_tags, document_id=document_id)
+            return build_chunks_from_docx(file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name)
         else:
-            # fallback: use unified parser + generic chunking if needed
             raise ValueError(f"Unsupported extension for indexing: {ext}")
 
-    def index_document(self, file_path: str, user_id: str | None = None, subject_tags: str | None = None, document_id: int | None = None):
-        chunks = self._build_chunks_for_file(file_path, subject_tags=subject_tags, document_id=document_id)
+    def index_document(
+        self,
+        file_path: str,
+        user_id: str | None = None,
+        subject_tags: str | None = None,
+        document_id: int | None = None,
+        file_name: str | None = None,
+    ) -> int:
+        """Chunk, embed and index one file; ``file_name`` is the name shown in citations."""
+        chunks = self._build_chunks_for_file(
+            file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name
+        )
         if not chunks:
             return 0
         #1 add to FAISS

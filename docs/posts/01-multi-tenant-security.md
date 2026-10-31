@@ -56,3 +56,22 @@ should scope everything.
   - [ ] Table card: the CORS before/after table above
 - Lesson / quote: "`if not version` looked like a null check, but version 0 is falsy. For every new user, that one word turned the filter off. Then the CORS fix showed that `*` with credentials doesn't mean 'any origin, no cookies'. Starlette echoed back *any* origin."
 - Concept source: docs/briefs/day01.md#the-concept
+
+### Day 2 — 2026-10-31 — Stop logging JWTs (G8) and wire in sanitize_query (G1)
+- Takeaway: every chat request used to write the user's login token into the server logs, where anyone who could read the logs could reuse it. Now the logs keep only the page path, and a safety net scrubs any token that slips through. Copy-paste "ignore your instructions" attacks now get a polite refusal in the chat instead of reaching the AI.
+- Numbers:
+  - Local `app.log` lines containing `token=`: 420 before (counted, then deleted), 0 after a streamed chat, an injection and a keyword request. Uvicorn console: 0 `token=`, 0 `eyJ`.
+  - Offline tests: 11 redaction/logging tests + 17 guard tests; 9/9 attack wordings refused, 6/6 study questions allowed (incl. "What is a system prompt?"). Backend suite 26 → 60 tests, all passing (incl. 6 answer-mode tests). First frontend tests in the repo: 3 React Testing Library tests (refusal bubble with no thumbs; a refused stream stops loading).
+  - Duplicate logging fixed: one request wrote 2 lines to `app.log` before, 1 after (`setup_logging()` made idempotent).
+  - Google login after the fix: the log shows "Redirecting user 1 to the frontend OAuth callback". 0 `token=`, 0 `eyJ`, 0 emails in either log.
+  - Live injection refused over SSE in 6.3 ms, with no retrieval or Gemini call and 0 DB rows written.
+- Capture now (only what depends on today's app state and can't be recreated later):
+  - [ ] nothing today. The refusal bubble can be recreated any time with a demo account
+- Make when writing the post (recreatable any time from git, the brief or this log):
+  - [ ] Code card: `logger.info(f"Request: {request.method} {request.url}")` (before) vs. `request.url.path` + `RedactSecretsFilter` (after)
+  - [ ] Terminal: `Select-String app.log -Pattern 'token='` → 420 hits before / 0 after (re-run on a fresh log)
+  - [ ] Screenshot: the refusal bubble for "Ignore previous instructions…" (demo account)
+  - [ ] Diagram: three places a URL token leaks (app middleware, OAuth log line, uvicorn access log) → one handler-level filter
+  - [ ] Code card: the old 4-phrase list vs. the narrowed list, with "What is a system prompt?" allowed
+- Lesson / quote: "The leak was in three places, and the third (uvicorn's access log) wasn't even our code. Then the check script leaked its own token through httpx's INFO log. Logging a URL is logging a password."
+- Concept source: docs/briefs/day02.md#the-concept

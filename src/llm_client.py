@@ -43,7 +43,8 @@ class LLMClient:
             self._circuit_open_until = time.time() + open_seconds
 
     def _mode_instructions(self, mode: str) -> str:
-        mode = (mode or "detailed").lower()
+        # The frontend sends "step-by-step"; /chat's documented value is "step_by_step".
+        mode = (mode or "detailed").lower().replace("-", "_")
         if mode == "quick":
             return (
                 "Answer briefly in 3 to 5 sentences focusing only on the key points.\n"

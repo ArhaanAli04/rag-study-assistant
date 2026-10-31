@@ -195,8 +195,11 @@ export default function MessageList({
                     <Copy className="w-4 h-4" />
                   )}
                 </button>
+                {!msg.isRefusal && (
+                <>
                 <button
                   onClick={() => onFeedback(msg.id, 'up')}
+                  aria-label="Helpful"
                   disabled={msg.userFeedback}
                   className={cn(
                     "h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all",
@@ -207,6 +210,7 @@ export default function MessageList({
                 </button>
                 <button
                   onClick={() => onFeedback(msg.id, 'down')}
+                  aria-label="Not helpful"
                   disabled={msg.userFeedback}
                   className={cn(
                     "h-8 w-8 flex items-center justify-center rounded-lg hover:bg-white/5 transition-all",
@@ -215,6 +219,8 @@ export default function MessageList({
                 >
                   <ThumbsDown className="w-4 h-4" />
                 </button>
+                </>
+                )}
               </div>
             )}
 

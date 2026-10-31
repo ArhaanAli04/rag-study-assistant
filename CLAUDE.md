@@ -31,16 +31,18 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 01 - scope semantic cache per user (G6), CORS allowlist (G4), debug prints to
-              logging (O2) — on develop, local only
+Last commit:  day 02 - JWTs out of logs (G8), prompt-injection refusals (G1), step-by-step mode
+              fix — on develop, local only
 Pushed:       origin/master = 73d8bae (native multi-turn chat history), 2026-09-12
-Branches:     develop and master local only (develop = day 00 + day 01); first push is the
-              Day 3 release
+Branches:     develop and master local only (develop = day 00–02); first push is the Day 3
+              release
 Uncommitted:  none
 Untracked:    none (planning docx/pdf files and the Tesseract installer are gitignored)
-Next:         Day 2 — G8 JWTs out of logs + G1 sanitize_query (/run-day 2)
-Blockers:     four g6-*@example.com test accounts wait for the B1 fix on Day 3; nothing is
-              pushed until the Day 3 release
+Next:         Day 3 — G7 per-user uploads + B1 account deletion + first release, push develop
+              and master (/run-day 3)
+Blockers:     delete test accounts g6-*@example.com and day02-check@example.com (user 7) after
+              the B1 fix; rotate JWT_SECRET_KEY and flush the legacy cache key on Render at the
+              Day 3 release
 ```
 
 ---
@@ -149,7 +151,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 ### Working
 - Email/password and Google OAuth login; profile, change password, user stats
 - PDF/PPTX/DOCX upload, hash-based versioning, per-user hybrid retrieval
-- Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`), multi-turn history (commit 73d8bae)
+- Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`; the frontend sends `step-by-step`, normalized since Day 2 — before that it silently got the detailed prompt), multi-turn history (commit 73d8bae)
 - Tavily web augmentation with a domain allowlist; Redis web-result cache (1 h)
 - Sessions: list, rename, delete, automatic topic tags; chat export to Markdown / PDF (frontend)
 - Thumbs up/down feedback → `messages.feedback` and `failed_queries`; `GET /analytics/failed-queries`
@@ -161,7 +163,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
 - Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
-- `sanitize_query()` is never called (G1); `verify_answer()` is never called (G2); keyword safety lists differ between endpoints (G3)
+- Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called at the top of both chat endpoints; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); keyword safety lists differ between endpoints (G3)
 - RAGAS eval is non-functional (E1); word-overlap metrics (E2); hardcoded sample eval data and no retrieval metrics (E4)
 - Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
 - Alembic is configured but effectively unused (see Known Issues)
@@ -173,7 +175,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Retrieval eval harness (E4); golden eval set + CI gate (E3); any CI/CD workflow
 - Query expansion / HyDE (R3); agentic tool use (A1); ANN or per-user indexes (I1); embedding cache (CO3)
 - Rate limiting, refresh tokens, PostgreSQL, quiz persistence
-- Frontend tests beyond the default CRA `App.test.js`
+- Frontend tests beyond `components/MessageList.test.js` and `components/ChatWindow.test.js` (refusal rendering, Day 2); the default CRA `App.test.js` was deleted, and an App smoke test comes on Day 5. Run with `cd frontend; npm test -- --watchAll=false`
 
 ---
 
@@ -207,7 +209,6 @@ Found while writing this file; evidence and direction live under each ID.
 | Deleting a document leaves its chunks searchable | I5 | P0 |
 | Re-uploading an identical file duplicates its chunks | I6 | P1 |
 | Uploads share one directory across users; filenames aren't sanitized | G7 | P0 |
-| JWTs are written to logs (request URLs, OAuth redirect) | G8 | P0 |
 | `DELETE /user/delete` crashes (wrong `Session` class) | B1 | P0 |
 | Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
 | `pytest.ini` is ignored (`[tool:pytest]` header) | T1 | P1 |

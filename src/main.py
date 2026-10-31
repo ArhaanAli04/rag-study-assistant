@@ -1,5 +1,5 @@
 from fastapi import FastAPI, File, UploadFile, Request, Depends, Query, Body
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import os
@@ -20,7 +20,7 @@ from auth import (
 from starlette.middleware.sessions import SessionMiddleware
 import secrets
 from pydantic import BaseModel, EmailStr, validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Awaitable, Callable
 from enum import Enum
 from session_service import (
     get_or_create_session,
@@ -35,6 +35,7 @@ from fastapi.responses import StreamingResponse
 import json
 from topic_classifier import topic_classifier
 from error_handler import UserFriendlyError
+from chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
 from fastapi.middleware.cors import CORSMiddleware
 from concept_models import ConceptMap, ConceptMapNode
 # Add these imports to your existing imports
@@ -273,19 +274,15 @@ async def get_documents(
     return result
 
 @app.middleware("http")
-async def timing_middleware(request: Request, call_next):
+async def log_requests(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    # Path only, never request.url: /chat/stream carries the JWT in ?token= (G8).
     start_time = time.perf_counter()
     response = await call_next(request)
     process_time = (time.perf_counter() - start_time) * 1000
-    logger.info(f"REQ {request.method} {request.url.path} {process_time:.1f}ms")
+    logger.info(f"REQ {request.method} {request.url.path} {response.status_code} {process_time:.1f}ms")
     response.headers["X-Process-Time"] = str(process_time)
-    return response
-
-@app.middleware("http")
-async def log_requests(request: Request, call_next):
-    logger.info(f"Request: {request.method} {request.url}")
-    response = await call_next(request)
-    logger.info(f"Response Status: {response.status_code} for {request.method} {request.url}")
     return response
 
 @app.exception_handler(Exception)
@@ -469,24 +466,6 @@ async def semantic_search(
     )
     return {"results": results}
 
-def sanitize_query(q: str) -> str:
-    q_lower = q.lower()
-
-    # Very simple heuristic: block common injection phrases
-    injection_phrases = [
-        "ignore previous instructions",
-        "you are now",
-        "disregard all earlier",
-        "system prompt",
-    ]
-    if any(p in q_lower for p in injection_phrases):
-        # Either block or strip; here we block
-        raise HTTPException(
-            status_code=400,
-            detail="Query rejected due to unsafe or prompt-injection-like content.",
-        )
-
-    return q
 from sqlalchemy import func, desc
 @app.get("/sessions")
 async def get_sessions(
@@ -639,6 +618,20 @@ async def chat(
     user_id_int = current_user.id
     user_id_str = str(current_user.id)
     doc_version = current_user.doc_version  # GET VERSION
+
+    # Refused turns are not stored: a stored one would be replayed to Gemini as history.
+    injection_phrase = find_injection_phrase(body.query)
+    if injection_phrase is not None:
+        logger.warning(f"Prompt-injection phrase {injection_phrase!r} refused for user {user_id_int} on /chat")
+        return ChatResponse(
+            answer=INJECTION_REFUSAL,
+            session_id=body.session_id or 0,
+            confidence=0.0,
+            fallback_used=False,
+            grounding_level="none",
+            sources=[],
+            followups=[],
+        )
 
     # SAFETY GUARDRAILS - EARLY RETURN
     unsafe_keywords = ["suicide", "kill myself", "nuke", "die","self harm","explosives", "terrorist", "make a bomb"]
@@ -830,12 +823,28 @@ async def chat_stream(
     user_id_str = str(current_user.id)
     doc_version = getattr(current_user, 'doc_version', 0)
 
-    # Safety check first
+    # Refusals go out as a 200 event stream: EventSource can't read the body of a 400 or
+    # a text/plain reply and would show a connection error instead. Not stored (see /chat).
+    injection_phrase = find_injection_phrase(query)
+    if injection_phrase is not None:
+        logger.warning(f"Prompt-injection phrase {injection_phrase!r} refused for user {user_id_int} on /chat/stream")
+        return StreamingResponse(
+            refusal_sse_events(INJECTION_REFUSAL, session_id, mode),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
+
     unsafe_keywords = ["explosive", "bomb", "suicide", "self harm"]
     if any(k in query.lower() for k in unsafe_keywords):
-        async def safe_stream():
-            yield "I'm unable to assist with that request. Please seek help from trusted professionals.\n"
-        return StreamingResponse(safe_stream(), media_type="text/plain")
+        return StreamingResponse(
+            refusal_sse_events(
+                "I'm unable to assist with that request. Please seek help from trusted professionals.",
+                session_id,
+                mode,
+            ),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     # Semantic cache (non-blocking lookup)
     cached = semantic_cache.lookup(query, user_id=user_id_int, user_doc_version=doc_version, mode=mode)

@@ -1,4 +1,4 @@
-import { Menu, Moon, Sun, Settings, LogOut, FileText, MessageSquare, Brain, User, Key, Download, Bell, HelpCircle, Network } from 'lucide-react';
+import { Menu, Settings, LogOut, FileText, MessageSquare, Brain, User, Key, Download, HelpCircle, Network } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import HelpSupportModal from './HelpSupportModal';

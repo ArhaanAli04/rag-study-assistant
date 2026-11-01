@@ -5,7 +5,6 @@ const MapListView = ({ maps, loading, onViewMap, onDeleteMap }) => {
   const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest'
   // Inside MapListView component
   const [showSortDropdown, setShowSortDropdown] = useState(false);
-  const [fullscreenMapId, setFullscreenMapId] = useState(null);
   const dropdownRef = useRef(null);
   // Close dropdown when clicking outside
     useEffect(() => {

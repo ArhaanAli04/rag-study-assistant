@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Mail, Lock, Sparkles, AlertCircle, UserPlus, CheckCircle } from "lucide-react";
+import { Mail, Lock, AlertCircle, UserPlus, CheckCircle } from "lucide-react";
 
 export default function RegisterForm({ onSubmit, error }) {
   const [email, setEmail] = useState("");

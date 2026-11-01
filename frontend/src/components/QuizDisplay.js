@@ -152,8 +152,6 @@ export default function QuizDisplay({ quiz, onNewQuiz }) {
         <div className="space-y-4">
           {questions.map((q) => {
             const userAnswer = userAnswers[q.number];
-            const isCorrect = showResults && userAnswer === q.correctAnswer;
-            const isWrong = showResults && userAnswer && userAnswer !== q.correctAnswer;
 
             return (
               <div key={q.number} className="glass border border-border/50 rounded-2xl p-6">

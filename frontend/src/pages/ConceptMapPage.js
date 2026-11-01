@@ -5,7 +5,7 @@ import TopNav from "../components/TopNav";
 import MapListView from "../components/MapListView";
 import CreateMapForm from "../components/CreateMapForm";
 import ConceptMapViewer from "../components/ConceptMapViewer";
-import { Network, ArrowLeft } from "lucide-react";
+import { Network } from "lucide-react";
 import { API_BASE_URL } from '../config/api';
 
 export default function ConceptMapPage() {

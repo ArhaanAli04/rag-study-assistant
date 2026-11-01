@@ -4,7 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import TopNav from "../components/TopNav";
 import DocumentList from "../components/DocumentList";
 import DocumentUpload from "../components/DocumentUpload";
-import { FileText, Upload, Trash2, AlertCircle } from "lucide-react";
+import { FileText, AlertCircle } from "lucide-react";
 import { API_BASE_URL } from '../config/api';
 
 export default function DocumentsPage() {

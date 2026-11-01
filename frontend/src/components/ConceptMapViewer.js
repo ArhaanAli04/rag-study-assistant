@@ -6,7 +6,6 @@ import ReactFlow, {
   useNodesState,
   useEdgesState,
   MarkerType,
-  useReactFlow,
   ReactFlowProvider,
 } from 'reactflow';
 import dagre from 'dagre';
@@ -22,8 +21,7 @@ const ConceptMapViewerInner = ({ mapData, onBack, onDelete }) => {
   const [showNodeDetails, setShowNodeDetails] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  
-  const { getNodes } = useReactFlow();
+
   const flowRef = useRef(null);
 
   // Initialize graph layout using dagre

@@ -4,7 +4,7 @@ import { useAuth } from "../contexts/AuthContext";
 import TopNav from "../components/TopNav";
 import QuizGenerator from "../components/QuizGenerator";
 import QuizDisplay from "../components/QuizDisplay";
-import { Brain, ArrowLeft } from "lucide-react";
+import { Brain } from "lucide-react";
 import { API_BASE_URL } from '../config/api';
 
 export default function QuizPage() {

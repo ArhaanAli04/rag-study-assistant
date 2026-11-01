@@ -63,11 +63,12 @@ Review only added or changed lines. Report each finding with file:line.
 ## 6. Frontend — only if `frontend/` changed
 
 ```powershell
-cd frontend; npm run build
+cd frontend; $env:CI="true"; npm run build; Remove-Item Env:CI
 cd frontend; npm test -- --watchAll=false
 ```
 
-There is no lint script. `--watchAll=false` matters: without it `npm test` starts Jest's
+`CI=true` matches Vercel, where react-scripts treats ESLint warnings as errors and fails the
+build. There is no lint script. `--watchAll=false` matters: without it `npm test` starts Jest's
 interactive watch mode and never exits. Both commands are slow on this machine (several
 minutes each), so run them in the background.
 

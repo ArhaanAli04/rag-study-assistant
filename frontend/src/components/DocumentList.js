@@ -1,4 +1,4 @@
-import { FileText, Trash2, Calendar, FileType } from "lucide-react";
+import { Trash2, Calendar, FileType } from "lucide-react";
 
 export default function DocumentList({ documents, onDelete }) {
   

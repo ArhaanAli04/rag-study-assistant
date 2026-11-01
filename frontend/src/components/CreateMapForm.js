@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
-import { Sparkles, AlertCircle, Globe, FileText } from 'lucide-react';
+import { Sparkles, AlertCircle, Globe } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 
 const CreateMapForm = ({ onMapCreated, onCancel }) => {
   const [topic, setTopic] = useState('');
   const [useWeb, setUseWeb] = useState(true);
-  const [useDocuments, setUseDocuments] = useState(false);
+  const [useDocuments] = useState(false);
   const [maxConcepts, setMaxConcepts] = useState(15);
   const [maxEdges, setMaxEdges] = useState(20);
   const [loading, setLoading] = useState(false);

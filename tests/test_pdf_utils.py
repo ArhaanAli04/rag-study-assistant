@@ -8,15 +8,18 @@ print(fitz.__doc__)
 from pdf_utils import extract_pdf_text, extract_pdf_metadata
 from chunking import chunk_text
 
+# Relative to this file, not the CWD: the Docker test run starts in /app/src.
+SAMPLE_PDF = os.path.join(os.path.dirname(__file__), "samples", "samples.pdf")
+
 def test_extract_pdf_text():
-    sample_pdf = "tests/samples/samples.pdf"
+    sample_pdf = SAMPLE_PDF
     pages = extract_pdf_text(sample_pdf)
     assert len(pages) > 0
     assert pages[0]["page_num"] == 1
     assert isinstance(pages[0]["text"], str)
 
 def test_extract_pdf_metadata():
-    sample_pdf = "tests/samples/samples.pdf"
+    sample_pdf = SAMPLE_PDF
     meta = extract_pdf_metadata(sample_pdf)
     assert "title" in meta and "author" in meta
 

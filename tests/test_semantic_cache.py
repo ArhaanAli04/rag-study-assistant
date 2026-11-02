@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
-from semantic_cache import SemanticCache, _cache_key
+from semantic_cache import DEFAULT_SEMANTIC_CACHE_REDIS_URL, SemanticCache, _cache_key, semantic_cache_redis_url
 
 
 class FakeRedis:
@@ -109,3 +109,28 @@ def test_foreign_entry_under_a_users_key_is_ignored(cache: SemanticCache, redis_
     redis_stub.store[_cache_key(USER_B)] = redis_stub.store[_cache_key(USER_A)]
 
     assert cache.lookup(QUERY, user_id=USER_B, user_doc_version=0, mode="quick") is None
+
+
+# T3 (Day 4): the semantic cache gets its own Redis DB without moving deployments that set
+# only REDIS_URL.
+
+def test_dedicated_redis_url_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REDIS_URL", "redis://redis:6379/0")
+    monkeypatch.setenv("SEMANTIC_CACHE_REDIS_URL", "redis://redis:6379/1")
+
+    assert semantic_cache_redis_url() == "redis://redis:6379/1"
+
+
+def test_falls_back_to_shared_redis_url(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEMANTIC_CACHE_REDIS_URL", raising=False)
+    monkeypatch.setenv("REDIS_URL", "redis://redis:6379/0")
+
+    assert semantic_cache_redis_url() == "redis://redis:6379/0"
+
+
+def test_defaults_to_db_1_when_nothing_is_set(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SEMANTIC_CACHE_REDIS_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+
+    assert semantic_cache_redis_url() == DEFAULT_SEMANTIC_CACHE_REDIS_URL
+    assert DEFAULT_SEMANTIC_CACHE_REDIS_URL.endswith("/1")

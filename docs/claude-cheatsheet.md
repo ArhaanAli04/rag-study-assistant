@@ -133,7 +133,7 @@ against accidents, not a security boundary.
 | `~/.claude/CLAUDE.md` | Global personal preferences |
 | `docs/improvements.md` | Evidence and direction for every item ID |
 | `docs/improvement-tracker.md` | Status of every item (you update it) |
-| `docs/timeline.md` | 51-day build plan — what `/run-day` reads (edit here, regenerate the docx) |
+| `docs/timeline.md` | 61-day build plan — what `/run-day` reads (edit here, regenerate the docx) |
 | `docs/briefs/dayNN.md` | Per-day brief and Outcome — your study notes |
 | `docs/posts/` | LinkedIn series: 9 post outlines; `/run-day` appends each day's material log (mapping in `README.md`) |
 | `docs/briefs/<ID>.md` | Per-item brief and Outcome (from `/run-item`) |

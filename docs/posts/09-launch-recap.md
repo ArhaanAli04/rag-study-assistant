@@ -1,14 +1,14 @@
-# Post 9 — "51 days rebuilding a RAG app: what I'd do first next time"
+# Post 9 — "61 days rebuilding a RAG app: what I'd do first next time"
 
-Publish after: Day 51 (v1.0.0) · Fed by days: every day (one line each), plus 50–51 · Format: carousel + demo video
+Publish after: Day 61 (v1.0.0) · Fed by days: every day (one line each), plus 60–61 · Format: carousel + demo video
 
 ## Hook
-I audited my own RAG app, found 41 gaps, fixed them and added six study features in 51 days. The numbers, the
+I audited my own RAG app, found 41 gaps, fixed them and added projects, connectors, memory and six study features in 61 days. The numbers, the
 architecture, and the order I'd do it in next time.
 
 ## Concepts to explain (plain words)
 - The full architecture, one line per layer
-- The before/after numbers from posts 1–8 in one table
+- The before/after numbers from posts 1–8 and 10 in one table
 - Engineering foundations in one slide: Docker, tests, CI/CD, migrations
 
 ## Slide outline
@@ -17,7 +17,7 @@ architecture, and the order I'd do it in next time.
 3. The numbers table (from every post)
 4. Engineering foundations (one slide)
 5. What I'd do first next time (measure before optimizing, isolate tenants from day one…)
-6. Links to posts 1–8, demo, repo
+6. Links to posts 1–8 and 10, demo, repo
 
 ## Visuals needed
 - [ ] Final architecture diagram (refresh of docs/architecture.png)

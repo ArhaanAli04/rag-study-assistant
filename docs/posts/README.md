@@ -1,6 +1,6 @@
 # LinkedIn Post Series
 
-Nine posts built from the 51-day timeline (`docs/timeline.md`). Each post bundles several
+Ten posts built from the 61-day timeline (`docs/timeline.md`). Each post bundles several
 AI-engineering concepts, explains them in plain words, and shows how they were implemented
 and measured in this project.
 
@@ -16,14 +16,15 @@ list — writing the post is assembly, not recall.
 | 1 | `01-multi-tenant-security.md` | 1–3 | Day 3 (v0.1.0) |
 | 2 | `02-measuring-retrieval.md` | 11–12 | Day 12 |
 | 3 | `03-hybrid-search-postgres.md` | 13–17 | Day 17 (v0.3.0) |
-| 4 | `04-observability-cost.md` | 20–22 | Day 22 |
-| 5 | `05-retrieval-upgrades-measured.md` | 23–29 | Day 29 (v0.4.0) |
-| 6 | `06-agentic-rag-langgraph.md` | 30, 31, 32, 34 | Day 34 (v0.5.0) |
-| 7 | `07-indirect-prompt-injection.md` | 32 (moderation), 33 | Day 34 |
-| 8 | `08-features.md` | 36–45 (study features), 46–49 (UI) | Day 49 (v0.7.0) |
-| 9 | `09-launch-recap.md` | **every day** (one line each), plus 50–51 | Day 51 (v1.0.0) |
+| 4 | `04-observability-cost.md` | 23–25 | Day 25 |
+| 5 | `05-retrieval-upgrades-measured.md` | 26–32 | Day 32 (v0.5.0) |
+| 6 | `06-agentic-rag-langgraph.md` | 33, 34, 35, 37 | Day 37 (v0.6.0) |
+| 7 | `07-indirect-prompt-injection.md` | 35 (moderation), 36 | Day 37 |
+| 8 | `08-features.md` | 39, 44–52 (study features), 56–59 (UI) | Day 59 (v0.9.0) |
+| 9 | `09-launch-recap.md` | **every day** (one line each), plus 60–61 | Day 61 (v1.0.0) |
+| 10 | `10-projects-connectors-memory.md` | 18–20 (projects), 40–43 (connectors), 53–55 (memory) | Day 55 |
 
-Days 4–10, 18–19 and 35 (Docker, CI, refactor, CD, auth hardening) feed only post 9. When days are added to or
+Days 4–10, 21–22 and 38 (Docker, CI, refactor, CD, auth hardening) feed only post 9. When days are added to or
 moved in the timeline, update this table — `/run-day` reads it.
 
 ## Format for every post

@@ -1,6 +1,6 @@
 # Post 6 — "From a fixed pipeline to agentic RAG with LangGraph"
 
-Publish after: Day 34 (v0.5.0) · Fed by days: 30, 31, 32, 34 · Format: PDF carousel
+Publish after: Day 37 (v0.6.0) · Fed by days: 33, 34, 35, 37 · Format: PDF carousel
 
 ## Hook
 My RAG pipeline ran a web search on every question, even when the answer was already in the

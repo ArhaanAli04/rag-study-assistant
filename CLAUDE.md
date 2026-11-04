@@ -44,13 +44,13 @@ Day 4:        docker compose up = dev stack (scripts/dev.ps1 up|down|logs|test|s
               Docker frontend called the Render API, OCR was broken on Linux (hardcoded Windows
               tesseract path). Backend reload 13.5–15.1 s → lazy-load bullet on Day 8. Day 10
               release notes (Render health check path /health, …) in docs/briefs/day04.md
-Next:         finish the v0.1.0 checks below, publish post 1, then Day 5 (/run-day 5)
-Blockers:     Verified in prod: Render Live + Vercel on 60f52bf, email login + streamed chat,
-              account deletion with the green notice. Still open (owner, before post 1):
-              (1) DEL semantic_cache_entries on Render Key Value DB 0 and DB 1 — free plan has
-              no Shell, so: allow your IP on the Key Value service, docker run redis:7
-              redis-cli --tls -u <external URL>, then remove the IP rule; (2) Google login;
-              (3) upload a demo PDF and check the citation shows the real filename
+Next:         Day 5 (/run-day 5), then publish post 1. Timeline extended to 61 days on
+              2026-11-04 (Projects 18–20, Connectors 40–43, Memory 53–55; Supabase hosting)
+Blockers:     none. v0.1.0/v0.1.1 verified in prod 2026-11-04: Render Live + Vercel on
+              60f52bf; email + Google login; upload with citation "samples.pdf"; streamed chat;
+              account deletion with the green notice. Render Key Value (rag-study-redis,
+              Valkey 8): semantic_cache_entries absent on DB 0 and DB 1; all inbound public IPs
+              blocked
 ```
 
 ---
@@ -71,7 +71,7 @@ rag-study-assistant/
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
 ├── tests/                    ← pytest parser tests (pdf/docx/pptx) + samples/
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
-├── docs/                     ← timeline.md (51-day build plan), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
+├── docs/                     ← timeline.md (61-day build plan), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
 ├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
@@ -202,11 +202,16 @@ the evidence and direction for each ID. When status changes, update the tracker,
 - **P2 — deferred until usage grows:** R4, E3, C3, A1, I1, I2, CO3, T3
 
 Order: `docs/timeline.md` sequences every item (plus Docker, refactor, CI/CD, Langfuse,
-LangGraph, study-feature and UI work) into 51 days — one day per session, started with
+LangGraph, study-feature and UI work) into 61 days — one day per session, started with
 `/run-day <N>`. It moves I4/I5/I6 to the pgvector migration (Day 15) and E4 to just after the
-refactor (Day 11). New study features (Days 37–45): concept catalogue, mastery model + Progress
+refactor (Day 11). Hosting decided 2026-11-04: **Supabase** for Postgres + pgvector (Day 13) and
+file storage (Day 15), kept awake by a scheduled GitHub workflow. Added 2026-11-04:
+**Projects** (Days 18–20, a project = a course: its own files, instructions and chats),
+**Connectors** (Days 40–43: Google Drive Docs/Sheets/Slides import, Google export, web page by
+URL, YouTube lectures, Notion) and **memory across chats** (Days 53–55, with a Memory page).
+New study features (Days 44–52, project-aware): concept catalogue, mastery model + Progress
 page, adaptive Practice quiz, flashcards, living concept map, PDF citation viewer, Feynman mode,
-study guide. Deferred: exam planner (builds on the mastery model).
+study guide. Deferred: exam planner (builds on the mastery model), Google Calendar, OneDrive.
 See `docs/claude-cheatsheet.md` for groupings and prerequisites.
 
 ---
@@ -405,7 +410,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 
 - **Migrations:** make Alembic the real path (fix the URL, import all models in `env.py`) vs. keep the `db.py` startup migrations. Either way, retire the one-off scripts.
 - **Chat endpoints:** delete `POST /chat` (the frontend only streams) vs. extract a shared pipeline that both call.
-- **Index persistence:** save/load FAISS + BM25 to disk vs. a hosted vector DB (`qdrant-client` is already installed). Render's filesystem is ephemeral unless a persistent disk is attached.
+- **Index persistence — decided 2026-11-04:** pgvector + Postgres full-text on Supabase (Days 13–16), uploaded files in Supabase Storage (Day 15). Render's filesystem is ephemeral, so nothing durable stays on it; `qdrant-client` can go with the Day 10 dependency cleanup.
 - **Dependencies:** remove unused packages vs. keep those tied to planned items (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); reconcile or delete `src/requirements.txt`, which has drifted from the root file.
 - **Dead code and repo hygiene:** delete `MessageBubble.js`, `src/frontend.py`, and `document_delete_service.py` (or wire it in). The Tesseract installer is untracked now but still in git history; purging it would need a history rewrite and force-push.
 

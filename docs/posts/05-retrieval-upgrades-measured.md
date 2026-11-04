@@ -1,6 +1,6 @@
 # Post 5 — "5 retrieval upgrades, measured one at a time"
 
-Publish after: Day 29 (v0.4.0) · Fed by days: 23–29 · Format: PDF carousel
+Publish after: Day 32 (v0.5.0) · Fed by days: 26–32 · Format: PDF carousel
 
 ## Hook
 Everyone lists RAG techniques. I added them one at a time to a real app and measured each on

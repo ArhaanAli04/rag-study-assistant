@@ -1,6 +1,6 @@
 # Post 4 — "What one RAG request actually costs"
 
-Publish after: Day 22 · Fed by days: 20–22 · Format: PDF carousel
+Publish after: Day 25 · Fed by days: 23–25 · Format: PDF carousel
 
 ## Hook
 One chat message in my study app makes N model calls and costs $X. I couldn't have told you

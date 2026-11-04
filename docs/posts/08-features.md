@@ -1,6 +1,6 @@
 # Post 8 — Features: a study assistant that knows what you don't know yet
 
-Publish after: Day 49 (v0.7.0, features restyled) · Fed by days: 36–45, 46–49 · Format: short demo video + 3–4 images
+Publish after: Day 59 (v0.9.0, features restyled) · Fed by days: 39, 44–52, 56–59 · Format: short demo video + 3–4 images
 
 ## Hook
 Most "chat with your notes" apps stop at chat. Mine tracks what you've mastered — every quiz

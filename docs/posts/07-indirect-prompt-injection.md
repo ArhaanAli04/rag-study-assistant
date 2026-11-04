@@ -1,6 +1,6 @@
 # Post 7 — "The realistic attack on RAG isn't the user — it's the PDF"
 
-Publish after: Day 34 (defences deployed) · Fed by days: 32 (moderation), 33 · Format: PDF carousel or short video
+Publish after: Day 37 (defences deployed) · Fed by days: 35 (moderation), 36 · Format: PDF carousel or short video
 
 ## Hook
 I hid one line of white text in a PDF, uploaded it, and my study assistant started giving

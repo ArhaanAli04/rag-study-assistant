@@ -47,7 +47,9 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | CO5 | Conversation-aware semantic cache with per-entry TTLs and a threshold tuned on labelled pairs | Not Started | |
 | I6 | Skip re-indexing unchanged re-uploads; remove old versions' chunks | Not Started | |
 | B2 | Fix confidence-scale mismatches (`/chat` grounding thresholds, forced-web cap) | Not Started | |
-| T1 | Fix `pytest.ini` header so `testpaths` / `pythonpath` apply | Not Started | |
+| B4 | Concept-map generation 500s when a node has empty sources | Done | Day 5: found by the API smoke test; `concept_extractor._add_source_attribution` now assigns the first source, not the whole list. Unit tests for both fallbacks in `tests/test_concept_extractor.py` |
+| B3 | Fix the OpenCV wheel clash that silently disables image/PPTX table extraction | Not Started | Found Day 5; scheduled Day 10. `test_table_extraction_on_image` is `xfail(strict=True)` until then |
+| T1 | Fix `pytest.ini` header so `testpaths` / `pythonpath` apply | Done | Day 5: `[pytest]` header; 11 `src/test_*.py` → `scripts/manual/`; bare `pytest` collects only `tests/` (112 items). Suite 84 → 111 tests (+1 strict xfail), 42.6 s → 23.3 s on the host with no keys or network; container 77.7 s (Day 8 lazy loading). |
 | T2 | Pick one migration mechanism; if Alembic, fix its URL and model imports | Not Started | |
 
 ## P2 — Scale/architecture, revisit as usage grows

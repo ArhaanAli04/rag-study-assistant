@@ -533,6 +533,37 @@ same grounding thresholds everywhere (or consolidate the endpoints — open deci
 `CLAUDE.md`), and set the cap to its intended value on the 0–100 scale. Validate the
 thresholds against retrieval eval results (E4).
 
+### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
+Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`
+(required by `camelot-py`) and `opencv-contrib-python-headless` (required by `img2table`), all
+4.12.0.88. They all install into the same `cv2` package, so whichever pip writes last wins; in
+the local venv a non-contrib build won, and `cv2.ximgproc` is missing. `img2table` then fails
+with `module 'cv2.ximgproc' has no attribute 'niBlackThreshold'`, and
+`table_utils.extract_tables_from_image` (`src/table_utils.py:42-44`) catches the exception,
+prints it and returns `[]`. `opencv-python` is required by nothing. Found on Day 5.
+**Why it matters:** `extract_tables_from_pptx_slides` uses the same path, so tables in PPTX
+slide images uploaded through `/upload` are never extracted, with no error surfaced. Confirmed
+in the backend image built from the same Dockerfile and requirements Render uses: the test
+xfails there too, so PPTX image-table extraction is broken in production (not yet observed via
+a live upload). The old test asserted only
+`isinstance(tables, list)`, so it passed while the feature was dead.
+**Direction:** drop the unused `opencv-python` pin and make the contrib build win (install it
+last / force-reinstall, or a constraints file), in the Dockerfile and locally; confirm camelot
+still works; then remove the strict `xfail` on `test_table_extraction_on_image`. Ask before
+changing requirements.
+
+### B4 — Concept-map generation fails with a 500 when a node has empty sources (P1, Done Day 5)
+`ConceptExtractor._add_source_attribution` (`src/concept_extractor.py`) fills in sources for
+nodes the LLM returned without any. Its comments said "assign first web/doc source", but the
+code assigned the whole list wrapped in another list (`[web_sources]`), so the node's `sources`
+became `[["https://…", …]]`. `concept_map_service._save_concept_map_to_db` then runs
+`','.join(node['sources'])`, which raises `TypeError: sequence item 0: expected str instance,
+list found`, and `POST /api/concepts/generate` returns 500 "Failed to generate concept map".
+**Why it matters:** a single node with empty sources — something the LLM does whenever it skips
+the field — failed the whole concept map. Found by the Day 5 API smoke test.
+**Fix (Day 5):** assign `[web_sources[0]]` / `[doc_sources[0]]`; unit tests cover both fallbacks,
+kept sources, and no source of that type.
+
 ---
 
 ## 11. Tooling & Repo Hygiene

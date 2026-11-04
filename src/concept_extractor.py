@@ -5,8 +5,7 @@ Uses LLM (Gemini) to extract concepts and relationships from hybrid context
 
 import os
 import json
-import re
-from typing import Dict, List, Optional, Any
+from typing import Dict, Optional
 import logging
 from google import genai  # [web:91][web:94]
 from dotenv import load_dotenv
@@ -287,9 +286,9 @@ Now extract the concept map:"""
             # If sources list is empty or generic, try to infer from source_type
             if not node.get('sources'):
                 if node.get('source_type') == 'web' and web_sources:
-                    node['sources'] = [web_sources]  # Assign first web source
+                    node['sources'] = [web_sources[0]]
                 elif node.get('source_type') == 'document' and doc_sources:
-                    node['sources'] = [doc_sources]  # Assign first doc source
+                    node['sources'] = [doc_sources[0]]
         
         return concept_map
     

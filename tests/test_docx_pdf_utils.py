@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..',
 from pdf_table_utils import extract_tables_camelot, extract_tables_pdfplumber
 from ocr_utils import ocr_from_image
 from docx_utils import extract_docx_content
-from image_preprocessing import preprocess_image,preprocess_image_extra
+from image_preprocessing import preprocess_image_extra
 from unified_parser import DocumentParser
 
 def test_pdf_table_extraction():

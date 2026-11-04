@@ -1,10 +1,14 @@
 import os
+import shutil
 import sys
-import os
+from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 from pptx_utils import extract_pptx_text, extract_pptx_metadata
 from ocr_utils import extract_text_from_image
-from table_utils import extract_tables_from_image,extract_tables_from_pptx_slides,preprocess_image_for_table
+from table_utils import extract_tables_from_image, extract_tables_from_pptx_slides
 from text_preprocessing import normalize_text, clean_text
 from pptx_pipeline import process_pptx
 
@@ -101,22 +105,25 @@ def test_ocr_on_sample_image():
         assert isinstance(text, str)
         # (Optional) assert len(text) > 0
 
-def test_table_extraction_on_image():
-    image_path = os.path.join(SAMPLES_DIR, "tableimage2.jpg")
-    processed_path = preprocess_image_for_table(image_path)
-    if os.path.exists(image_path):
-        tables = extract_tables_from_image(processed_path)
-        assert isinstance(tables, list)
-        if tables:
-            for table in tables:
-                print("Extracted Table CSV:")
-                print(table["csv"])
-                print("Extracted Table DataFrame:")
-                print(table["dataframe"].to_string())  # Display as raw table, if available
-            #print("Extracted Table CSV:", tables[0]["csv"])
-         # Add OCR fallback below table extraction
-        from ocr_utils import ocr_text_from_image
-        text = ocr_text_from_image(processed_path)
-        print("OCR Fallback Text:", text)
-            
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "B3: three OpenCV wheels share the cv2 package and a non-contrib build wins, so img2table "
+        "fails on cv2.ximgproc and extract_tables_from_image returns []. Remove this marker on Day 10."
+    ),
+)
+def test_table_extraction_on_image(tmp_path: Path) -> None:
+    sample = Path(SAMPLES_DIR) / "tableimage2.jpg"
+    assert sample.exists(), f"missing sample image: {sample}"
+    # extract_tables_from_image writes its cleaned copy next to the input, so work on a copy
+    # to keep tests/samples/ untouched.
+    image = tmp_path / sample.name
+    shutil.copyfile(sample, image)
+
+    tables = extract_tables_from_image(str(image))
+
+    assert tables, "no table extracted from a sample that contains one"
+    rows, columns = tables[0]["dataframe"].shape
+    assert rows >= 2 and columns >= 2
+    assert tables[0]["csv"].strip()
 

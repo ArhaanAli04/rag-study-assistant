@@ -1,26 +1,14 @@
 """G6: the semantic cache must never serve one user's answer to another user."""
 import os
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 import numpy as np
 import pytest
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'src')))
 from semantic_cache import DEFAULT_SEMANTIC_CACHE_REDIS_URL, SemanticCache, _cache_key, semantic_cache_redis_url
-
-
-class FakeRedis:
-    """Only the get/set calls SemanticCache makes, with bytes values like redis-py."""
-
-    def __init__(self) -> None:
-        self.store: Dict[str, bytes] = {}
-
-    def get(self, key: str) -> Optional[bytes]:
-        return self.store.get(key)
-
-    def set(self, key: str, value: str) -> None:
-        self.store[key] = value.encode("utf-8")
+from tests.fakes import FakeRedis
 
 
 class FakeEmbedder:

@@ -70,3 +70,41 @@ test("a refused stream becomes a refusal message and loading stops", async () =>
   // Refusals aren't stored, so session 0 must not be adopted as a new session.
   expect(onSessionCreated).not.toHaveBeenCalled();
 });
+
+test("a normal stream renders the answer and its source, and feedback uses the streamed message id", async () => {
+  const onSessionCreated = jest.fn();
+  localStorage.setItem("token", "jwt-for-demo");
+  global.fetch = jest.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ status: "ok" }) }));
+  render(<ChatWindow sessionId={null} onSessionCreated={onSessionCreated} />);
+
+  const input = sendQuestion("What is photosynthesis?");
+  const stream = FakeEventSource.instances[0];
+  expect(new URL(stream.url).searchParams.get("query")).toBe("What is photosynthesis?");
+
+  // The order /chat/stream promises (tests/test_api_smoke.py checks the backend side).
+  stream.emit({
+    type: "metadata",
+    data: {
+      session_id: 42, confidence: 82, grounding_level: "strict", mode: "quick",
+      sources: [{ file_name: "biology_notes.pdf", page_number: 3 }],
+    },
+  });
+  stream.emit({ type: "token", data: "Plants turn light " });
+  stream.emit({ type: "token", data: "into chemical energy." });
+  stream.emit({ type: "message_id", data: 7 });
+  stream.emit("[DONE]");
+
+  expect(await screen.findByText("Plants turn light into chemical energy.")).toBeInTheDocument();
+  expect(screen.getByText("biology_notes.pdf")).toBeInTheDocument();
+  expect(input).not.toBeDisabled();
+  expect(stream.closed).toBe(true);
+  expect(onSessionCreated).toHaveBeenCalledWith(42);
+
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Helpful" }));
+  });
+  const [url, options] = global.fetch.mock.calls.find(([u]) => String(u).includes("/feedback"));
+  expect(url).toMatch(/\/messages\/7\/feedback$/);
+  expect(JSON.parse(options.body).feedback).toBe("up");
+  localStorage.removeItem("token");
+});

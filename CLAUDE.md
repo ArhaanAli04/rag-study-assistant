@@ -31,20 +31,22 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 04 - Docker-first dev: multi-stage non-root image, compose override, semantic
-              cache on its own Redis DB (on develop)
+Last commit:  day 05 - offline test safety net: pytest config (T1), API smoke tests with fakes,
+              concept-map sources fix (B4) (feature/day05-tests → develop)
 Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
               v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
-              on ESLint warnings). Day 4 reaches master with the Day 10 release (v0.2.0)
+              on ESLint warnings). Days 4–5 reach master with the Day 10 release (v0.2.0)
 Uncommitted:  none
 Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
               docs/posts/assets/ are gitignored)
-Day 4:        docker compose up = dev stack (scripts/dev.ps1 up|down|logs|test|shell); 84/84 tests
-              on host and in the container. Also fixed: the image baked in app.db + uploads, the
-              Docker frontend called the Render API, OCR was broken on Linux (hardcoded Windows
-              tesseract path). Backend reload 13.5–15.1 s → lazy-load bullet on Day 8. Day 10
-              release notes (Render health check path /health, …) in docs/briefs/day04.md
-Next:         Day 5 (/run-day 5), then publish post 1. Timeline extended to 61 days on
+Day 5:        python -m pytest = 111 passed + 1 strict xfail (B3), no API keys, no network,
+              23 s host / 78 s container (Day 8 lazy loading). tests/conftest.py fakes Gemini,
+              Tavily and Redis at the SDK boundary, blocks sockets, runs in a temp dir. API smoke
+              tests incl. the SSE contract; frontend 11 tests (login page, chat stream). Found:
+              B4 concept maps 500'd on nodes without sources (fixed); B3 OpenCV wheel clash
+              disables image/PPTX table extraction in prod too (Day 10). Day 4 notes in
+              docs/briefs/day04.md, Day 5 in docs/briefs/day05.md
+Next:         Day 6 (/run-day 6), then publish post 1. Timeline extended to 61 days on
               2026-11-04 (Projects 18–20, Connectors 40–43, Memory 53–55; Supabase hosting)
 Blockers:     none. v0.1.0/v0.1.1 verified in prod 2026-11-04: Render Live + Vercel on
               60f52bf; email + Google login; upload with citation "samples.pdf"; streamed chat;
@@ -92,7 +94,7 @@ rag-study-assistant/
 | Sessions & caches | `session_service.py`, `semantic_cache.py`, `cache.py`, `web_cache.py`, `logger.py` | |
 | Concept maps | `concept_map_service.py`, `hybrid_retriever.py`, `concept_extractor.py`, `concept_map_schemas.py` | |
 | Eval / experiments | `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | non-functional or print-only; all import `main` |
-| Ad-hoc scripts | `src/test_*.py`, `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py` | `src/test_*.py` are manual scripts, not the pytest suite |
+| Ad-hoc scripts | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; the old `src/test_*.py` manual scripts now live in `scripts/manual/` (Day 5) | the manual scripts call live services and are never collected by pytest (`pytest.ini` → `tests/` only) |
 | Dead code | `frontend.py` (Streamlit stub), `document_delete_service.py` (never called) | |
 
 Frontend dead code: `components/MessageBubble.js` — the chat renders `components/MessageList.js`.
@@ -188,7 +190,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Retrieval eval harness (E4); golden eval set + CI gate (E3); any CI/CD workflow
 - Query expansion / HyDE (R3); agentic tool use (A1); ANN or per-user indexes (I1); embedding cache (CO3)
 - Rate limiting, refresh tokens, PostgreSQL, quiz persistence
-- Frontend tests beyond `components/MessageList.test.js` and `components/ChatWindow.test.js` (refusal rendering, Day 2); the default CRA `App.test.js` was deleted, and an App smoke test comes on Day 5. Run with `cd frontend; npm test -- --watchAll=false`
+- Frontend tests beyond 5 files / 11 tests: `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5). No tests for documents, concept maps, quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
 
 ---
 
@@ -229,7 +231,9 @@ Found while writing this file; evidence and direction live under each ID.
 | Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
 | Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
 | Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
-| `pytest.ini` is ignored (`[tool:pytest]` header) | T1 | P1 |
+| Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` and are never collected | T1 | Done |
+| Image and PPTX-slide table extraction silently returns nothing: three OpenCV wheels share `cv2` and a non-contrib build wins (confirmed in the backend image too); `test_table_extraction_on_image` is a strict xfail until the Day 10 fix | B3 | P1 |
+| Fixed Day 5: concept-map generation returned 500 whenever a node had empty sources (`concept_extractor` wrapped the whole source list) | B4 | Done |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
 | Dead code, drifted requirements files, unused deps, installer still in git history | T3 | P2 |
 
@@ -281,8 +285,8 @@ docker compose up --build                 # the same, in the foreground
 # The stack as deployed (Render builds this backend image): base file only, no override
 docker compose -f docker-compose.yml up --build
 
-# Tests — pass the path explicitly (pytest.ini is ignored, see Known Issues)
-python -m pytest tests
+# Tests — offline: no API keys, no network, no Redis (tests/conftest.py fakes them); pytest.ini limits collection to tests/
+python -m pytest
 
 # Ad-hoc eval scripts (need live Gemini + Redis; run from src/)
 cd src; python rag_eval_runner.py

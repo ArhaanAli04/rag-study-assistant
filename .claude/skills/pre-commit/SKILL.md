@@ -29,10 +29,11 @@ python -m py_compile <each changed .py file>
 ## 3. Tests
 
 ```powershell
-python -m pytest tests -q
+python -m pytest -q
 ```
 
-Pass `tests` explicitly — `pytest.ini` is ignored until T1 is fixed.
+Since Day 5 (T1) `pytest.ini` is honoured: a plain run collects only `tests/`, runs offline
+(fake Gemini/Redis/Tavily, network guard in `tests/conftest.py`) and needs no API keys.
 
 ## 4. Diff review against the rules
 

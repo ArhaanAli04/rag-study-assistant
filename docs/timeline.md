@@ -199,6 +199,7 @@ Focus: Package layout, routers + dependency injection, one chat pipeline, dead c
 - Dependencies (ask before each removal):
   - One UTF-8 requirements file; delete src/requirements.txt
   - Remove langchain*, qdrant-client, streamlit; keep langgraph (Day 33) and tiktoken until Day 31 decides
+- B3: drop the unused opencv-python pin and make the contrib build win (install order or constraints), then remove the strict xfail on test_table_extraction_on_image (ask the owner before touching requirements)
 - Rewrite CLAUDE.md repo structure, module map and commands; update .claude hook paths
 - Release: develop → master, tag v0.2.0; update Render's root directory/start command for the new layout before merging
 - Verify: Render and Vercel deploy green from the new layout

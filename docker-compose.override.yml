@@ -12,9 +12,8 @@ services:
       # Live source. The named volumes from the base file (data, uploads, logs) are mounted
       # deeper, so they still shadow those three folders inside this bind mount.
       - ./src:/app/src
-      # Read-write until Day 5: test_table_extraction_on_image writes *_cleaned.jpg next to its
-      # sample (gitignored). Day 5 moves that output to tmp_path; then this can become :ro.
-      - ./tests:/app/tests
+      # Read-only: tests write only to pytest's tmp_path (Day 5).
+      - ./tests:/app/tests:ro
       # test_llm_modes reads ChatInput.js to check the frontend's modes against the backend's.
       - ./frontend/src:/app/frontend/src:ro
 

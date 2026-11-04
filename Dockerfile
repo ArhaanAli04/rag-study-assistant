@@ -1,39 +1,58 @@
 # ==================== Backend Dockerfile ====================
-# Use Python 3.9 slim image
+# Two stages: the compiler toolchain and pip's build artefacts stay in the builder, so the
+# runtime image carries only the virtualenv and the system libraries the app loads.
+
+# -------- Stage 1: build the virtualenv --------
+FROM python:3.11-slim AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Copied before the source so code edits reuse the cached dependency layer.
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# -------- Stage 2: runtime --------
 FROM python:3.11-slim
 
-# Set working directory
-WORKDIR /app
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
+# tesseract + poppler are runtime dependencies of the OCR and PDF-to-image paths.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     tesseract-ocr \
     tesseract-ocr-eng \
     poppler-utils \
-    libpq-dev \
-    gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements first (for better caching)
-COPY requirements.txt .
+COPY --from=builder /opt/venv /opt/venv
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    TESSERACT_PATH=/usr/bin/tesseract
 
-# Copy backend code
+# Unprivileged user: a compromised parser can't modify the code or the rest of the container.
+RUN useradd --create-home --uid 1000 app
+
+WORKDIR /app
 COPY src/ ./src/
 
+# Only the runtime-state directories are writable by the app. They must exist and be owned by
+# `app` in the image: an empty named volume copies this ownership the first time it is mounted.
+RUN mkdir -p src/data src/uploads src/logs \
+    && chown -R app:app src/data src/uploads src/logs
 
-# Create necessary directories
-RUN mkdir -p src/data/uploads src/data/faiss_indexes src/logs
+USER app
+WORKDIR /app/src
 
-# Expose port
 EXPOSE 8000
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV TESSERACT_PATH=/usr/bin/tesseract
+# Slim images have no curl. urlopen raises on connection errors and non-2xx responses.
+# start-period covers the Gemini embedding call IndexBuilder makes at import time.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=4)" "http://127.0.0.1:${PORT:-8000}/health" || exit 1
 
-# Change to src directory and run uvicorn
-WORKDIR /app/src
-CMD uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}
+# sh -c expands Render's $PORT; exec replaces the shell so uvicorn is PID 1 and receives
+# SIGTERM directly (graceful shutdown instead of a 10 s kill on `docker stop`).
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

@@ -5,13 +5,12 @@ import os
 from dotenv import load_dotenv
 
 load_dotenv()
-'''
-# Configure Tesseract path (Windows-specific)
+
+# Windows installs tesseract outside PATH, so the host .env points at the .exe. Unset, pytesseract
+# finds `tesseract` on PATH — the Docker image sets TESSERACT_PATH=/usr/bin/tesseract anyway.
 TESSERACT_PATH = os.getenv("TESSERACT_PATH")
 if TESSERACT_PATH:
-    pytesseract.pytesseract.pytesseract_cmd = TESSERACT_PATH
-'''
-pytesseract.pytesseract.tesseract_cmd = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
+    pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
 
 def extract_text_from_image(image_path):
     """

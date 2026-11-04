@@ -61,7 +61,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | I1 | Per-user/ANN FAISS indexing instead of brute-force + post-hoc filter | Not Started | |
 | I2 | Persist BM25 index to disk; avoid full rebuild on every add | Not Started | |
 | CO3 | Content-hash embedding cache | Not Started | |
-| T3 | Repo hygiene: committed installer, stray/dead files, drifted requirements files, unused deps | Not Started | 2026-09-12 (69ae920): installer untracked and now ignored via `*.exe` (still in git history); stray `stop` and unused resume sample deleted; .gitignore extended. Remaining: dead code, requirements reconcile, unused deps, `DATABASE_URL`, Docker Redis DB |
+| T3 | Repo hygiene: committed installer, stray/dead files, drifted requirements files, unused deps | In Progress | 2026-09-12 (69ae920): installer untracked and now ignored via `*.exe` (still in git history); stray `stop` and unused resume sample deleted; .gitignore extended. 2026-11-03 (Day 4): Docker items done — semantic cache on its own Redis DB via `SEMANTIC_CACHE_REDIS_URL` (Docker DB 1; Render unchanged until set), `DATABASE_URL` removed from compose. Also: image no longer bakes app.db/uploads (16 MB → 480 KB src), non-root, 3.4 → 3.05 GB. Remaining: dead code, requirements reconcile, unused deps (Day 10) |
 
 ---
 

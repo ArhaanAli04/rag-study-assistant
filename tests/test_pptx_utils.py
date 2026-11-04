@@ -8,8 +8,12 @@ from table_utils import extract_tables_from_image,extract_tables_from_pptx_slide
 from text_preprocessing import normalize_text, clean_text
 from pptx_pipeline import process_pptx
 
+# Relative to this file, not the CWD: the Docker test run starts in /app/src.
+SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "samples")
+SAMPLE_PPTX = os.path.join(SAMPLES_DIR, "sample2.pptx")
+
 def test_extract_pptx_text():
-    sample_pptx = "tests/samples/sample2.pptx"
+    sample_pptx = SAMPLE_PPTX
     if os.path.exists(sample_pptx):
         slides = extract_pptx_text(sample_pptx)
         assert len(slides) > 0
@@ -17,7 +21,7 @@ def test_extract_pptx_text():
         assert "full_text" in slides[0]
 
 def test_extract_pptx_metadata():
-    sample_pptx = "tests/samples/sample2.pptx"
+    sample_pptx = SAMPLE_PPTX
     if os.path.exists(sample_pptx):
         meta = extract_pptx_metadata(sample_pptx)
         assert "num_slides" in meta
@@ -33,14 +37,13 @@ def test_clean_text():
     assert len(cleaned) > 0
 
 def test_process_pptx_pipeline():
-    sample_pptx = "tests/samples/sample2.pptx"
+    sample_pptx = SAMPLE_PPTX
     if os.path.exists(sample_pptx):
         result = process_pptx(sample_pptx)
         assert "slides" in result
         assert "metadata" in result
 
 
-SAMPLE_PPTX = "tests/samples/sample2.pptx"
 
 def test_extract_tables_from_pptx_slide_images():
     if os.path.exists(SAMPLE_PPTX):
@@ -91,7 +94,7 @@ def test_process_pptx_pipeline_tables_images():
 
 
 def test_ocr_on_sample_image():
-    image_path = "tests/samples/sampleimg1.png"
+    image_path = os.path.join(SAMPLES_DIR, "sampleimg1.png")
     if os.path.exists(image_path):
         text = extract_text_from_image(image_path)
         print("OCR Text:", text)
@@ -99,7 +102,7 @@ def test_ocr_on_sample_image():
         # (Optional) assert len(text) > 0
 
 def test_table_extraction_on_image():
-    image_path = "tests/samples/tableimage2.jpg"
+    image_path = os.path.join(SAMPLES_DIR, "tableimage2.jpg")
     processed_path = preprocess_image_for_table(image_path)
     if os.path.exists(image_path):
         tables = extract_tables_from_image(processed_path)

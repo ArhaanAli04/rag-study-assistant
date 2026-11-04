@@ -31,19 +31,26 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 03 - per-user upload storage (G7), working account deletion (B1), login
-              notice — on develop, local only
-Pushed:       origin/master = 73d8bae (native multi-turn chat history), 2026-09-12
-Branches:     develop and master local only (develop = day 00–03); first push is the v0.1.0
-              release
+Last commit:  day 04 - Docker-first dev: multi-stage non-root image, compose override, semantic
+              cache on its own Redis DB (on develop)
+Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
+              v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
+              on ESLint warnings). Day 4 reaches master with the Day 10 release (v0.2.0)
 Uncommitted:  none
 Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
               docs/posts/assets/ are gitignored)
-Next:         v0.1.0 release — develop → master --no-ff, push both, tag v0.1.0 (checklist in
-              docs/briefs/day03.md, "Release checklist"), then Day 4 (/run-day 4)
-Blockers:     Render release steps: rotate JWT_SECRET_KEY and set ALLOWED_ORIGINS before the
-              deploy; DEL semantic_cache_entries on Render Redis DB 0 and DB 1; then verify
-              /health, email + Google login, streamed chat
+Day 4:        docker compose up = dev stack (scripts/dev.ps1 up|down|logs|test|shell); 84/84 tests
+              on host and in the container. Also fixed: the image baked in app.db + uploads, the
+              Docker frontend called the Render API, OCR was broken on Linux (hardcoded Windows
+              tesseract path). Backend reload 13.5–15.1 s → lazy-load bullet on Day 8. Day 10
+              release notes (Render health check path /health, …) in docs/briefs/day04.md
+Next:         finish the v0.1.0 checks below, publish post 1, then Day 5 (/run-day 5)
+Blockers:     Verified in prod: Render Live + Vercel on 60f52bf, email login + streamed chat,
+              account deletion with the green notice. Still open (owner, before post 1):
+              (1) DEL semantic_cache_entries on Render Key Value DB 0 and DB 1 — free plan has
+              no Shell, so: allow your IP on the Key Value service, docker run redis:7
+              redis-cli --tls -u <external URL>, then remove the IP rule; (2) Google login;
+              (3) upload a demo PDF and check the citation shows the real filename
 ```
 
 ---
@@ -259,8 +266,15 @@ docker compose up redis                   # or a local redis-server
 # Frontend
 cd frontend; npm install; npm start       # http://localhost:3000
 
-# Full stack in Docker
-docker compose up --build
+# Docker-first dev (Day 4): docker-compose.yml + docker-compose.override.yml
+#   backend http://localhost:8000 (src/ bind-mounted, --reload), frontend http://localhost:3000
+#   (CRA dev server), Redis on host port 6380. Data, uploads, logs live in named volumes.
+Copy-Item .env.example .env               # first time only; fill in the REQUIRED values
+.\scripts\dev.ps1 up                      # build + start; also: down, logs [service], test, shell [service]
+docker compose up --build                 # the same, in the foreground
+
+# The stack as deployed (Render builds this backend image): base file only, no override
+docker compose -f docker-compose.yml up --build
 
 # Tests — pass the path explicitly (pytest.ini is ignored, see Known Issues)
 python -m pytest tests
@@ -284,13 +298,19 @@ The backend reads the root `.env`. `load_dotenv()` finds it by searching upward 
 | `JWT_SECRET_KEY` | yes | JWT signing (`auth.py`) and `SessionMiddleware` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `config/oauth_config.py` |
 | `JWT_ALGORITHM`, `JWT_EXPIRATION_MINUTES` | no | `HS256`, `10080` (7 days) |
-| `REDIS_URL` | no | Code defaults: `redis://localhost:6379/0` for `cache.py` / `web_cache.py`; `/1` for `semantic_cache.py`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380). When `REDIS_URL` is set, the semantic cache shares that DB (0); it gets a separate setting on Day 4 |
+| `REDIS_URL` | no | Query cache (`cache.py`) and web cache (`web_cache.py`); default `redis://localhost:6379/0`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380); in Docker compose sets `redis://redis:6379/0` |
+| `SEMANTIC_CACHE_REDIS_URL` | no | Semantic cache (`semantic_cache.py`). Unset → `REDIS_URL` → `redis://localhost:6379/1`. Docker: `redis://redis:6379/1`. Render sets only `REDIS_URL`, so there the semantic cache still shares DB 0 |
 | `BASE_URL`, `FRONTEND_URL` | no | OAuth redirects; `http://localhost:8000`, `http://localhost:3000` |
 | `ALLOWED_ORIGINS` | no | Comma-separated CORS allowlist (entries trimmed). Default: `http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app`. On Render: only `https://rag-study-assistant-chi.vercel.app` |
-| `TESSERACT_PATH`, `PORT` | no | OCR binary path; uvicorn port in the Dockerfile (default 8000) |
+| `TESSERACT_PATH`, `PORT` | no | OCR binary path, set as pytesseract's `tesseract_cmd` by `ocr_utils.py`; unset → `tesseract` on `PATH`. Windows host `.env`: the `tesseract.exe` path; the Docker image sets `ENV TESSERACT_PATH=/usr/bin/tesseract` (so Render gets it without compose), and compose sets it again because `env_file: .env` would otherwise pass the Windows path in. uvicorn port in the Dockerfile (default 8000) |
+
+`.env.example` lists every backend variable with placeholders; keep it in sync when adding one.
+`DATABASE_URL` is not read by anything (SQLite path is hardcoded in `db.py`) — it returns on Day 13.
 
 Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (default
-`http://localhost:8000`), `REACT_APP_GOOGLE_CLIENT_ID`.
+`http://localhost:8000`), `REACT_APP_GOOGLE_CLIENT_ID`. CRA inlines these at **build** time; the
+Docker nginx build takes `REACT_APP_API_URL` as a build arg (compose passes localhost) because
+otherwise `.env.production` points it at Render.
 
 ---
 
@@ -298,12 +318,12 @@ Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (def
 
 | What | Where | Survives restart? |
 |---|---|---|
-| Users, sessions, messages, documents, failed queries, concept maps | SQLite `src/data/app.db` | yes on local disk / Docker volume |
+| Users, sessions, messages, documents, failed queries, concept maps | SQLite `src/data/app.db` (Docker: named volume `data`, separate from the venv's file) | yes on local disk / Docker volume |
 | Uploaded files | `src/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `src/uploads/<name>`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/src/uploads`; Render: no disk, lost on every deploy |
 | FAISS vectors + chunk metadata (including chunk text) | process memory | **no** |
 | BM25 corpus | process memory | **no** |
 | L1 retrieval cache (≤ 256 entries) | class-level dict in `RetrievalService` | no |
-| Logs | `src/logs/app.log` (rotating, 5 MB × 3) | yes |
+| Logs | `src/logs/app.log` (rotating, 5 MB × 3; Docker: named volume `logs`) | yes |
 
 On Render, local files (including SQLite) persist across deploys only if a persistent disk is
 attached — not verified for this deployment.
@@ -313,9 +333,10 @@ attached — not verified for this deployment.
 ```
 query_cache:{sha256(user_id::doc_version::query)}  DB 0            TTL 3600s  /search results                cache.py
 websearch:{query}                                  DB 0            TTL 3600s  Tavily chunks, no embeddings   web_cache.py
-semantic_cache:{user_id}                           REDIS_URL's DB  no TTL     one JSON list of ≤ 64 entries
-                                                   (code default 1)           per user; entries also carry
-                                                                              user_id, doc_version, mode     semantic_cache.py
+semantic_cache:{user_id}                           SEMANTIC_CACHE  no TTL     one JSON list of ≤ 64 entries
+                                                   _REDIS_URL's DB            per user; entries also carry
+                                                   (Docker: 1;                user_id, doc_version, mode     semantic_cache.py
+                                                   Render: 0)
 ```
 
 **Legacy key (pre–Day 1):** `semantic_cache_entries` held every user's entries in one list.

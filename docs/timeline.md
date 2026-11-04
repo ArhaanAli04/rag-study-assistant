@@ -172,6 +172,7 @@ Focus: Package layout, routers + dependency injection, one chat pipeline, dead c
 - Pure moves — no behaviour changes today, so any test failure is an import problem, not a logic problem
 - Move the Pydantic models defined in main.py into schemas/
 - Update Dockerfile WORKDIR/CMD, docker-compose, alembic/env.py sys.path and root scripts for the new paths
+- Lazy-load OCR/table libraries (img2table, camelot, pytesseract): ~10 s of the 12 s import time; target backend reload < 5 s. Measured Day 4: `indexing_pipeline → chunk_builder → pptx_pipeline → table_utils → img2table` = 9.9 s of a 12.3 s import; reload 13.5–15.1 s. Do it as its own commit after the pure moves, so a test failure in the move commit is still only an import problem
 - Verify: the Day 5 smoke tests pass unchanged — they are the proof the move kept behaviour identical
 
 ### Day 9 — Split main.py into routers, add dependency injection, one chat pipeline

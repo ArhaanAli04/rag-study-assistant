@@ -1,40 +1,49 @@
+# Build context for the backend image. Anything listed here never reaches a layer — and layers
+# are permanent, so user data and secrets must be excluded here, not deleted later in a RUN.
+
+# Secrets — passed at run time via env_file / the host's environment
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Runtime state — lives in volumes (Docker) or on the host (venv), never in the image
+src/data/
+src/uploads/
+src/logs/
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.log
+
 # Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
+**/__pycache__/
+**/*.py[cod]
 venv/
+.venv/
 env/
-ENV/
-.venv
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Project specific
-frontend/
-*.log
 .pytest_cache/
+.ruff_cache/
+.mypy_cache/
 .coverage
 htmlcov/
 
-# Data (we'll mount these as volumes)
-src/data/uploads/*
-src/data/faiss_indexes/*
-!src/data/.gitkeep
+# Not part of the backend image (the frontend has its own context; tests are mounted in dev)
+frontend/
+node_modules/
+tests/
+docs/
+scripts/
+alembic/
+.claude/
+*.exe
+*.docx
+*.pdf
 
-# Env files (will be passed separately)
-.env.local
-.env.*.local
-
-# Git
+# Tooling / OS
 .git/
 .gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

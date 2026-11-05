@@ -1,9 +1,11 @@
-"""PostToolUse hook: run a bug-only ruff check on a Python file Claude just edited.
+"""PostToolUse hook: run ruff on a Python file Claude just edited.
 
-Only rules that catch definite breakage are selected — syntax errors, undefined names, and
-invalid comparisons. src/ had zero findings for them on 2026-09-12, so a hit almost certainly
-comes from the edit itself. There is no --fix and no formatting: rewriting whole legacy files
-would bury the real change in an unrelated diff. Exit 2 sends the findings back to Claude.
+The rules come from the repo's ruff.toml (ruff finds it by walking up from the file), the same
+file CI enforces, so the hook can never pass what CI rejects. That set is bug-only today —
+syntax errors, undefined names, invalid comparisons — and was clean repo-wide when adopted, so a
+hit almost certainly comes from the edit itself. There is no --fix and no formatting: rewriting
+whole legacy files would bury the real change in an unrelated diff. Exit 2 sends the findings
+back to Claude.
 """
 
 from __future__ import annotations
@@ -18,7 +20,6 @@ from pathlib import Path
 
 from hook_io import configure_utf8_streams, read_payload, tool_input
 
-RUFF_RULES = "E9,F63,F7,F82"
 FINDINGS_EXIT_CODE = 2
 
 
@@ -57,7 +58,7 @@ def main() -> int:
         return 1
     try:
         result = subprocess.run(
-            [*ruff, "check", "--select", RUFF_RULES, "--no-cache", "--output-format", "concise", str(path)],
+            [*ruff, "check", "--no-cache", "--output-format", "concise", str(path)],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -73,7 +74,7 @@ def main() -> int:
         return 0
     if result.returncode == 1:
         sys.stderr.write(
-            f"ruff found definite errors in {path.name} after this edit (rules {RUFF_RULES}):\n"
+            f"ruff found errors in {path.name} after this edit (rules from ruff.toml):\n"
             f"{result.stdout.strip()}\n"
             "Fix these before moving on.\n"
         )

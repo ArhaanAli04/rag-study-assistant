@@ -1,0 +1,13 @@
+# One ruff configuration for CI (.github/workflows/ci.yml), the Claude Code edit hook
+# (.claude/hooks/ruff_check.py) and local runs (`ruff check .`).
+#
+# A ratchet: only rules the whole repo already passes are enforced, so CI gates on definite
+# bugs without a 90-finding cleanup in files Phase 3 moves anyway. Day 10 (T3) adds F401 after
+# the dead-code pass, then ruff's defaults. Tighten only, never loosen.
+
+target-version = "py311"
+extend-exclude = ["frontend"]
+
+[lint]
+# E9 syntax errors · F63 invalid comparisons · F7 misplaced statements · F82 undefined names
+select = ["E9", "F63", "F7", "F82"]

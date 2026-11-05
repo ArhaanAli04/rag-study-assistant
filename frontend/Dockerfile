@@ -3,7 +3,8 @@
 #                               → build (production bundle) → nginx (served, the default target)
 
 # -------- deps --------
-FROM node:20-alpine AS deps
+# Node 24 = Vercel's production Node.js Version and CI's; keep all three in sync.
+FROM node:24-alpine AS deps
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --silent

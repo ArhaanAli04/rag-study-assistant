@@ -6,7 +6,9 @@ disable-model-invocation: true
 
 # /pre-commit — Checks before committing
 
-This repo has no Makefile, linter, type checker, or CI, so this command is the quality gate.
+CI (`.github/workflows/ci.yml`, since Day 6) runs ruff, the offline pytest suite, the frontend
+tests and build, and both Docker builds on every PR, and branch protection requires them. This
+command runs the same checks locally before you push, plus a rule review CI can't do.
 Run the steps in order and stop at the first failure:
 - If the failure is in code changed this session, fix it and rerun that step.
 - If it looks pre-existing or unrelated to this session's change, report it and ask before
@@ -24,7 +26,11 @@ Run the steps in order and stop at the first failure:
 
 ```powershell
 python -m py_compile <each changed .py file>
+ruff check .
 ```
+
+`ruff check .` reads `ruff.toml` — the same rules the CI `backend` job enforces (CI pins ruff
+0.15.18; use that version if your local one disagrees).
 
 ## 3. Tests
 

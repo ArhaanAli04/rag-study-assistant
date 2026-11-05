@@ -783,7 +783,9 @@ Focus: UI integration audit, load testing, security review, docs, v1.0
 - UI integration audit: list every endpoint and response field and confirm each has a frontend caller with loading, empty and error states — fix any gap before launch
 - Load test chat and upload (locust — new dependency — or k6 run outside the repo); set p95 targets; tune the DB pool
 - /security-review over everything since v0.1.0 — with extra attention on project ownership checks, connector token storage and scopes, the URL importer's SSRF guard and memory-poisoning paths; pip-audit and npm audit
+- Pin every GitHub Action in .github/workflows/ to a full commit SHA (Day 6 uses major-version tags such as actions/checkout@v4), with the tag kept in a trailing comment so updates stay readable
 - Decision: purge the Tesseract installer from git history — needs a history rewrite and force-push, so only with explicit agreement
+  - Branch protection blocks force-pushes even for admins: lift protection on master and develop temporarily, purge, force-push, then restore the exact rules (re-run the Day 6 gh api commands from docs/briefs/day06.md) and read them back
 
 ### Day 61 — Docs and v1.0
 

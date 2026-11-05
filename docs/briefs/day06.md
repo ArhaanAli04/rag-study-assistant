@@ -266,4 +266,156 @@ Backend-only — no user-visible change. Today adds a CI workflow, a lint config
 - **Jest worker warning (Day 5):** if "A worker process has failed to exit gracefully" shows up in CI, follow the Day 5 note (`--detectOpenHandles`, fake the timer in the triggering test).
 - **Release flow change (Decision 3A):** Day 10's v0.2.0 release becomes PR-based. `docs/timeline.md:39` already says so; CLAUDE.md is updated in checkpoint 3.
 - **Render / Vercel deploy on `master` push without waiting for CI:** unchanged today. With 3A, nothing reaches `master` without green CI anyway. Gating the deploy itself is Day 21.
-- **Found, not fixed:** 28 unused imports in `src/` and 3 in `scripts/manual/` (Day 10, T3 ratchet); `frontend/Dockerfile` Node 20 EOL (question above).
+- **Found, not fixed:** 28 unused imports in `src/` and 3 in `scripts/manual/` (Day 10, T3 ratchet); `frontend/Dockerfile` Node 20 EOL (question above — answered: bumped to Node 24).
+
+## Outcome
+
+### CI measurements
+First run — PR #4 (`feature/day06-ci` → `develop`, head `d10ed52`), run 42098435785, cold caches,
+2026-11-05 19:55–20:04 UTC. All three jobs from `github-actions` (app id 15368):
+
+| Job | Result | Wall time | Notes |
+|---|---|---|---|
+| backend | success | 6m54s | pip read the UTF-16LE `requirements.txt` (Decision 1A holds); ruff 0.15.18 clean; pytest **111 passed, 1 xfailed in 23.95 s** — the B3 strict xfail stays an xfail on Linux |
+| frontend | success | 49s | Node 24; 5 suites / 11 tests passed; `npm run build` with `CI=true`; no Jest worker warning |
+| docker | success | 9m16s | backend + frontend images built, no push |
+
+Other checks on the PR, not required (external integrations): GitGuardian Security Checks,
+Vercel Preview Comments, Vercel (commit status).
+
+### Branch protection (applied 2026-11-06, owner-approved)
+Same body for both branches (required checks bound to the GitHub Actions app, id 15368, so a
+same-named check from another integration can't satisfy them). To restore the rules (e.g. after
+Day 60's history purge), save this as `branch-protection.json` **outside the repo** and re-run the
+commands below, then the read-back:
+
+```json
+{
+  "required_status_checks": {
+    "strict": false,
+    "checks": [
+      { "context": "backend",  "app_id": 15368 },
+      { "context": "frontend", "app_id": 15368 },
+      { "context": "docker",   "app_id": 15368 }
+    ]
+  },
+  "enforce_admins": true,
+  "required_pull_request_reviews": {
+    "required_approving_review_count": 0,
+    "dismiss_stale_reviews": false,
+    "require_code_owner_reviews": false
+  },
+  "restrictions": null,
+  "allow_force_pushes": false,
+  "allow_deletions": false,
+  "required_linear_history": false,
+  "required_conversation_resolution": false,
+  "lock_branch": false
+}
+```
+
+```bash
+B=<path to branch-protection.json>
+gh api -X PUT repos/ArhaanAli04/rag-study-assistant/branches/develop/protection --input "$B"
+gh api -X PUT repos/ArhaanAli04/rag-study-assistant/branches/master/protection  --input "$B"
+for br in develop master; do
+  gh api repos/ArhaanAli04/rag-study-assistant/branches/$br/protection --jq \
+   "\"$br: checks=\([.required_status_checks.checks[] | \"\(.context)@\(.app_id)\"]) strict=\(.required_status_checks.strict) pr_approvals=\(.required_pull_request_reviews.required_approving_review_count) enforce_admins=\(.enforce_admins.enabled) force_push=\(.allow_force_pushes.enabled) deletions=\(.allow_deletions.enabled) linear=\(.required_linear_history.enabled)\""
+done
+```
+
+Read-back on 2026-11-06:
+
+```
+develop: checks=["backend@15368","frontend@15368","docker@15368"] strict=false pr_approvals=0 enforce_admins=true force_push=false deletions=false linear=false
+master:  checks=["backend@15368","frontend@15368","docker@15368"] strict=false pr_approvals=0 enforce_admins=true force_push=false deletions=false linear=false
+```
+
+Right after: PR #4 `mergeable=MERGEABLE mergeStateStatus=CLEAN` — the existing green run satisfies
+the new rules.
+
+### First push run on `develop`
+PR #4 merged (`132182f`, merge commit). `push` run 42101715872: **success** — frontend 41s,
+backend 1m40s, docker 9m02s. Docker was effectively cold again: Actions caches are scoped to the
+ref that wrote them, and a PR's caches (`refs/pull/4/merge`) aren't readable from `develop`.
+`gh cache list` afterwards shows the BuildKit layers and the backend/frontend cache indexes now
+stored under `refs/heads/develop`, which every later PR into `develop` can read.
+
+### Gate test (timeline Verify) — passed
+Run by Claude under a one-time, owner-granted exception to the run-day "no git writes" rule,
+limited to the throwaway branch `test/ci-gate`.
+- `git worktree add ..\rag-ci-gate -b test/ci-gate origin/develop`; one commit `ca50abf` adding
+  `tests/test_ci_gate.py` (a single `assert False`); pushed with an explicit refspec
+  (`test/ci-gate:test/ci-gate` — `worktree add` had set the branch to track `origin/develop`).
+- **PR #5** "DO NOT MERGE - day 06 CI gate test" → `develop`. **Run 42103753219:**
+  `backend` **failure** (`FAILED tests/test_ci_gate.py::test_ci_gate_blocks_merge` — 1 failed,
+  111 passed, 1 xfailed in 27.02 s; nothing else failed), `frontend` success, `docker` success
+  (external Vercel and GitGuardian checks also green).
+- **`mergeStateStatus = BLOCKED`** while open (`mergeable = MERGEABLE`: no conflicts, blocked only by
+  the required check). `gh pr merge` was never run — BLOCKED is the proof.
+- Closed **unmerged** (`state=CLOSED`, `mergedAt=null`, 2026-11-05T20:32:01Z).
+- Cleanup: worktree removed and pruned by Claude. The local and remote branch were deleted by the
+  owner: the repo's `guard_commands.py` hook blocks `git branch -D`, and `gh pr close
+  --delete-branch` stopped before the remote delete because the worktree still held the branch
+  (lesson: remove the worktree *before* `gh pr close --delete-branch`). Verified afterwards:
+  `git ls-remote --heads origin test/ci-gate` and `git branch --list test/ci-gate` both empty;
+  `develop` (`132182f`) and `master` (`60f52bf`) untouched.
+- The "fixing it turns CI green and allows the merge" half of the timeline bullet is shown by
+  PR #4 (green → `CLEAN` → merged) rather than by fixing PR #5, which the owner chose to close
+  unmerged.
+
+### Files changed
+**Checkpoint 1 — merged in PR #4 (`d10ed52`)**
+- `.github/workflows/ci.yml` — new: `backend`, `frontend`, `docker` jobs; `pull_request` + `push` to develop/master + `workflow_dispatch`; `permissions: contents: read`; per-ref concurrency with cancel-in-progress; `timeout-minutes` 25 / 15 / 30
+- `ruff.toml` — new: `target-version = "py311"`, bug-only `E9,F63,F7,F82`, ratchet note for Day 10
+- `.claude/hooks/ruff_check.py` — reads `ruff.toml` instead of its own `--select`; `RUFF_RULES` deleted
+- `frontend/Dockerfile` — `node:20-alpine` → `node:24-alpine`
+- `docs/briefs/day06.md` — brief + approvals
+
+**Checkpoint 2 — GitHub settings, no files:** branch protection on `develop` and `master` (above).
+
+**Checkpoint 3 — `feature/day06-docs`**
+- `docs/briefs/day06.md` — this Outcome
+- `CLAUDE.md` — Git flow (protection rules; day PRs; PR-based release with a merge commit, then tag; hotfix PR into `master`, then `master` → `develop`); repo tree (`.github/workflows/ci.yml`, `ruff.toml`); Tech Stack `CI` row; Working: CI; Not present: "any CI/CD workflow" → CD only (Days 21–22); Key Commands: `ruff check .`, `gh pr checks`, `gh run list`; Node.js 24 kept in sync across Vercel, CI and the Dockerfile; hooks line (rules from `ruff.toml`). Current Status block untouched
+- `docs/timeline.md` — Day 60: pin GitHub Actions to commit SHAs (owner request)
+- `docs/posts/09-launch-recap.md` — Day 6 material-log line
+
+### Checks
+| Check | Result |
+|---|---|
+| `python -m py_compile .claude/hooks/ruff_check.py` | ok |
+| `ruff check .` (settings resolved from `ruff.toml`) | All checks passed |
+| Hook dry-run: `src/main.py` / file with an undefined name | exit 0 / exit 2 with `F821` |
+| `ci.yml` YAML parse | 3 jobs, triggers, permissions, timeouts as intended |
+| Local `python -m pytest -q`, no API keys | 111 passed, 1 xfailed (57.8 s, Docker build in parallel) |
+| Local `npm ci` + `npm test -- --watchAll=false` + `npm run build`, `CI=true`, Node 22 | 11/11 tests; build without warnings |
+| Local `docker compose -f docker-compose.yml build`; frontend image on `node:24-alpine` | both built; Node v24.22.2 |
+| CI run on PR #4 (cold) | all green — backend 6m54s, frontend 49s, docker 9m16s |
+| CI push run on `develop` (`132182f`) | all green — backend 1m40s, frontend 41s, docker 9m02s |
+| Branch protection read-back | as approved, both branches |
+| Gate test, PR #5 | backend red, `BLOCKED`, closed unmerged |
+
+### UI integration
+| Change | Frontend | What the user sees |
+|---|---|---|
+| CI workflow, `ruff.toml`, hook, branch protection | — | backend-only / repo tooling: no endpoint, field, status, flag or screen changed |
+| `frontend/Dockerfile` Node 24 | — | nothing: same static bundle; only the Docker build image's Node changed (Vercel already on 24.x) |
+
+### Deferred / dropped
+- Decision 1A: `requirements.txt` stays UTF-16LE — pip read it on the runner; conversion stays with T3 on Day 10.
+- Ruff ratchet (F401, then defaults; 28 + 3 findings measured) → Day 10.
+- Pinning actions to commit SHAs → Day 60 (added to the timeline).
+- Gating the Render/Vercel deploys themselves on CI → Days 21–22.
+- No learning notes: none of the 19 concept headings in `docs/learning/ai-concepts.md` covers CI.
+
+### Follow-ups found today
+- **Day 60's history purge needs a force-push**, which protection now blocks for everyone
+  (`enforce_admins`). If that decision is ever taken, protection on the affected branch must be
+  lifted temporarily and restored with the same body. Added to Day 60's decision bullet in
+  `docs/timeline.md` (owner request); the body and commands are in this Outcome.
+- **Cleanup order** for any future throwaway-worktree PR: `git worktree remove` before
+  `gh pr close --delete-branch`.
+
+### Numbers for the tracker / post 9
+- CI cold (PR #4): backend 6m54s, frontend 49s, docker 9m16s. Push on `develop`: 1m40s / 41s /
+  9m02s. pytest inside CI: 111 passed, 1 xfailed in 23.95 s.

@@ -31,22 +31,24 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 05 - offline test safety net: pytest config (T1), API smoke tests with fakes,
-              concept-map sources fix (B4) (feature/day05-tests → develop)
+Last commit:  day 06 - CI docs: PR-based git flow, branch protection, gate test results
+              (feature/day06-docs → develop). Before it: day 06 - CI workflow (PR #4, 132182f)
 Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
               v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
-              on ESLint warnings). Days 4–5 reach master with the Day 10 release (v0.2.0)
+              on ESLint warnings). Days 4–6 reach master with the Day 10 release (v0.2.0) — the
+              first PR-based release (PR develop → master, merge commit, then tag)
 Uncommitted:  none
 Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
               docs/posts/assets/ are gitignored)
-Day 5:        python -m pytest = 111 passed + 1 strict xfail (B3), no API keys, no network,
-              23 s host / 78 s container (Day 8 lazy loading). tests/conftest.py fakes Gemini,
-              Tavily and Redis at the SDK boundary, blocks sockets, runs in a temp dir. API smoke
-              tests incl. the SSE contract; frontend 11 tests (login page, chat stream). Found:
-              B4 concept maps 500'd on nodes without sources (fixed); B3 OpenCV wheel clash
-              disables image/PPTX table extraction in prod too (Day 10). Day 4 notes in
-              docs/briefs/day04.md, Day 5 in docs/briefs/day05.md
-Next:         Day 6 (/run-day 6), then publish post 1. Timeline extended to 61 days on
+Day 6:        CI on GitHub Actions (.github/workflows/ci.yml) = 3 required checks: backend
+              (Python 3.11, ruff via ruff.toml, offline pytest, no secrets), frontend (Node 24,
+              Jest, CRA build with CI=true), docker (both images, no push). Cold run 6m54s /
+              49s / 9m16s. master AND develop protected: PR required (0 approvals), the 3 checks
+              required, not strict, no force-push/deletion, admins included — direct pushes are
+              rejected for everyone. Gate test: PR #5 with a failing test was BLOCKED and closed
+              unmerged. Node 24 must match across Vercel, CI and frontend/Dockerfile. Day 5
+              suite unchanged (111 passed + 1 strict xfail B3). Notes in docs/briefs/day06.md
+Next:         publish post 1, then Day 7 (/run-day 7). Timeline extended to 61 days on
               2026-11-04 (Projects 18–20, Connectors 40–43, Memory 53–55; Supabase hosting)
 Blockers:     none. v0.1.0/v0.1.1 verified in prod 2026-11-04: Render Live + Vercel on
               60f52bf; email + Google login; upload with citation "samples.pdf"; streamed chat;
@@ -75,6 +77,8 @@ rag-study-assistant/
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
 ├── docs/                     ← timeline.md (61-day build plan), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
+├── .github/workflows/ci.yml  ← CI: backend, frontend, docker jobs (the required checks)
+├── ruff.toml                 ← lint rules for CI, the edit hook and local `ruff check .`
 ├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
 └── requirements.txt          ← pinned deps; UTF-16LE with CRLF (the Dockerfile installs this one)
@@ -117,6 +121,7 @@ Frontend dead code: `components/MessageBubble.js` — the chat renders `componen
 | Parsing | PDF/PPTX/DOCX utilities, camelot + pdfplumber tables, Tesseract OCR |
 | Frontend | React 19, react-scripts 5, Tailwind 3, React Flow 11 + dagre, react-markdown + remark-gfm, jsPDF, html-to-image, lucide-react |
 | Deploy | Docker; Render (backend), Vercel (frontend); `docker-compose.yml` for the local full stack |
+| CI | GitHub Actions (`.github/workflows/ci.yml`); ruff 0.15.18 pinned in the CI job only (not in `requirements.txt`), rules in `ruff.toml` |
 
 Installed but never imported in `src/`: `langchain*`, `langgraph*`, `langsmith`, `instructor`,
 `tiktoken`, `qdrant-client`. `ragas` is imported only by the broken `rag_metrics.py`;
@@ -174,6 +179,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Quiz generation by topic and difficulty
 - LLM retry with backoff (non-streaming) and a circuit breaker; user-friendly error messages
 - Docker images and docker-compose (backend, frontend, Redis)
+- CI on GitHub Actions (Day 6, `.github/workflows/ci.yml`): `backend` (Python 3.11, ruff, offline pytest — no secrets), `frontend` (Node 24, `npm ci`, Jest, CRA build with `CI=true`), `docker` (both images, no push); required on `master` and `develop` by branch protection
 
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
@@ -187,7 +193,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Persistent vector / keyword indexes; token counting and budgets (C1); token-usage logging (CO4)
 - History-aware query rewriting (C2); retrieval-based conversation memory (C3)
 - Indirect prompt-injection defenses (G5); request tracing (O1)
-- Retrieval eval harness (E4); golden eval set + CI gate (E3); any CI/CD workflow
+- Retrieval eval harness (E4); golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
 - Query expansion / HyDE (R3); agentic tool use (A1); ANN or per-user indexes (I1); embedding cache (CO3)
 - Rate limiting, refresh tokens, PostgreSQL, quiz persistence
 - Frontend tests beyond 5 files / 11 tests: `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5). No tests for documents, concept maps, quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
@@ -253,10 +259,12 @@ Found while writing this file; evidence and direction live under each ID.
 - **`requirements.txt` is UTF-16LE with CRLF.** Preserve the encoding when editing. Docker installs the root file; `src/requirements.txt` is a different, older local pin set (it adds `torch` and `transformers` and lacks `Authlib` and `bcrypt`), so don't treat it as a mirror (T3).
 - **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID).
 - **Git flow** (since Day 1): `master` = released code, `develop` = integration branch.
-  - Each timeline day runs on `feature/dayNN-<ids>-<slug>`, branched from `develop` and merged back into `develop` (via PR) at the end of the day.
-  - Release days (every 3–5 days, marked in `docs/timeline.md`) merge `develop` → `master` with `--no-ff`, push both, and tag `vX.Y.Z`.
-  - Nothing is pushed before the Day 3 release (commit 972bfc3 documents the G6/G7/G8 holes).
-  - Commit messages use the "day NN - description" style. Never force-push `develop` or `master`.
+  - **Branch protection (since Day 6), on both `master` and `develop`:** every change lands through a PR (0 approvals — solo repo); the required checks are exactly the three CI jobs `backend`, `frontend`, `docker` (bound to the GitHub Actions app; Vercel and GitGuardian checks are not required); branches need not be up to date; force-pushes and deletions are blocked; **administrators included** — direct pushes to either branch are rejected, for the owner too. Renaming a CI job means updating both protection rules first, or every PR waits forever.
+  - Each timeline day runs on `feature/dayNN-<ids>-<slug>`, branched from `develop`, and is merged back into `develop` through a PR (`gh pr create --base develop`, then `gh pr merge <N> --merge --delete-branch`) once CI is green.
+  - **Release** (every 3–5 days, marked in `docs/timeline.md`): a PR `develop` → `master`, merged with a merge commit (`gh pr merge <N> --merge` — the PR equivalent of `--no-ff`; never squash or rebase a release), then tag the merge commit on `master`: `git checkout master; git pull origin master; git tag vX.Y.Z; git push origin vX.Y.Z`.
+  - **Hotfix:** branch `hotfix/<slug>` from `master`, PR into `master` (merge commit), tag a patch version, then a PR `master` → `develop` so `develop` gets the fix too.
+  - Nothing was pushed before the Day 3 release (commit 972bfc3 documents the G6/G7/G8 holes).
+  - Commit messages use the "day NN - description" style. Never force-push `develop` or `master` (also blocked by protection).
 
 ---
 
@@ -287,6 +295,13 @@ docker compose -f docker-compose.yml up --build
 
 # Tests — offline: no API keys, no network, no Redis (tests/conftest.py fakes them); pytest.ini limits collection to tests/
 python -m pytest
+
+# Lint — the same ruff.toml rules CI and the edit hook enforce (bug-only today; Day 10 tightens them)
+ruff check .
+
+# CI (GitHub Actions, .github/workflows/ci.yml) — runs on every PR into and push to develop/master
+gh pr checks <N>                          # the three required jobs: backend, frontend, docker
+gh run list --branch develop --limit 5    # recent runs; gh run view <id> --log-failed for a red one
 
 # Ad-hoc eval scripts (need live Gemini + Redis; run from src/)
 cd src; python rag_eval_runner.py
@@ -320,6 +335,10 @@ Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (def
 `http://localhost:8000`), `REACT_APP_GOOGLE_CLIENT_ID`. CRA inlines these at **build** time; the
 Docker nginx build takes `REACT_APP_API_URL` as a build arg (compose passes localhost) because
 otherwise `.env.production` points it at Render.
+
+**Node.js version — keep three places in sync:** Vercel's project setting *Node.js Version* is
+**24.x** (production builds), CI uses Node 24 (`ci.yml`, `setup-node`), and `frontend/Dockerfile`
+uses `node:24-alpine`. Changing one means changing all three. (The local machine runs Node 22.)
 
 ---
 
@@ -423,7 +442,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 ## Claude Code Setup
 
 - **Skills** (`.claude/skills/`, user-invoked only): `/run-day <N>` reads Day N of `docs/timeline.md`, writes a brief to `docs/briefs/dayNN.md`, stops for approval, then implements checkpoint by checkpoint — the default way to start a day; `/run-item <ID>` does the same for a single tracker item outside the timeline; `/pre-commit` runs checks and reports, with no git writes.
-- **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell), session-start context (git state and In Progress items), bug-only ruff check on edited `.py` files, and reminders after editing this repo's trap files.
+- **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell), session-start context (git state and In Progress items), ruff check on edited `.py` files (rules from `ruff.toml`, the same set CI enforces), and reminders after editing this repo's trap files.
 - **Workflow, anchor and resume prompts:** `docs/claude-cheatsheet.md`.
 
 ## What Claude Must Do at the Start of Every Session

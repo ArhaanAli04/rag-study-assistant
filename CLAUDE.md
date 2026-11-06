@@ -31,30 +31,33 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 06 - CI docs: PR-based git flow, branch protection, gate test results
-              (feature/day06-docs → develop). Before it: day 06 - CI workflow (PR #4, 132182f)
+Last commit:  day 07 - docs (Checkpoint 6: CLAUDE.md paths and commands, Day 7 outcome, post 9
+              line) on feature/day07-refactor-core → PR #8 (draft) into develop. Before it:
+              ac99840 Settings + request ID, fbbea8d core/ moves, a467435 src/ → backend/app/
+              move (90 renames), cbd20e9 layout doc + brief
 Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
               v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
-              on ESLint warnings). Days 4–6 reach master with the Day 10 release (v0.2.0) — the
+              on ESLint warnings). Days 4–7 reach master with the Day 10 release (v0.2.0) — the
               first PR-based release (PR develop → master, merge commit, then tag)
 Uncommitted:  none
-Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
-              docs/posts/assets/ are gitignored)
-Day 6:        CI on GitHub Actions (.github/workflows/ci.yml) = 3 required checks: backend
-              (Python 3.11, ruff via ruff.toml, offline pytest, no secrets), frontend (Node 24,
-              Jest, CRA build with CI=true), docker (both images, no push). Cold run 6m54s /
-              49s / 9m16s. master AND develop protected: PR required (0 approvals), the 3 checks
-              required, not strict, no force-push/deletion, admins included — direct pushes are
-              rejected for everyone. Gate test: PR #5 with a failing test was BLOCKED and closed
-              unmerged. Node 24 must match across Vercel, CI and frontend/Dockerfile. Day 5
-              suite unchanged (111 passed + 1 strict xfail B3). Notes in docs/briefs/day06.md
-Next:         publish post 1, then Day 7 (/run-day 7). Timeline extended to 61 days on
-              2026-11-04 (Projects 18–20, Connectors 40–43, Memory 53–55; Supabase hosting)
-Blockers:     none. v0.1.0/v0.1.1 verified in prod 2026-11-04: Render Live + Vercel on
-              60f52bf; email + Google login; upload with citation "samples.pdf"; streamed chat;
-              account deletion with the green notice. Render Key Value (rag-study-redis,
-              Valkey 8): semantic_cache_entries absent on DB 0 and DB 1; all inbound public IPs
-              blocked
+Untracked:    none (planning docx/pdf files, the Tesseract installer — now alone in the old
+              root tests/samples/ — and post screenshots in docs/posts/assets/ are gitignored)
+Day 7:        The backend is the package backend/app/ (CWD backend/: uvicorn app.main:app;
+              tests in backend/tests, pytest from the repo root). Absolute app.* imports, no
+              sys.path hacks. core/: config.py (one pydantic-settings Settings for every env
+              var, SecretStr secrets, absolute repo-root .env; no os.getenv/load_dotenv left in
+              app/), logging.py, request_id.py (pure ASGI middleware: X-Request-ID on every
+              response, [request_id] on every app log line), security.py, errors.py. Dockerfile,
+              compose, dev.ps1, pytest.ini, alembic and hooks on the new paths; Render needs no
+              dashboard change (it runs the Dockerfile CMD). Tests 111 → 134 passed + 1 xfail
+              on host and in the container. Map: docs/architecture/layout.md; notes in
+              docs/briefs/day07.md
+Next:         merge PR #8 into develop, then Day 8 (/run-day 8): regroup modules into
+              ingestion/ retrieval/ generation/ services/ schemas/ db/ (pure moves), lazy OCR
+              and table imports, test_docx_pdf_utils sample paths
+Blockers:     none. Local runtime state was moved by hand to backend/{data,uploads,logs}; a
+              checkout from before Day 7 must do the same (Move-Item src\data, src\uploads,
+              src\logs backend\) or the app starts with an empty database
 ```
 
 ---
@@ -63,42 +66,50 @@ Blockers:     none. v0.1.0/v0.1.1 verified in prod 2026-11-04: Render Live + Ver
 
 ```
 rag-study-assistant/
-├── src/                      ← backend; run from here (modules import each other by bare name)
-│   ├── main.py               ← FastAPI app: all routes, most chat logic, global singletons
-│   ├── routes/auth_routes.py ← Google OAuth login/callback, /auth/logout
-│   ├── services/             ← oauth_service.py (Authlib client)
-│   ├── config/               ← oauth_config.py (pydantic-settings: JWT + Google OAuth)
+├── backend/                  ← the Python project; run the app from here (CWD = backend/)
+│   ├── app/                  ← the package, imported as `app.*` (Day 7); flat until Day 8 regroups it
+│   │   ├── main.py           ← FastAPI app: all routes, most chat logic, global singletons
+│   │   ├── core/             ← config.py (Settings), logging.py, request_id.py, security.py, errors.py
+│   │   ├── routes/auth_routes.py ← Google OAuth login/callback, /auth/logout
+│   │   └── services/         ← oauth_service.py (Authlib client)
+│   ├── tests/                ← offline pytest suite (conftest fakes Gemini, Tavily, Redis) + samples/
 │   ├── data/                 ← app.db (SQLite), faiss_indexes/ — gitignored
-│   ├── logs/, uploads/       ← runtime output — gitignored
-│   └── requirements.txt      ← older local pin set that differs from the root file (T3); unused by Docker
+│   └── logs/, uploads/       ← runtime output — gitignored
+├── src/requirements.txt      ← older local pin set that differs from the root file (T3); unused by Docker; deleted Day 10
 ├── frontend/                 ← React 19 (react-scripts), Tailwind, React Flow, react-markdown
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
-├── tests/                    ← pytest parser tests (pdf/docx/pptx) + samples/
+├── scripts/                  ← dev.ps1 (Docker dev helper); manual/ (live-service scripts, pre-Day 7 paths until Day 10)
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
-├── docs/                     ← timeline.md (61-day build plan), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
+├── docs/                     ← timeline.md (61-day build plan), architecture/layout.md (target package layout + module map), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
 ├── .github/workflows/ci.yml  ← CI: backend, frontend, docker jobs (the required checks)
 ├── ruff.toml                 ← lint rules for CI, the edit hook and local `ruff check .`
 ├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
+├── pytest.ini                ← testpaths = backend/tests, pythonpath = backend
 └── requirements.txt          ← pinned deps; UTF-16LE with CRLF (the Dockerfile installs this one)
 ```
 
-### Backend module map (`src/`)
+### Backend module map (`backend/app/`)
+
+Paths are relative to `backend/app/`. Day 8 regroups the flat modules into `ingestion/`,
+`retrieval/`, `generation/`, `services/`, `schemas/` and `db/`; the target path and day of every
+module are in `docs/architecture/layout.md`.
 
 | Area | Modules | Notes |
 |---|---|---|
+| Core (Day 7) | `core/config.py`, `core/logging.py`, `core/request_id.py`, `core/security.py`, `core/errors.py` | `Settings`: every env var, read once at import. `request_id`: per-request ID (`X-Request-ID`) stamped on log lines by `RequestIdFilter`. `security`: JWT, password hashing, and (until Day 9's `api/deps.py`) `get_db` / `get_current_user*`. `logging`: rotating file + console handlers, G8 redaction |
 | App & data | `main.py`, `db.py`, `concept_models.py`, `models.py`, `account_service.py` | `db.py`: Base, SQLite engine, ORM models, startup column migrations. `models.py`: `DocumentChunk` data model. `account_service.py`: `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
-| Auth | `auth.py`, `routes/auth_routes.py`, `services/oauth_service.py`, `config/oauth_config.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
+| Auth | `core/security.py`, `routes/auth_routes.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
 | Ingestion | `indexing_pipeline.py`, `chunk_builder.py`, `chunking.py`, `pdf_utils.py`, `pptx_pipeline.py`, `pptx_utils.py`, `docx_utils.py`, `text_preprocessing.py`, `document_service.py`, `utils_file.py`, `upload_storage.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
 | OCR / tables | `unified_parser.py`, `ocr_utils.py`, `image_preprocessing.py`, `pdf_table_utils.py`, `table_utils.py` | not reachable from `/upload` (images are rejected) |
 | Indexes | `embedding_service.py`, `index_builder.py`, `vector_store.py`, `keyword_index.py` | in-memory FAISS + BM25 (see Known Issues) |
 | Retrieval | `retrieval_service.py`, `query_decomposer.py`, `query_preprocessor.py`, `reranker.py`, `context_compressor.py`, `web_search_client.py`, `web_scraper.py` | `reranker.py` does no real reranking |
-| Generation | `llm_client.py`, `topic_classifier.py`, `error_handler.py` | retry + circuit breaker live in `LLMClient` |
-| Sessions & caches | `session_service.py`, `semantic_cache.py`, `cache.py`, `web_cache.py`, `logger.py` | |
+| Generation | `llm_client.py`, `topic_classifier.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient` |
+| Sessions & caches | `session_service.py`, `semantic_cache.py`, `cache.py`, `web_cache.py` | |
 | Concept maps | `concept_map_service.py`, `hybrid_retriever.py`, `concept_extractor.py`, `concept_map_schemas.py` | |
 | Eval / experiments | `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | non-functional or print-only; all import `main` |
-| Ad-hoc scripts | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; the old `src/test_*.py` manual scripts now live in `scripts/manual/` (Day 5) | the manual scripts call live services and are never collected by pytest (`pytest.ini` → `tests/` only) |
+| Ad-hoc scripts | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; the old `src/test_*.py` manual scripts now live in `scripts/manual/` (Day 5) | the `app/` scripts run as `python -m app.<name>` from `backend/`; the manual scripts call live services, still use pre-Day 7 paths (Day 10) and are never collected by pytest (`pytest.ini` → `backend/tests/` only) |
 | Dead code | `frontend.py` (Streamlit stub), `document_delete_service.py` (never called) | |
 
 Frontend dead code: `components/MessageBubble.js` — the chat renders `components/MessageList.js`.
@@ -116,14 +127,14 @@ Frontend dead code: `components/MessageBubble.js` — the chat renders `componen
 | Keyword search | `rank-bm25` (`BM25Okapi`), rebuilt over the full corpus on every add |
 | Web search | Tavily (`search_depth="advanced"`) + domain allowlist + BeautifulSoup scraping |
 | Cache | Redis (`redis-py`) |
-| Database | SQLite at `src/data/app.db` |
+| Database | SQLite at `backend/data/app.db` |
 | Auth | python-jose JWT, passlib, Authlib Google OAuth; token kept in browser `localStorage` |
 | Parsing | PDF/PPTX/DOCX utilities, camelot + pdfplumber tables, Tesseract OCR |
 | Frontend | React 19, react-scripts 5, Tailwind 3, React Flow 11 + dagre, react-markdown + remark-gfm, jsPDF, html-to-image, lucide-react |
 | Deploy | Docker; Render (backend), Vercel (frontend); `docker-compose.yml` for the local full stack |
 | CI | GitHub Actions (`.github/workflows/ci.yml`); ruff 0.15.18 pinned in the CI job only (not in `requirements.txt`), rules in `ruff.toml` |
 
-Installed but never imported in `src/`: `langchain*`, `langgraph*`, `langsmith`, `instructor`,
+Installed but never imported in `backend/app/`: `langchain*`, `langgraph*`, `langsmith`, `instructor`,
 `tiktoken`, `qdrant-client`. `ragas` is imported only by the broken `rag_metrics.py`;
 `streamlit` only by the dead `frontend.py`.
 
@@ -248,7 +259,8 @@ Found while writing this file; evidence and direction live under each ID.
 ## Conventions for This Repo
 
 - **No backend work without its UI (owner's rule).** Every user-visible backend capability — a new endpoint, response field, status, flag, score, or feature — ships with its frontend integration **in the same day/PR**: the screen or control that uses it, plus loading, empty, and error states. Never "UI later". Briefs list the UI changes for every deliverable; if something is genuinely backend-only (internal refactor, tracing, migrations), the brief says so explicitly. The UI overhaul phase restyles existing screens — it is not where features first get wired in.
-- **Run the backend from `src/`.** Imports are bare module names (`from db import ...`). Root-level scripts and Alembic add `src` to `sys.path` themselves.
+- **Run the backend from `backend/`** (`uvicorn app.main:app`). The package is `app`: imports are absolute (`from app.db import User`), never bare module names or relative imports, and nothing inside `backend/` edits `sys.path`. `pytest.ini` puts `backend/` on the path for tests; Alembic adds it itself. Dependencies point down only (`api` → `services` → `retrieval` / `generation` / `ingestion` → `db` → `core`); rules and the module map are in `docs/architecture/layout.md`.
+- **Configuration comes only from `app.core.config.settings`** (Day 7). No `os.getenv` or `load_dotenv` in `backend/app/`; a new variable is a `Settings` field plus an `.env.example` entry. Secrets are `SecretStr`: read them with `.get_secret_value()` at the call site and never log `settings`. `settings` is built once at import, so tests override fields with `monkeypatch.setattr(settings, ...)`; a later `setenv` doesn't reach it.
 - **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
 - **`/chat` and `/chat/stream` duplicate the pipeline.** Mirror any change in both until they are consolidated (see Open Decisions). The frontend uses only `/chat/stream`.
@@ -275,7 +287,7 @@ There is no Makefile.
 ```powershell
 # Backend — GEMINI_API_KEY must be set: IndexBuilder makes an embedding call at startup
 .\venv\Scripts\Activate.ps1
-cd src; uvicorn main:app --reload         # http://localhost:8000  (Swagger UI at /docs)
+cd backend; uvicorn app.main:app --reload  # http://localhost:8000  (Swagger UI at /docs)
 
 # Redis — must be running before the first chat request
 docker compose up redis                   # or a local redis-server
@@ -284,7 +296,7 @@ docker compose up redis                   # or a local redis-server
 cd frontend; npm install; npm start       # http://localhost:3000
 
 # Docker-first dev (Day 4): docker-compose.yml + docker-compose.override.yml
-#   backend http://localhost:8000 (src/ bind-mounted, --reload), frontend http://localhost:3000
+#   backend http://localhost:8000 (backend/app/ bind-mounted, --reload), frontend http://localhost:3000
 #   (CRA dev server), Redis on host port 6380. Data, uploads, logs live in named volumes.
 Copy-Item .env.example .env               # first time only; fill in the REQUIRED values
 .\scripts\dev.ps1 up                      # build + start; also: down, logs [service], test, shell [service]
@@ -293,8 +305,10 @@ docker compose up --build                 # the same, in the foreground
 # The stack as deployed (Render builds this backend image): base file only, no override
 docker compose -f docker-compose.yml up --build
 
-# Tests — offline: no API keys, no network, no Redis (tests/conftest.py fakes them); pytest.ini limits collection to tests/
+# Tests — offline: no API keys, no network, no Redis (backend/tests/conftest.py fakes them); from the
+# repo root, pytest.ini limits collection to backend/tests/ and puts backend/ on the path
 python -m pytest
+.\scripts\dev.ps1 test                    # the same suite in the backend container (Linux, Python 3.11)
 
 # Lint — the same ruff.toml rules CI and the edit hook enforce (bug-only today; Day 10 tightens them)
 ruff check .
@@ -303,24 +317,26 @@ ruff check .
 gh pr checks <N>                          # the three required jobs: backend, frontend, docker
 gh run list --branch develop --limit 5    # recent runs; gh run view <id> --log-failed for a red one
 
-# Ad-hoc eval scripts (need live Gemini + Redis; run from src/)
-cd src; python rag_eval_runner.py
+# Ad-hoc eval scripts (need live Gemini + Redis; run from backend/ as modules until Day 10 moves them)
+cd backend; python -m app.rag_eval_runner
 ```
 
 ---
 
 ## Environment Variables
 
-The backend reads the root `.env`. `load_dotenv()` finds it by searching upward from `src/`
-(first triggered when `web_search_client.py` is imported); `config/oauth_config.py` looks for
-`.env` relative to the CWD and relies on those values already being loaded.
+Every backend variable is a field of one pydantic-settings class, `Settings` in
+`backend/app/core/config.py` (Day 7), built once at import as `settings`. Precedence: real
+environment variables → the repo-root `.env` (an absolute path, so the CWD doesn't matter; skipped
+when absent, as in Docker and CI) → field defaults. A missing required variable stops startup
+with one `ValidationError` that lists all of them.
 
 | Variable | Required | Used by / default |
 |---|---|---|
 | `GEMINI_API_KEY` | yes — startup fails without it | LLM, embeddings, topic classifier, concept extractor |
 | `TAVILY_API_KEY` | for web search | `web_search_client.py`; if missing, web chunks are silently skipped |
-| `JWT_SECRET_KEY` | yes | JWT signing (`auth.py`) and `SessionMiddleware` |
-| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `config/oauth_config.py` |
+| `JWT_SECRET_KEY` | yes | JWT signing (`core/security.py`) and `SessionMiddleware` |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `services/oauth_service.py` |
 | `JWT_ALGORITHM`, `JWT_EXPIRATION_MINUTES` | no | `HS256`, `10080` (7 days) |
 | `REDIS_URL` | no | Query cache (`cache.py`) and web cache (`web_cache.py`); default `redis://localhost:6379/0`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380); in Docker compose sets `redis://redis:6379/0` |
 | `SEMANTIC_CACHE_REDIS_URL` | no | Semantic cache (`semantic_cache.py`). Unset → `REDIS_URL` → `redis://localhost:6379/1`. Docker: `redis://redis:6379/1`. Render sets only `REDIS_URL`, so there the semantic cache still shares DB 0 |
@@ -346,12 +362,12 @@ uses `node:24-alpine`. Changing one means changing all three. (The local machine
 
 | What | Where | Survives restart? |
 |---|---|---|
-| Users, sessions, messages, documents, failed queries, concept maps | SQLite `src/data/app.db` (Docker: named volume `data`, separate from the venv's file) | yes on local disk / Docker volume |
-| Uploaded files | `src/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `src/uploads/<name>`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/src/uploads`; Render: no disk, lost on every deploy |
+| Users, sessions, messages, documents, failed queries, concept maps | SQLite `backend/data/app.db` (Docker: named volume `data` at `/app/backend/data`, separate from the venv's file) | yes on local disk / Docker volume |
+| Uploaded files | `backend/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `uploads/<name>`); `Document.file_path` is relative to the CWD (`backend/`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/backend/uploads`; Render: no disk, lost on every deploy |
 | FAISS vectors + chunk metadata (including chunk text) | process memory | **no** |
 | BM25 corpus | process memory | **no** |
 | L1 retrieval cache (≤ 256 entries) | class-level dict in `RetrievalService` | no |
-| Logs | `src/logs/app.log` (rotating, 5 MB × 3; Docker: named volume `logs`) | yes |
+| Logs | `backend/logs/app.log` (rotating, 5 MB × 3, `[request_id]` on every line since Day 7; Docker: named volume `logs` at `/app/backend/logs`) | yes |
 
 On Render, local files (including SQLite) persist across deploys only if a persistent disk is
 attached — not verified for this deployment.
@@ -435,7 +451,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 - **Chat endpoints:** delete `POST /chat` (the frontend only streams) vs. extract a shared pipeline that both call.
 - **Index persistence — decided 2026-11-04:** pgvector + Postgres full-text on Supabase (Days 13–16), uploaded files in Supabase Storage (Day 15). Render's filesystem is ephemeral, so nothing durable stays on it; `qdrant-client` can go with the Day 10 dependency cleanup.
 - **Dependencies:** remove unused packages vs. keep those tied to planned items (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); reconcile or delete `src/requirements.txt`, which has drifted from the root file.
-- **Dead code and repo hygiene:** delete `MessageBubble.js`, `src/frontend.py`, and `document_delete_service.py` (or wire it in). The Tesseract installer is untracked now but still in git history; purging it would need a history rewrite and force-push.
+- **Dead code and repo hygiene:** delete `MessageBubble.js`, `backend/app/frontend.py`, and `document_delete_service.py` (or wire it in). The Tesseract installer is untracked now but still in git history; purging it would need a history rewrite and force-push.
 
 ---
 

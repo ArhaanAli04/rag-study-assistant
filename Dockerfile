@@ -36,15 +36,17 @@ ENV PATH="/opt/venv/bin:$PATH" \
 RUN useradd --create-home --uid 1000 app
 
 WORKDIR /app
-COPY src/ ./src/
+COPY backend/app/ ./backend/app/
 
 # Only the runtime-state directories are writable by the app. They must exist and be owned by
 # `app` in the image: an empty named volume copies this ownership the first time it is mounted.
-RUN mkdir -p src/data src/uploads src/logs \
-    && chown -R app:app src/data src/uploads src/logs
+# They sit beside the package, not inside it, because the app resolves them against its CWD.
+RUN mkdir -p backend/data backend/uploads backend/logs \
+    && chown -R app:app backend/data backend/uploads backend/logs
 
 USER app
-WORKDIR /app/src
+# The CWD is what puts `app` on sys.path for uvicorn, and where data/, uploads/, logs/ resolve.
+WORKDIR /app/backend
 
 EXPOSE 8000
 
@@ -55,4 +57,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 
 # sh -c expands Render's $PORT; exec replaces the shell so uvicorn is PID 1 and receives
 # SIGTERM directly (graceful shutdown instead of a 10 s kill on `docker stop`).
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

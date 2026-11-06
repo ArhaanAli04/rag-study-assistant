@@ -23,9 +23,10 @@ services:
     volumes:
       # Runtime state in Docker-managed volumes, so it survives container recreation and never
       # lands in the working tree. The image pre-creates these directories owned by `app`.
-      - data:/app/src/data
-      - uploads:/app/src/uploads
-      - logs:/app/src/logs
+      # Day 7 moved the mount points from /app/src/*; the named volumes (and their data) are the same.
+      - data:/app/backend/data
+      - uploads:/app/backend/uploads
+      - logs:/app/backend/logs
     depends_on:
       redis:
         condition: service_healthy

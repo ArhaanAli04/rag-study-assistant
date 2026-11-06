@@ -25,17 +25,20 @@ REMINDER_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         "models. Review this revision for drop_table and don't run it without the user.",
     ),
     (
-        re.compile(r"^src/main\.py$"),
+        re.compile(r"^backend/app/main\.py$"),
         "POST /chat and GET /chat/stream duplicate the chat pipeline. If this edit changed "
         "pipeline logic, mirror it in the other endpoint; ignore this if it didn't.",
     ),
     (
-        re.compile(r"^src/(semantic_cache|cache|web_cache|vector_store|keyword_index|retrieval_service)\.py$"),
+        # (.+/)? keeps matching after Day 8 moves these into retrieval/ and services/caches/.
+        re.compile(
+            r"^backend/app/(.+/)?(semantic_cache|cache|query_cache|web_cache|vector_store|keyword_index|retrieval_service)\.py$"
+        ),
         "Scope user data by user_id (filters and cache keys; index metadata stores it as a "
         "string), and bump User.doc_version when a user's document set changes (G6).",
     ),
     (
-        re.compile(r"^src/llm_client\.py$"),
+        re.compile(r"^backend/app/(.+/)?llm_client\.py$"),
         "Keep the system instruction stable across turns (CO4) and keep retrieved or web text out "
         "of it — untrusted content belongs only in the final user turn (G5).",
     ),

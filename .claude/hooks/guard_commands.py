@@ -28,7 +28,8 @@ DELETE_COMMANDS: frozenset[str] = frozenset({"rm", "remove-item", "ri", "del", "
 # Commands that merely mention SQL keywords while searching, so a DROP match there is harmless.
 SEARCH_COMMANDS: frozenset[str] = frozenset({"grep", "rg", "findstr", "select-string", "sls", "git"})
 PROTECTED_DIRS: frozenset[str] = frozenset(
-    {".", "*", "/", "~", "src", "frontend", "docs", "docs/briefs", "tests", "alembic", ".claude", ".git"}
+    {".", "*", "/", "~", "src", "backend", "backend/app", "backend/tests", "frontend", "docs",
+     "docs/briefs", "tests", "alembic", ".claude", ".git"}
 )
 
 # Matched against each command segment with quoted strings blanked out, so text inside a
@@ -106,9 +107,14 @@ def normalize_target(raw: str, root: str) -> str:
 
 
 def is_app_data(target: str) -> bool:
-    """True for the SQLite database or anything under src/data/ (users, sessions, messages)."""
+    """True for the SQLite database or anything under backend/data/ (users, sessions, messages).
+
+    src/data stays covered: checkouts from before Day 7 still keep their database there.
+    """
     lowered = target.lower()
-    return lowered.endswith("app.db") or lowered == "src/data" or lowered.startswith("src/data/")
+    return lowered.endswith("app.db") or any(
+        lowered == root or lowered.startswith(f"{root}/") for root in ("backend/data", "src/data")
+    )
 
 
 def is_protected_dir(target: str) -> bool:

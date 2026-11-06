@@ -8,9 +8,11 @@
 **/.env.*
 
 # Runtime state — lives in volumes (Docker) or on the host (venv), never in the image
-src/data/
-src/uploads/
-src/logs/
+backend/data/
+backend/uploads/
+backend/logs/
+# Pre-Day 7 locations: a checkout whose runtime state hasn't been moved yet
+src/
 **/*.db
 **/*.sqlite
 **/*.sqlite3
@@ -31,7 +33,9 @@ htmlcov/
 # Not part of the backend image (the frontend has its own context; tests are mounted in dev)
 frontend/
 node_modules/
-tests/
+backend/tests/
+backend/eval/
+backend/scripts/
 docs/
 scripts/
 alembic/

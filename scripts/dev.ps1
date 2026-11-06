@@ -90,7 +90,7 @@ switch ($Command) {
         # --no-deps: the suite needs no Redis. The cache provider is off so pytest doesn't
         # write .pytest_cache into the bind-mounted tests/ folder.
         Invoke-Compose (@('run', '--rm', '--no-deps', 'backend',
-                'python', '-m', 'pytest', '/app/tests', '-q', '-p', 'no:cacheprovider') + $Rest)
+                'python', '-m', 'pytest', '/app/backend/tests', '-q', '-p', 'no:cacheprovider') + $Rest)
     }
     'shell' {
         Invoke-Compose @('exec', (Get-ServiceName), 'sh')

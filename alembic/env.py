@@ -7,10 +7,10 @@ from alembic import context
 import os
 import sys
 
-# Add project root to sys.path so 'src' can be imported
-sys.path.append(os.path.dirname(os.path.dirname(__file__)))
+# Alembic runs from the repo root, outside the backend's import root; T2 (Day 13) reworks this file.
+sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 
-from src.db import Base  # adjust path if your db.py is elsewhere
+from app.db import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

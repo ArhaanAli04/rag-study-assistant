@@ -287,3 +287,107 @@ Commit points therefore:
   - Day 8's tests change import lines again as modules move into sub-packages. That's unavoidable in any order, and Day 8's "tests pass unchanged" means unchanged *assertions*.
   - Day 8's "Update Dockerfile/compose/alembic" bullet is done today.
 - **Left broken until Day 10 deletes them:** the root scripts `recreate_db.py`, `fix_db.py`, `migrate_user_model.py` and `scripts/manual/*` still point at `src/`. They aren't run by CI or by anything else. `docs/claude-cheatsheet.md` paths likewise wait for Day 10.
+- **Found during the work:**
+  - **`backend/tests/test_docx_pdf_utils.py` checks nothing.** Its sample paths are CWD-relative, and conftest switches to a temp folder, so every `if os.path.exists(...)` is False. Scheduled on Day 8 in `docs/timeline.md`, as its own commit after the pure moves.
+  - **Runtime state outside git:** `src/data`, `src/uploads` and `src/logs` stayed behind after the move, as predicted. The owner moved them to `backend/` by hand. Any other checkout from before Day 7 has to do the same.
+
+## Outcome
+
+Five commits on `feature/day07-refactor-core`, draft PR #8 into `develop`, CI green after each push. The first three:
+- cbd20e9: layout doc + brief
+- a467435: the move, 90 renames detected
+- fbbea8d: `core/` pure moves, 5 renames, 4 of them at 100% similarity
+
+The other two are ac99840 (Settings + request ID) and this docs commit.
+
+### Files changed
+**Checkpoint 1 — layout**
+- `docs/architecture/layout.md` (new): the target tree, six rules, and a module map with every module's target path and day.
+- `docs/briefs/day07.md` (new).
+- `docs/timeline.md`: the Day 10 release bullet records that Render needs no dashboard change.
+
+**Checkpoints 2 + 3 — the move and deploy paths**
+- **The move:** 90 tracked files went `src/**` → `backend/app/**` and `tests/**` → `backend/tests/**`. `src/requirements.txt` stays until Day 10.
+- **Imports:** 135 bare-name import lines in 41 files became `app.*`, via a one-off scratchpad script that keeps CRLF line endings. This included the double-loaded `src.config.oauth_config` import.
+- **Path hacks removed:**
+  - 10 test files: the `sys.path.insert(... 'src')` lines, plus the `os`/`sys` imports used only for them.
+  - `hybrid_retriever.py`, `run_migration.py`, `update_existing_sessions.py`: their `sys.path` hacks.
+- **Test path fixes:**
+  - `backend/tests/conftest.py`: `backend/` on the path, `sys.modules.get("app.db")`, `from app import main`.
+  - `backend/tests/test_llm_modes.py`: the `ChatInput.js` path.
+  - `test_pdf_utils.py`, `test_pptx_utils.py`: comments.
+- **Deploy and tooling paths:**
+  - `pytest.ini`: `testpaths = backend/tests`, `pythonpath = backend`.
+  - `Dockerfile`: `COPY backend/app/`, runtime dirs `backend/{data,uploads,logs}`, `WORKDIR /app/backend`, `CMD uvicorn app.main:app`.
+  - `docker-compose.yml`: volume mount points `/app/backend/{data,uploads,logs}`.
+  - `docker-compose.override.yml`: `app.main:app`, `--reload-dir /app/backend/app`, bind mounts for `backend/app` and `backend/tests`.
+  - `scripts/dev.ps1`: `pytest /app/backend/tests`.
+  - `.dockerignore`: `backend/{data,uploads,logs,tests,eval,scripts}` and the old `src/`.
+  - `alembic/env.py`: imports `app.db` from `backend/`.
+- **Hooks:**
+  - `.claude/hooks/guard_commands.py`: `backend/data` protected, `src/data` kept, `backend*` dirs protected.
+  - `.claude/hooks/edit_reminders.py`: path regexes now match `backend/app/` and Day 8's sub-packages.
+
+**Checkpoint 4 — `core/` moves**
+- `logger.py` → `core/logging.py`
+- `auth.py` → `core/security.py`
+- `error_handler.py` → `core/errors.py`
+- `config/oauth_config.py` → `core/config.py`
+- new empty `core/__init__.py`; the `config/` package is deleted
+- 12 importer lines updated
+- `docs/timeline.md`: Day 8 bullet for the `test_docx_pdf_utils.py` sample paths
+
+**Checkpoint 5 — Settings and request ID**
+- **`core/config.py`:** `Settings` with 14 fields, `SecretStr` secrets, an absolute repo-root `.env`, and the properties `redis_url`, `semantic_cache_redis_url` and `allowed_origins`.
+- **Consumers:**
+  - `llm_client.py`, `embedding_service.py`, `reranker.py`, `topic_classifier.py`, `concept_extractor.py`: `settings.GEMINI_API_KEY`; their `RuntimeError` on an empty key is kept.
+  - `web_search_client.py`: `TAVILY_API_KEY`. `ocr_utils.py`: `TESSERACT_PATH`.
+  - `cache.py`, `web_cache.py`: `settings.redis_url`. `semantic_cache.py`: its URL function became a `Settings` property.
+  - `core/security.py`, `services/oauth_service.py`, `routes/auth_routes.py`: JWT, Google, `BASE_URL`, `FRONTEND_URL`.
+  - `main.py`: SessionMiddleware and CORS read from `settings`, and `app.add_middleware(RequestIdMiddleware)` is registered last.
+- **`core/request_id.py` (new):** a `ContextVar`, the pure ASGI `RequestIdMiddleware`, and header validation `[A-Za-z0-9._-]{1,64}`.
+- **`core/logging.py`:** `RequestIdFilter` on the file and console handlers; the format gains `[%(request_id)s]`.
+- **Tests:**
+  - `backend/tests/test_config.py` (new, 13 tests): one per row of the before/after table, plus the 3 Day 4 tests moved from `test_semantic_cache.py`.
+  - `backend/tests/test_request_id.py` (new, 13 tests).
+  - `backend/tests/conftest.py`: the `web_search` fixture patches `settings`.
+
+**Checkpoint 6 — docs**
+- `CLAUDE.md`: Current Status, repo tree, module map (new Core row), Tech Stack DB path, the conventions for running from `backend/` and for config via `settings`, Key Commands, the Environment Variables intro and its "used by" cells, Data & State paths, and Open Decisions.
+- This Outcome.
+- `docs/posts/09-launch-recap.md`.
+- `docs/learning/ai-concepts.md` (#13, gitignored).
+
+### Checks run
+| Check | Result |
+|---|---|
+| Baseline before any change | `pytest` 111 passed, 1 xfailed (36.8 s), 156 warnings; `ruff check .` clean |
+| After Checkpoints 2 + 3 | 111 passed, 1 xfailed, 155 warnings; ruff clean; `compileall` OK; `docker compose config` OK in dev and deployed mode |
+| `uvicorn app.main:app` | `/health` 200, **30 routes**, matching the 27 + 3 route decorators at the pre-move commit. Run from a scratch folder via `--app-dir`, so no runtime state landed in `backend/` |
+| After Checkpoint 4 | 111 passed, 1 xfailed; ruff clean |
+| After Checkpoint 5, host | **134 passed, 1 xfailed** (24.9 s), 154 warnings; ruff clean; the only env access in `backend/app/` is `rag_metrics.py`'s `os.environ[...] =` write (Day 12) |
+| After Checkpoint 5, container (`dev.ps1 test`, Linux, Python 3.11) | **134 passed, 1 xfailed** (76.6 s) |
+| `docker compose up --build backend` | `/health` 200 with `X-Request-ID`; `day07-check-1` echoed; `bad id;<x>` replaced; the same IDs in `docker compose logs` and `/app/backend/logs/app.log` |
+| CI on PR #8 | green after each of the four pushes so far (backend job 2m44s on the last) |
+
+**Warnings 156 → 154, explained.** The old `OAuthSettings` used a class-based `Config`, which pydantic flags as deprecated.
+- Before Day 7, the same file was imported under two module names (`config.oauth_config` and `src.config.oauth_config`), so it was executed twice and warned twice.
+- After the move it was loaded once (155), and Checkpoint 5 removed the class (154).
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Package move, `core/`, `Settings` | — | Backend-only: internal refactor with identical routes (30) and an identical SSE contract (the Day 5 smoke tests pass) |
+| `X-Request-ID` response header | — | Backend-only: for joining log lines and, from Day 23, Langfuse traces. The chat stream uses `EventSource`, which can't read response headers, so showing an error reference belongs with Day 23. `frontend/` is untouched, and CI's frontend job passed with zero edits |
+
+### Timeline bullets deferred or changed
+- **`git mv` → plain moves staged by the owner (Decision 2A).** The resulting history is identical: git detected 90 and 5 renames.
+- **Day 8's "Update Dockerfile WORKDIR/CMD, docker-compose, alembic/env.py sys.path" is done today (Decision 1A).** Root scripts and `scripts/manual/*` still use the old paths until Day 10 deletes or moves them.
+- **The brief planned to anchor `test_docx_pdf_utils.py`'s paths.** That was left out of the pure-move commit because it would make OCR and camelot actually run; it's scheduled on Day 8.
+
+### Numbers for the tracker
+No tracker items today. Measured:
+- tests 111 → 134 (+13 config, +13 request ID, −3 moved), all passing on host and in the container
+- 90 files moved with history
+- 135 import lines rewritten
+- 14 environment variables in one `Settings` class; 0 `os.getenv` / `load_dotenv` left in `backend/app/`

@@ -1,6 +1,6 @@
 # Post 3 — "Hybrid search on Postgres: pgvector + full-text"
 
-Publish after: Day 17 (v0.3.0) · Fed by days: 13–17 · Format: PDF carousel
+Publish after: Day 17 (v0.3.0) · Fed by days: 13–17 · Format: text + 2–3 images
 
 ## Hook
 Every deploy wiped my app's search index — users still saw their documents, but retrieval
@@ -16,7 +16,7 @@ per-user filtering in one move.
 - Embedding dimensions (3072 → 1536) and the quality trade-off
 - Batch embedding and a content-hash embedding cache
 
-## Slide outline
+## Outline
 1. Hook: the vanishing index
 2. Before: in-memory FAISS + BM25, filter after search
 3. After: one `document_chunks` table (vector + tsvector + user_id)

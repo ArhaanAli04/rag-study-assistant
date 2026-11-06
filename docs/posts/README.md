@@ -31,9 +31,25 @@ moved in the timeline, update this table — `/run-day` reads it.
 
 - Structure: hook (a problem or a number) → the concept in plain words → what we built →
   the measured result → one honest lesson → repo link.
-- Concept posts: PDF carousel, 6–10 slides. Features and launch: short demo video.
-- Visuals: one architecture/flow diagram, one real screenshot, one before/after chart or
-  table, at most one code snippet card.
+- Format (owner's preference): a text post + 2–3 images — no PDF carousels. Feature and launch
+  posts add a short demo video. The outline in each post file is the order of the text, not
+  slides.
+- Images: pick the 2–3 that carry the post — one real screenshot (the proof), one before/after
+  chart, table or diagram, at most one code card. Keep text on images minimal; the post text
+  explains.
+- One look for the whole series — `docs/posts/templates/brand.css`: soft gradient canvas, dark
+  editor-style windows (Catppuccin Mocha), Inter for text, JetBrains Mono for code (ligatures
+  off), the same header on every image. Each image is a small HTML file in `templates/`
+  (`post01-code-card.html` = code before/after, `post01-two-accounts.html` = a framed, cropped
+  screenshot) rendered to a square 1080×1080 PNG at 2×:
+
+  ```powershell
+  & "C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe" --headless=new --disable-gpu `
+    --hide-scrollbars --force-device-scale-factor=2 --window-size=1080,1080 --virtual-time-budget=8000 `
+    --screenshot="docs\posts\assets\postNN-<what>.png" "file:///C:/Users/arhaa/rag-study-assistant/docs/posts/templates/postNN-<what>.html"
+  ```
+
+  Rendered PNGs and raw screenshots go in `docs/posts/assets/` (gitignored); templates are tracked.
 
 ## Rules
 

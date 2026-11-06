@@ -201,7 +201,7 @@ Focus: Package layout, routers + dependency injection, one chat pipeline, dead c
   - Remove langchain*, qdrant-client, streamlit; keep langgraph (Day 33) and tiktoken until Day 31 decides
 - B3: drop the unused opencv-python pin and make the contrib build win (install order or constraints), then remove the strict xfail on test_table_extraction_on_image (ask the owner before touching requirements)
 - Rewrite CLAUDE.md repo structure, module map and commands; update .claude hook paths
-- Release: develop → master, tag v0.2.0; update Render's root directory/start command for the new layout before merging
+- Release: develop → master, tag v0.2.0. Render needs no dashboard change for the new layout (confirmed Day 7): Root Directory empty, Dockerfile Path ./Dockerfile, build context . (repo root), Docker Command empty, so Render runs the Dockerfile's CMD (`uvicorn app.main:app` from /app/backend since Day 7)
 - Verify: Render and Vercel deploy green from the new layout
 
 ---

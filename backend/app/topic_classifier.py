@@ -3,18 +3,16 @@ LLM-based topic classifier for dynamic academic subject detection
 Uses the same Google GenAI SDK as llm_client.py
 """
 import logging
-import os
 from typing import Dict
 from google import genai
-from dotenv import load_dotenv
+from app.core.config import settings
 
 logger = logging.getLogger("rag_assistant")
 
 class TopicClassifier:
     def __init__(self):
         """Initialize with Gemini API (matching llm_client.py style)"""
-        load_dotenv()
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = settings.GEMINI_API_KEY.get_secret_value()
         
         if not api_key:
             logger.warning("GEMINI_API_KEY not found - topic classification disabled")

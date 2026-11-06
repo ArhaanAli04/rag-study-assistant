@@ -1,7 +1,7 @@
 #semantic cache index so that similar queries can resue previous answers
 import json
-import os
 from typing import List, Optional, Dict, Any
+from app.core.config import settings
 from app.core.logging import setup_logging
 logger = setup_logging()
 
@@ -11,18 +11,6 @@ import redis
 from app.index_builder import IndexBuilder  # to reuse same embedding model
 
 SEM_CACHE_KEY_PREFIX = "semantic_cache"
-DEFAULT_SEMANTIC_CACHE_REDIS_URL = "redis://localhost:6379/1"
-
-
-def semantic_cache_redis_url() -> str:
-    # A dedicated setting lets the semantic cache live in its own Redis DB, so flushing the
-    # query/web caches in REDIS_URL's DB doesn't wipe it. Falling back to REDIS_URL keeps
-    # deployments that set only REDIS_URL (Render today) on their current DB.
-    return (
-        os.getenv("SEMANTIC_CACHE_REDIS_URL")
-        or os.getenv("REDIS_URL")
-        or DEFAULT_SEMANTIC_CACHE_REDIS_URL
-    )
 
 
 def _cache_key(user_id: int) -> str:
@@ -59,7 +47,7 @@ class SemanticCache:
     """
 
     def __init__(self, index_builder: IndexBuilder, redis_client: Optional[redis.Redis] = None):
-        self.r = redis_client if redis_client is not None else redis.from_url(semantic_cache_redis_url())
+        self.r = redis_client if redis_client is not None else redis.from_url(settings.semantic_cache_redis_url)
         self.index_builder = index_builder
 
     def _load_entries(self, user_id: int) -> List[Dict[str, Any]]:

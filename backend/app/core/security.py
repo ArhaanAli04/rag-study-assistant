@@ -7,11 +7,9 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.core.errors import UserFriendlyError
 from app.db import SessionLocal, User
-from app.core.config import get_oauth_settings
+from app.core.config import settings
 
-# Use OAuth config instead of hardcoded values
-settings = get_oauth_settings()
-SECRET_KEY = settings.JWT_SECRET_KEY
+SECRET_KEY = settings.JWT_SECRET_KEY.get_secret_value()
 ALGORITHM = settings.JWT_ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.JWT_EXPIRATION_MINUTES
 

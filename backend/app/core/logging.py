@@ -4,6 +4,8 @@ import re
 from logging.handlers import RotatingFileHandler
 from typing import Any
 
+from app.core.request_id import current_request_id
+
 # \w* also catches access_token=, id_token=, refresh_token=.
 _TOKEN_PARAM = re.compile(r"(?i)\b\w*token=[^&\s\"']+")
 _JWT = re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+")
@@ -59,6 +61,17 @@ class StripQueryStringFilter(logging.Filter):
         return True
 
 
+class RequestIdFilter(logging.Filter):
+    """Stamps record.request_id for the formatter: the current request's ID, or "-" outside a
+    request (startup, background work). On the handlers, so records propagated from child
+    loggers ("rag_assistant.retrieval") get it too.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        record.request_id = current_request_id()
+        return True
+
+
 def _add_filter_once(target: logging.Filterer, filter_type: type[logging.Filter]) -> None:
     if not any(isinstance(f, filter_type) for f in target.filters):
         target.addFilter(filter_type())
@@ -100,13 +113,16 @@ def setup_logging() -> logging.Logger:
     handler = RotatingFileHandler("logs/app.log", maxBytes=5*1024*1024, backupCount=3)
     handler.set_name(_FILE_HANDLER_NAME)
     formatter = logging.Formatter(
-        '%(asctime)s - %(levelname)s - %(name)s - %(message)s'
+        '%(asctime)s - %(levelname)s - %(name)s - [%(request_id)s] - %(message)s'
     )
     handler.setFormatter(formatter)
+    # The formatter needs record.request_id, so every handler using it must carry the filter.
+    _add_filter_once(handler, RequestIdFilter)
     logger.addHandler(handler)
 
     console = logging.StreamHandler()
     console.setFormatter(formatter)
+    _add_filter_once(console, RequestIdFilter)
     logger.addHandler(console)
 
     install_log_redaction(logger)

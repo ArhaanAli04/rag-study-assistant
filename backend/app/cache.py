@@ -1,11 +1,10 @@
-import os
 import json
 import hashlib
 import redis
 
+from app.core.config import settings
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-redis_client = redis.from_url(REDIS_URL)
+redis_client = redis.from_url(settings.redis_url)
 
 
 def _make_query_key(user_id: str | None, query: str, doc_version: int) -> str:

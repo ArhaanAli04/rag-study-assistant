@@ -1,16 +1,11 @@
 #image to text extraction using tesseract
 import pytesseract
 from PIL import Image
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.core.config import settings
 
-# Windows installs tesseract outside PATH, so the host .env points at the .exe. Unset, pytesseract
-# finds `tesseract` on PATH — the Docker image sets TESSERACT_PATH=/usr/bin/tesseract anyway.
-TESSERACT_PATH = os.getenv("TESSERACT_PATH")
-if TESSERACT_PATH:
-    pytesseract.pytesseract.tesseract_cmd = TESSERACT_PATH
+if settings.TESSERACT_PATH:
+    pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
 
 def extract_text_from_image(image_path):
     """

@@ -1,8 +1,7 @@
 from google import genai
 import numpy as np
 from typing import List
-from dotenv import load_dotenv
-import os
+from app.core.config import settings
 
 
 class EmbeddingService:
@@ -11,8 +10,7 @@ class EmbeddingService:
         Use Gemini API for embeddings instead of local sentence-transformers.
         Falls back to text-embedding-004 if gemini-embedding-004 not available.
         """
-        load_dotenv()
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = settings.GEMINI_API_KEY.get_secret_value()
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY not set")
         

@@ -1,10 +1,9 @@
-import os
 from typing import List, Dict, Any
 from tavily import TavilyClient  # [web:56][web:59]
 from urllib.parse import urlparse
-from dotenv import load_dotenv
 
-load_dotenv()
+from app.core.config import settings
+
 ALLOWED_DOMAINS = [
     "wikipedia.org",
     ".edu",
@@ -35,7 +34,7 @@ class WebSearchClient:
     """
 
     def __init__(self, api_key: str | None = None):
-        api_key = api_key or os.getenv("TAVILY_API_KEY")
+        api_key = api_key or settings.TAVILY_API_KEY.get_secret_value()
         if not api_key:
             raise RuntimeError("TAVILY_API_KEY not set")
         self.client = TavilyClient(api_key=api_key)

@@ -3,12 +3,11 @@ Concept Extractor for Concept Map Generation
 Uses LLM (Gemini) to extract concepts and relationships from hybrid context
 """
 
-import os
 import json
 from typing import Dict, Optional
 import logging
 from google import genai  # [web:91][web:94]
-from dotenv import load_dotenv
+from app.core.config import settings
 
 
 # Configure logging
@@ -30,8 +29,7 @@ class ConceptExtractor:
             api_key: Gemini API key (uses env var if not provided)
             model_name: Gemini model to use
         """
-        load_dotenv()
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = settings.GEMINI_API_KEY.get_secret_value()
         
         if not api_key:
             raise RuntimeError("GEMINI_API_KEY not found. Set it in .env file.")

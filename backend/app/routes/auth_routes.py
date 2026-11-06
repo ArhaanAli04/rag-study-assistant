@@ -4,14 +4,12 @@ from sqlalchemy.orm import Session
 from app.services.oauth_service import get_google_oauth_client
 from app.core.security import create_access_token
 from app.db import SessionLocal, User
-from app.core.config import get_oauth_settings
+from app.core.config import settings
 from datetime import timedelta
 import logging
-import os
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["OAuth Authentication"])
-settings = get_oauth_settings()
 
 
 def get_db():
@@ -30,8 +28,7 @@ async def google_login(request: Request):
     try:
         google = get_google_oauth_client()
         
-        # ✅ Get BASE_URL from environment (dynamic for production)
-        base_url = os.getenv("BASE_URL", "http://localhost:8000")
+        base_url = settings.BASE_URL
         redirect_uri = f"{base_url}/auth/google/callback"
         
         logger.info(f"Initiating Google OAuth with redirect_uri: {redirect_uri}")
@@ -103,7 +100,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         )
         
         # Redirect to frontend with token
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        frontend_url = settings.FRONTEND_URL
         redirect_url = f"{frontend_url}/auth/callback?token={access_token}"
         
         # The redirect URL carries the JWT, and emails are personal data: log the id only (G8).
@@ -114,7 +111,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     except Exception as e:
         logger.error(f"Error in google_callback: {str(e)}", exc_info=True)
         # Redirect to frontend with error
-        frontend_url = os.getenv("FRONTEND_URL", "http://localhost:3000")
+        frontend_url = settings.FRONTEND_URL
         return RedirectResponse(url=f"{frontend_url}/login?error=oauth_failed")
 
 

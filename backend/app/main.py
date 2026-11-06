@@ -18,7 +18,8 @@ from app.core.security import (
     create_access_token, get_current_user,get_current_user_optional
 )
 from starlette.middleware.sessions import SessionMiddleware
-import secrets
+from app.core.config import settings
+from app.core.request_id import RequestIdMiddleware
 from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, List, Dict, Any, Awaitable, Callable
 from enum import Enum
@@ -55,18 +56,9 @@ from app.routes.auth_routes import router as auth_router
 app = FastAPI(title="RAG Study Assistant API")
 app.add_middleware(
     SessionMiddleware,
-    secret_key=os.getenv("JWT_SECRET_KEY", secrets.token_urlsafe(32))
+    secret_key=settings.JWT_SECRET_KEY.get_secret_value()
 )
-# Explicit allowlist: with "*" and credentials, Starlette echoes back any Origin that sends a cookie (G4).
-# Entries are stripped because "https://x.app " in an env var would never match the browser's Origin.
-ALLOWED_ORIGINS = [
-    origin.strip()
-    for origin in os.getenv(
-        "ALLOWED_ORIGINS",
-        "http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app"
-    ).split(",")
-    if origin.strip()
-]
+ALLOWED_ORIGINS = settings.allowed_origins
 
 app.add_middleware(
     CORSMiddleware,
@@ -285,6 +277,10 @@ async def log_requests(
     logger.info(f"REQ {request.method} {request.url.path} {response.status_code} {process_time:.1f}ms")
     response.headers["X-Process-Time"] = str(process_time)
     return response
+
+# Registered last on purpose: the last middleware added is the outermost, so the ID is already
+# set when log_requests and CORS run, and stays set for the whole SSE stream.
+app.add_middleware(RequestIdMiddleware)
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):

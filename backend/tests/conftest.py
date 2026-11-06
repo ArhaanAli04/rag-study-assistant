@@ -156,7 +156,12 @@ def gemini() -> Iterator[FakeGemini]:
 @pytest.fixture
 def web_search(monkeypatch: pytest.MonkeyPatch) -> Iterator[type]:
     """Turn web search on for one test; set FakeTavilyClient.results to what Tavily should return."""
-    monkeypatch.setenv("TAVILY_API_KEY", "test-tavily-key")
+    from pydantic import SecretStr
+
+    from app.core.config import settings
+
+    # The settings object is read once at import, so a later setenv would not reach it.
+    monkeypatch.setattr(settings, "TAVILY_API_KEY", SecretStr("test-tavily-key"))
     FakeTavilyClient.results = []
     FakeTavilyClient.queries = []
     yield FakeTavilyClient

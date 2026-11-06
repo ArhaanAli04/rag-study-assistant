@@ -1,0 +1,32 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 01 code card</title>
+<link rel="stylesheet" href="brand.css">
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">01</span>
+  </header>
+
+  <main class="stack">
+    <section class="window before">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">semantic_cache.py · <b>before</b></div>
+      </div>
+<pre><span class="ln">entries = self.<span class="fn">_load_entries</span>()     <span class="c"># every user's answers</span></span><span class="ln">relevant = [e <span class="kw">for</span> e <span class="kw">in</span> entries</span><span class="ln bad">    <span class="kw">if</span> (<span class="kw">not</span> user_doc_version          <span class="c bad"># 0 is falsy → no filter</span></span><span class="ln">        <span class="kw">or</span> e.<span class="fn">get</span>(<span class="s">"doc_version"</span>) == user_doc_version)</span><span class="ln">    <span class="kw">and</span> (<span class="kw">not</span> mode <span class="kw">or</span> e.<span class="fn">get</span>(<span class="s">"mode"</span>) == mode)]</span></pre>
+    </section>
+
+    <section class="window after">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">semantic_cache.py · <b>after</b></div>
+      </div>
+<pre><span class="ln good">entries = self.<span class="fn">_load_entries</span>(user_id)  <span class="c good"># semantic_cache:{user_id}</span></span><span class="ln">relevant = [e <span class="kw">for</span> e <span class="kw">in</span> entries</span><span class="ln good">    <span class="kw">if</span> e.<span class="fn">get</span>(<span class="s">"user_id"</span>) == user_id</span><span class="ln">    <span class="kw">and</span> e.<span class="fn">get</span>(<span class="s">"doc_version"</span>) == user_doc_version</span><span class="ln">    <span class="kw">and</span> e.<span class="fn">get</span>(<span class="s">"mode"</span>) == mode]</span></pre>
+    </section>
+  </main>
+</body>
+</html>

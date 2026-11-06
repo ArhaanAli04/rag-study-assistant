@@ -1,6 +1,6 @@
 # Post 2 — "You can't improve RAG without measuring retrieval"
 
-Publish after: Day 12 · Fed by days: 11–12 · Format: PDF carousel
+Publish after: Day 12 · Fed by days: 11–12 · Format: text + 2–3 images
 
 ## Hook
 If the right chunk never reaches the prompt, no prompt change can fix the answer. Before
@@ -14,7 +14,7 @@ touching retrieval, I built a harness to measure it — here are the baseline nu
 - LLM-as-judge: faithfulness, answer relevance, citation correctness
 - Judge calibration against human labels
 
-## Slide outline
+## Outline
 1. Hook
 2. Where RAG answers go wrong (retrieval miss vs. generation miss)
 3. Building the question set (synthetic + real failed queries)

@@ -23,7 +23,7 @@ concept map coloured by what you don't know yet, and an "explain it back" tutor.
 - Spaced repetition (SM-2)
 - Citation grounding all the way to a highlighted passage
 
-## Slide / video outline
+## Outline (post + video)
 1. Hook
 2. Demo: upload → concepts extracted → chat with citations that open the highlighted page
 3. Demo: adaptive Practice quiz → mastery updates on Progress

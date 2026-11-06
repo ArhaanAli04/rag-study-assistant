@@ -1,0 +1,93 @@
+/* Shared look for every post image in the series: a soft gradient canvas, dark editor windows,
+   Inter for text and JetBrains Mono for code. Cards are 1080×1080 and rendered at 2× (see README). */
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=block");
+
+:root {
+  /* canvas */
+  --canvas: linear-gradient(140deg, #fbe3d6 0%, #f4d6ea 46%, #d5dcfb 100%);
+  --ink: #2f2a45;
+  --ink-soft: #6b6585;
+
+  /* editor (Catppuccin Mocha) */
+  --win: #1e1e2e;
+  --win-bar: #181825;
+  --code: #cdd6f4;
+  --code-muted: #7f849c;
+  --kw: #cba6f7;
+  --str: #a6e3a1;
+  --fn: #89b4fa;
+  --num: #fab387;
+  --bad: #f38ba8;
+  --good: #a6e3a1;
+  --bad-line: rgba(243, 139, 168, 0.15);
+  --good-line: rgba(166, 227, 161, 0.12);
+
+  --radius: 18px;
+  --shadow: 0 30px 60px -20px rgba(47, 42, 69, 0.45), 0 10px 24px -12px rgba(47, 42, 69, 0.3);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body { width: 1080px; height: 1080px; }
+
+body {
+  background: var(--canvas);
+  font-family: "Inter", "Segoe UI", sans-serif;
+  color: var(--ink);
+  padding: 52px 60px 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* header: wordmark left, post number right — identical on every card */
+.brand { display: flex; align-items: center; justify-content: space-between; font-size: 18px; }
+.brand .mark { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: -0.2px; }
+.brand .mark i {
+  width: 26px; height: 26px; border-radius: 8px; display: inline-block;
+  background: linear-gradient(135deg, #2f2a45, #5b4f8c);
+}
+.brand .post { color: var(--ink-soft); font-weight: 500; }
+
+.stack { flex: 1; display: flex; flex-direction: column; justify-content: center; gap: 40px; }
+
+/* editor window */
+.window { background: var(--win); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+.window .bar {
+  height: 44px; background: var(--win-bar); display: flex; align-items: center;
+  padding: 0 18px; position: relative;
+}
+.window .dots { display: flex; gap: 8px; }
+.window .dots span { width: 12px; height: 12px; border-radius: 50%; }
+.window .dots span:nth-child(1) { background: #ff5f57; }
+.window .dots span:nth-child(2) { background: #febc2e; }
+.window .dots span:nth-child(3) { background: #28c840; }
+.window .title {
+  position: absolute; left: 0; right: 0; text-align: center; pointer-events: none;
+  font-family: "JetBrains Mono", monospace; font-size: 15px; color: var(--code-muted);
+}
+.window .title b { font-weight: 600; }
+.window.before .title b { color: var(--bad); }
+.window.after .title b { color: var(--good); }
+
+pre {
+  font-family: "JetBrains Mono", Consolas, monospace;
+  font-size: 22.5px;
+  line-height: 1.75;
+  color: var(--code);
+  padding: 30px 0 32px;
+  /* JetBrains Mono would draw == as one long bar; readers expect the two characters they type */
+  font-variant-ligatures: none;
+  font-feature-settings: "liga" 0, "calt" 0;
+}
+pre .ln { display: block; padding: 0 28px; border-left: 3px solid transparent; }
+pre .ln.bad { background: var(--bad-line); border-left-color: var(--bad); }
+pre .ln.good { background: var(--good-line); border-left-color: var(--good); }
+
+.kw { color: var(--kw); }
+.s { color: var(--str); }
+.fn { color: var(--fn); }
+.c { color: var(--code-muted); font-style: italic; }
+.c.bad { color: var(--bad); font-style: normal; }
+.c.good { color: var(--good); font-style: normal; }

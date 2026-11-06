@@ -2,7 +2,7 @@
 import json
 import os
 from typing import List, Optional, Dict, Any
-from app.logger import setup_logging
+from app.core.logging import setup_logging
 logger = setup_logging()
 
 import numpy as np

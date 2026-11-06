@@ -1,6 +1,6 @@
 from authlib.integrations.starlette_client import OAuth
 from starlette.config import Config
-from app.config.oauth_config import get_oauth_settings
+from app.core.config import get_oauth_settings
 
 settings = get_oauth_settings()
 

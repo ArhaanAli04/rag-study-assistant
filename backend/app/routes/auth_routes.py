@@ -2,9 +2,9 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from app.services.oauth_service import get_google_oauth_client
-from app.auth import create_access_token
+from app.core.security import create_access_token
 from app.db import SessionLocal, User
-from app.config.oauth_config import get_oauth_settings
+from app.core.config import get_oauth_settings
 from datetime import timedelta
 import logging
 import os

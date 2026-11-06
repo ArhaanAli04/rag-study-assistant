@@ -178,6 +178,7 @@ Focus: Package layout, routers + dependency injection, one chat pipeline, dead c
 - Move the Pydantic models defined in main.py into schemas/
 - Update Dockerfile WORKDIR/CMD, docker-compose, alembic/env.py sys.path and root scripts for the new paths
 - Lazy-load OCR/table libraries (img2table, camelot, pytesseract): ~10 s of the 12 s import time; target backend reload < 5 s. Measured Day 4: `indexing_pipeline → chunk_builder → pptx_pipeline → table_utils → img2table` = 9.9 s of a 12.3 s import; reload 13.5–15.1 s. Do it as its own commit after the pure moves, so a test failure in the move commit is still only an import problem
+- Fix backend/tests/test_docx_pdf_utils.py's sample paths: they are CWD-relative ("tests/samples/..."), and conftest chdirs to a temp dir, so every `if os.path.exists(...)` is False and its tests pass while checking nothing (found Day 7; the same silent-pass pattern as B3). Anchor them to `__file__` like test_pdf_utils.py; expect real OCR / camelot results, so do it as its own commit after the pure moves
 - Verify: the Day 5 smoke tests pass unchanged — they are the proof the move kept behaviour identical
 
 ### Day 9 — Split main.py into routers, add dependency injection, one chat pipeline

@@ -5,7 +5,7 @@ from typing import Any, Iterator, Optional, Tuple
 
 import pytest
 
-from app.logger import (
+from app.core.logging import (
     RedactSecretsFilter,
     StripQueryStringFilter,
     install_log_redaction,

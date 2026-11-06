@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 import os
-from app.logger import setup_logging
+from app.core.logging import setup_logging
 from jose import JWTError, jwt
 import time
 # Service imports
@@ -13,7 +13,7 @@ from app.indexing_pipeline import IndexingPipeline
 from app.index_builder import IndexBuilder
 from app.keyword_index import BM25KeywordIndex
 from app.retrieval_service import RetrievalService
-from app.auth import (
+from app.core.security import (
     get_db, get_password_hash, authenticate_user, verify_password,
     create_access_token, get_current_user,get_current_user_optional
 )
@@ -34,7 +34,7 @@ from app.context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
 import json
 from app.topic_classifier import topic_classifier
-from app.error_handler import UserFriendlyError
+from app.core.errors import UserFriendlyError
 from app.chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
 from app.account_service import delete_user_account
 from dataclasses import asdict
@@ -296,7 +296,7 @@ async def general_exception_handler(request: Request, exc: Exception):
 
 from fastapi import Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from app.auth import (
+from app.core.security import (
     get_db,
     get_password_hash,
     authenticate_user,
@@ -810,7 +810,7 @@ async def chat_stream(
     if token:
         try:
             from jose import jwt
-            from app.auth import SECRET_KEY, ALGORITHM
+            from app.core.security import SECRET_KEY, ALGORITHM
             payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
             email = payload.get("sub")
             if email:

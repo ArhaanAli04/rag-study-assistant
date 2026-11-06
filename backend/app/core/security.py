@@ -5,9 +5,9 @@ from passlib.context import CryptContext
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-from app.error_handler import UserFriendlyError
+from app.core.errors import UserFriendlyError
 from app.db import SessionLocal, User
-from app.config.oauth_config import get_oauth_settings
+from app.core.config import get_oauth_settings
 
 # Use OAuth config instead of hardcoded values
 settings = get_oauth_settings()

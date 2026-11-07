@@ -12,6 +12,8 @@ the semantic cache.
 Items R5, G7, G8, I4, I5, I6, and the new sections 10–11 (B1, B2, T1, T2, T3) were added on
 2026-09-12 from the codebase review done while writing `CLAUDE.md`.
 
+B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07).
+
 Priority legend:
 - **P0** — cheap to fix, and either a correctness/security bug or something that blocks
   measuring whether other changes help (e.g. eval, safety).
@@ -563,6 +565,25 @@ list found`, and `POST /api/concepts/generate` returns 500 "Failed to generate c
 the field — failed the whole concept map. Found by the Day 5 API smoke test.
 **Fix (Day 5):** assign `[web_sources[0]]` / `[doc_sources[0]]`; unit tests cover both fallbacks,
 kept sources, and no source of that type.
+
+### B5 — Image deskew rotates scans 90°, so the unified parser's OCR returns nothing (P2)
+`preprocess_image` (`backend/app/ingestion/ocr/image_preprocessing.py`) deskews by taking the
+coordinates of every pixel with `np_img > 0` and fitting `cv2.minAreaRect` to them. On a scan
+with a white background that is nearly every pixel (97.5 % of `scan_handwritten.png`), so the
+"text" rectangle is the whole image. OpenCV 4.5+ reports angles in (0, 90], and returns 90.0 for
+that axis-aligned rectangle; the code's `angle < -45` branch was written for the old [-90, 0)
+convention, so it rotates by -90°. `warpAffine` keeps the original width × height, so the page
+ends up sideways and cropped, and `DocumentParser.parse()` returns `{'type': 'image', 'text': ''}`.
+Same result on the Windows host and in the backend image (cv2 4.12.0). Found on Day 8, when
+`test_docx_pdf_utils.py` started opening its samples (its CWD-relative paths had made every
+test pass without running).
+**Why it matters:** not reachable from any user path today: `/upload` rejects images, and the
+PPTX OCR path uses `extract_text_from_image_with_preprocessing`, not `preprocess_image`. It
+becomes a real bug as soon as image or handwritten-note upload is enabled, and it fails silently
+(empty text, no error).
+**Direction:** threshold the text pixels (inverted Otsu) before collecting coordinates, handle
+OpenCV's 0–90° angle convention, and keep the original size; then remove the strict `xfail` on
+`test_unified_parser_image` and record the OCR output before and after.
 
 ---
 

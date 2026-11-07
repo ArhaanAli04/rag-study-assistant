@@ -189,6 +189,7 @@ Focus: Package layout, routers + dependency injection, one chat pipeline, dead c
   - Recommended: extract a ChatPipeline service used by /chat/stream and delete POST /chat, since the frontend only streams — confirm with owner first
 - B2: the /chat 0.7/0.3 threshold bug disappears with /chat; fix the forced-web confidence cap (0.3 on a 0–100 scale) and define the confidence scale once as a named constant
 - Merge the two keyword safety lists into one shared module (prep for G3)
+- Startup cost: build one shared google.genai client in the lifespan and drop IndexBuilder's startup embedding call (use the known embedding dimension); measure app.main import against Day 8's 23–25 s
 - Verify: SSE contract unchanged — the frontend works with zero edits
 
 ### Day 10 — Dead code, dependencies and docs (T3) — release
@@ -201,6 +202,7 @@ Focus: Package layout, routers + dependency injection, one chat pipeline, dead c
   - One UTF-8 requirements file; delete src/requirements.txt
   - Remove langchain*, qdrant-client, streamlit; keep langgraph (Day 33) and tiktoken until Day 31 decides
 - B3: drop the unused opencv-python pin and make the contrib build win (install order or constraints), then remove the strict xfail on test_table_extraction_on_image (ask the owner before touching requirements)
+- B5: fix preprocess_image deskew (threshold text pixels with inverted Otsu, handle OpenCV's 0–90° angle convention, keep the original size) and remove the strict xfail on test_unified_parser_image; record OCR output before/after
 - Rewrite CLAUDE.md repo structure, module map and commands; update .claude hook paths
 - Release: develop → master, tag v0.2.0. Render needs no dashboard change for the new layout (confirmed Day 7): Root Directory empty, Dockerfile Path ./Dockerfile, build context . (repo root), Docker Command empty, so Render runs the Dockerfile's CMD (`uvicorn app.main:app` from /app/backend since Day 7)
 - Verify: Render and Vercel deploy green from the new layout

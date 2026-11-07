@@ -1,6 +1,6 @@
-from app.db import SessionLocal, Document
-from app.vector_store import FaissVectorStore
-from app.keyword_index import BM25KeywordIndex
+from app.db.database import SessionLocal, Document
+from app.retrieval.vector_store import FaissVectorStore
+from app.retrieval.keyword_index import BM25KeywordIndex
 
 def delete_document(document_id: int, vs: FaissVectorStore, bm25: BM25KeywordIndex):
     db = SessionLocal()

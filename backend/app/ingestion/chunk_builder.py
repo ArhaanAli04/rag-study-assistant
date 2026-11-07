@@ -1,8 +1,8 @@
 import uuid
 from typing import List
-from app.models import DocumentChunk
-from app.pdf_utils import extract_pdf_text
-from app.chunking import chunk_text
+from app.ingestion.models import DocumentChunk
+from app.ingestion.parsers.pdf import extract_pdf_text
+from app.ingestion.chunking import chunk_text
 
 def _citation_name(file_path: str, file_name: str | None) -> str:
     # Uploads are stored under server-generated names (G7); the path's basename is only the
@@ -38,8 +38,8 @@ def build_chunks_from_pdf(
             all_chunks.append(chunk)
     return all_chunks
 
-from app.pptx_pipeline import process_pptx
-from app.docx_utils import extract_docx_content
+from app.ingestion.parsers.pptx_pipeline import process_pptx
+from app.ingestion.parsers.docx import extract_docx_content
 
 def build_chunks_from_pptx(
     file_path: str,
@@ -133,7 +133,7 @@ def _chunk_docx_block(block_text: str, file_name: str, style: str, subject_tags:
     Helper to chunk a block of DOCX text and wrap into DocumentChunk objects.
     """
     chunks: List[DocumentChunk] = []
-    from app.chunking import chunk_text  # local import to avoid cycles
+    from app.ingestion.chunking import chunk_text  # local import to avoid cycles
     import uuid
 
     text_chunks = chunk_text(block_text, chunk_size=1000, overlap=100)

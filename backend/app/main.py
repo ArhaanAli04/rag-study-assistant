@@ -7,12 +7,12 @@ from app.core.logging import setup_logging
 from jose import JWTError, jwt
 import time
 # Service imports
-from app.db import Document, User,init_db,SessionLocal,Message,Session as ChatSession
-from app.document_service import register_upload
-from app.indexing_pipeline import IndexingPipeline
-from app.index_builder import IndexBuilder
-from app.keyword_index import BM25KeywordIndex
-from app.retrieval_service import RetrievalService
+from app.db.database import Document, User,init_db,SessionLocal,Message,Session as ChatSession
+from app.services.document_service import register_upload
+from app.ingestion.indexing_pipeline import IndexingPipeline
+from app.retrieval.index_builder import IndexBuilder
+from app.retrieval.keyword_index import BM25KeywordIndex
+from app.retrieval.retrieval_service import RetrievalService
 from app.core.security import (
     get_db, get_password_hash, authenticate_user, verify_password,
     create_access_token, get_current_user,get_current_user_optional
@@ -20,31 +20,35 @@ from app.core.security import (
 from starlette.middleware.sessions import SessionMiddleware
 from app.core.config import settings
 from app.core.request_id import RequestIdMiddleware
-from pydantic import BaseModel, EmailStr, validator
 from typing import Optional, List, Dict, Any, Awaitable, Callable
-from enum import Enum
-from app.session_service import (
+from app.schemas.auth import PasswordChange, UserCreate
+from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.documents import SearchRequest
+from app.schemas.feedback import FeedbackRequest
+from app.schemas.quiz import QuizRequest
+from app.schemas.users import ProfileUpdate
+from app.services.session_service import (
     get_or_create_session,
     add_message,
     get_recent_messages,
 )
-from app.llm_client import LLMClient
-from app.query_decomposer import QueryDecomposer
-from app.semantic_cache import SemanticCache
-from app.context_compressor import SimpleContextCompressor
+from app.generation.llm_client import LLMClient
+from app.retrieval.query_decomposer import QueryDecomposer
+from app.services.caches.semantic_cache import SemanticCache
+from app.retrieval.context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
 import json
-from app.topic_classifier import topic_classifier
+from app.generation.topic_classifier import topic_classifier
 from app.core.errors import UserFriendlyError
-from app.chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
-from app.account_service import delete_user_account
+from app.services.chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
+from app.services.account_service import delete_user_account
 from dataclasses import asdict
-from app.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
+from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
 from fastapi.middleware.cors import CORSMiddleware
-from app.concept_models import ConceptMap, ConceptMapNode
+from app.db.models.concept_map import ConceptMap, ConceptMapNode
 # Add these imports to your existing imports
-from app.concept_map_service import get_concept_map_service
-from app.concept_map_schemas import (
+from app.services.concept_map_service import get_concept_map_service
+from app.schemas.concept_maps import (
     GenerateConceptMapRequest,
     GenerateConceptMapResponse,
     ListConceptMapsResponse,
@@ -78,63 +82,6 @@ query_decomposer = QueryDecomposer()
 semantic_cache = SemanticCache(index_builder=index_builder)
 compressor = SimpleContextCompressor()
 
-
-class SearchRequest(BaseModel):
-    query: str
-    top_k: int = 5
-    subject: Optional[str] = None
-    file_type: Optional[str] = None  # "pdf", "pptx", "docx"
-    start_doc_id: Optional[int] = None
-    end_doc_id: Optional[int] = None
-
-class ChatRequest(BaseModel):
-    query: str
-    session_id: Optional[int] = None
-    top_k: int = 8
-    mode: str = "detailed"  # "detailed", "quick", "step_by_step"
-
-
-class ChatResponse(BaseModel):
-    answer: str
-    session_id: int
-    confidence: float
-    fallback_used: bool
-    grounding_level: Optional[str] = None  # NEW FIELD
-    sources: List[Dict[str, Any]]
-    followups: Optional[List[str]] = None
-
-class QuizDifficulty(str, Enum):
-    EASY = "easy"
-    MEDIUM = "medium"
-    HARD = "hard"
-
-class QuizRequest(BaseModel):
-    topic: str
-    num_questions: int = 5
-    difficulty: QuizDifficulty = QuizDifficulty.MEDIUM
-    include_answers: bool = False  # True if you want answers
-
-class FeedbackRequest(BaseModel):
-    feedback: str              # "up" or "down"
-    comment: Optional[str] = None
-
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-
-class PasswordChange(BaseModel):
-    current_password: str
-    new_password: str
-    
-    @validator('new_password')
-    def validate_password(cls, v):
-        if len(v) < 8:
-            raise ValueError('Password must be at least 8 characters long')
-        return v
-    
-# Schema for profile update
-class ProfileUpdate(BaseModel):
-    name: str
 
 @app.get("/health")
 async def health_check():
@@ -299,7 +246,7 @@ from app.core.security import (
     create_access_token,
     get_current_user,
 )
-from app.db import User
+from app.db.database import User
 from fastapi.security import OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
@@ -978,7 +925,7 @@ async def chat_stream(
 
             # Log low confidence as failed query
             if final_confidence < 30.0:  # Threshold for "low confidence"
-                from app.db import FailedQuery
+                from app.db.database import FailedQuery
                 failed_query = FailedQuery(
                     user_id=str(user_id_int),
                     session_id=chat_session.id,
@@ -1117,7 +1064,7 @@ Do NOT include answers. Make the questions educational and accurate."""
     }
 
 from fastapi import HTTPException
-from app.db import Message
+from app.db.database import Message
 import datetime
 @app.post("/messages/{message_id}/feedback")
 async def submit_feedback(
@@ -1128,7 +1075,7 @@ async def submit_feedback(
 ):
     """Submit thumbs up/down feedback for a message"""
     from sqlalchemy import text
-    from app.db import FailedQuery
+    from app.db.database import FailedQuery
     # Verify message belongs to user
     msg = db.query(Message).filter(
         Message.id == message_id,
@@ -1185,7 +1132,7 @@ async def get_failed_queries(
     limit: int = 50
 ):
     """Get recent failed queries for analysis"""
-    from app.db import FailedQuery
+    from app.db.database import FailedQuery
     
     failed_queries = db.query(FailedQuery).filter(
         FailedQuery.user_id == str(current_user.id)

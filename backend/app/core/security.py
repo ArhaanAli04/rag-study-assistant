@@ -6,7 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 from app.core.errors import UserFriendlyError
-from app.db import SessionLocal, User
+from app.db.database import SessionLocal, User
 from app.core.config import settings
 
 SECRET_KEY = settings.JWT_SECRET_KEY.get_secret_value()

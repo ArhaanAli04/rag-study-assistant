@@ -4,7 +4,7 @@ Run RAGAS + manual metrics on sample data or real chat logs.
 from app.rag_metrics import RAGEvaluator, manual_faithfulness, manual_relevancy
 from app.sample_eval_data import get_sample_data
 from app.main import retrieval_service
-from app.db import SessionLocal, User
+from app.db.database import SessionLocal, User
 
 def run_ragas_eval():
     """Run full RAGAS evaluation."""

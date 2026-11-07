@@ -4,11 +4,11 @@ from pathlib import Path
 
 import pytest
 
-from app.pptx_utils import extract_pptx_text, extract_pptx_metadata
-from app.ocr_utils import extract_text_from_image
-from app.table_utils import extract_tables_from_image, extract_tables_from_pptx_slides
-from app.text_preprocessing import normalize_text, clean_text
-from app.pptx_pipeline import process_pptx
+from app.ingestion.parsers.pptx import extract_pptx_text, extract_pptx_metadata
+from app.ingestion.ocr.ocr import extract_text_from_image
+from app.ingestion.tables.tables import extract_tables_from_image, extract_tables_from_pptx_slides
+from app.ingestion.text_preprocessing import normalize_text, clean_text
+from app.ingestion.parsers.pptx_pipeline import process_pptx
 
 # Relative to this file, not the CWD: the Docker test run starts in /app/backend.
 SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "samples")

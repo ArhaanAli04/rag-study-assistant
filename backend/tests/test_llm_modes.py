@@ -5,7 +5,7 @@ from typing import List
 
 import pytest
 
-from app.llm_client import LLMClient
+from app.generation.llm_client import LLMClient
 
 CHAT_INPUT = Path(__file__).resolve().parents[2] / "frontend" / "src" / "components" / "ChatInput.js"
 

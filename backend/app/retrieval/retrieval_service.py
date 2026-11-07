@@ -3,18 +3,18 @@ import logging
 from typing import Any, Dict, List, Optional, Tuple
 from functools import lru_cache
 
-from app.query_preprocessor import (
+from app.retrieval.query_preprocessor import (
     preprocess_query_for_vector,
     preprocess_query_for_keyword,
 )
-from app.keyword_index import BM25KeywordIndex
-from app.reranker import CrossEncoderReranker
-from app.index_builder import IndexBuilder
-from app.cache import get_cached_response, set_cached_response  # your Redis helpers
-from app.web_search_client import WebSearchClient
-from app.web_cache import get_cached_web_results, set_cached_web_results
-from app.web_scraper import fetch_and_extract_text
-from app.context_compressor import SimpleContextCompressor
+from app.retrieval.keyword_index import BM25KeywordIndex
+from app.retrieval.reranker import CrossEncoderReranker
+from app.retrieval.index_builder import IndexBuilder
+from app.services.caches.query_cache import get_cached_response, set_cached_response  # your Redis helpers
+from app.retrieval.web.search_client import WebSearchClient
+from app.services.caches.web_cache import get_cached_web_results, set_cached_web_results
+from app.retrieval.web.scraper import fetch_and_extract_text
+from app.retrieval.context_compressor import SimpleContextCompressor
 
 # A child of the app logger reuses its handlers; calling setup_logging() again would duplicate every line.
 logger = logging.getLogger("rag_assistant.retrieval")

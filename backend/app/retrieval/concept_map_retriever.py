@@ -6,9 +6,9 @@ Wraps existing RetrievalService to provide concept-map-specific retrieval
 from typing import List, Dict, Optional
 import logging
 
-from app.retrieval_service import RetrievalService
-from app.index_builder import IndexBuilder
-from app.keyword_index import BM25KeywordIndex
+from app.retrieval.retrieval_service import RetrievalService
+from app.retrieval.index_builder import IndexBuilder
+from app.retrieval.keyword_index import BM25KeywordIndex
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

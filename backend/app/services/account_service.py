@@ -10,9 +10,9 @@ import redis
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DbSession
 
-from app.concept_models import ConceptMap, ConceptMapNode
-from app.db import Document, FailedQuery, Message, User, Session as ChatSession
-from app.upload_storage import UnsafeUploadPath, ensure_inside_root, user_upload_dir
+from app.db.models.concept_map import ConceptMap, ConceptMapNode
+from app.db.database import Document, FailedQuery, Message, User, Session as ChatSession
+from app.ingestion.upload_storage import UnsafeUploadPath, ensure_inside_root, user_upload_dir
 
 logger = logging.getLogger("rag_assistant.account")
 

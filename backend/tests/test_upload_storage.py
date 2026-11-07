@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from app.upload_storage import (
+from app.ingestion.upload_storage import (
     UnsafeUploadPath,
     display_name,
     ensure_inside_root,

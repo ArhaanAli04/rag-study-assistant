@@ -16,7 +16,7 @@ def chunk_text(text, chunk_size=1000, overlap=100):
         chunks.append(current.strip())
     return chunks
 
-from app.pdf_utils import extract_pdf_text,extract_pdf_metadata
+from app.ingestion.parsers.pdf import extract_pdf_text,extract_pdf_metadata
 
 
 def chunk_pdf(file_path):
@@ -39,7 +39,7 @@ def chunk_pptx(file_path):
     """
     Process PPTX file and return chunked data with metadata.
     """
-    from app.pptx_pipeline import process_pptx
+    from app.ingestion.parsers.pptx_pipeline import process_pptx
     
     processed = process_pptx(file_path)
     all_chunks = []

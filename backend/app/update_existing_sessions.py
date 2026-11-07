@@ -1,4 +1,4 @@
-from app.db import SessionLocal, Session
+from app.db.database import SessionLocal, Session
 
 def update_existing_sessions():
     """Set topic='General' for all existing sessions that have NULL topic"""

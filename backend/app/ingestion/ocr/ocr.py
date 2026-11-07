@@ -1,11 +1,22 @@
 #image to text extraction using tesseract
-import pytesseract
+from types import ModuleType
+
 from PIL import Image
 
 from app.core.config import settings
 
-if settings.TESSERACT_PATH:
-    pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
+
+def _pytesseract() -> ModuleType:
+    """Import pytesseract on first OCR call and point it at the configured binary.
+
+    Not imported at module top: it costs ~2 s at import and every app start reaches this module
+    through the PPTX pipeline, while only image slides and scans need it.
+    """
+    import pytesseract
+
+    if settings.TESSERACT_PATH:
+        pytesseract.pytesseract.tesseract_cmd = settings.TESSERACT_PATH
+    return pytesseract
 
 def extract_text_from_image(image_path):
     """
@@ -13,7 +24,7 @@ def extract_text_from_image(image_path):
     """
     try:
         img = Image.open(image_path)
-        text = pytesseract.image_to_string(img)
+        text = _pytesseract().image_to_string(img)
         return text.strip()
     except Exception as e:
         print(f"Error extracting text from {image_path}: {e}")
@@ -26,29 +37,26 @@ def extract_text_from_image_with_preprocessing(image_path):
     """
     try:
         img = Image.open(image_path)
-        
+
         # Convert to grayscale
         img = img.convert('L')
-        
+
         # Increase contrast for better OCR
         from PIL import ImageEnhance
         enhancer = ImageEnhance.Contrast(img)
         img = enhancer.enhance(2)
-        
-        text = pytesseract.image_to_string(img)
+
+        text = _pytesseract().image_to_string(img)
         return text.strip()
     except Exception as e:
         print(f"Error with preprocessing: {e}")
         return ""
 
-import pytesseract
-from PIL import Image
-
 def ocr_text_from_image(image_path):
     """
     Simple OCR extraction, returns text found in the image.
     """
-    text = pytesseract.image_to_string(Image.open(image_path), config='--psm 6')
+    text = _pytesseract().image_to_string(Image.open(image_path), config='--psm 6')
     return text
 
 
@@ -56,4 +64,4 @@ def ocr_from_image(image_path):
     """
     OCR using Tesseract for scanned images/handwriting.
     """
-    return pytesseract.image_to_string(Image.open(image_path))
+    return _pytesseract().image_to_string(Image.open(image_path))

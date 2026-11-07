@@ -104,7 +104,8 @@ If Docker isn't running, mark this step as skipped with that reason.
    post Material log entries were written.
 4. A suggested commit message (text only): one short line in the `day NN - description` style
    that a future reader with no context would understand. No body, and no Claude credit or
-   `Co-Authored-By` trailer.
+   `Co-Authored-By` trailer. Print it as the ready-to-type command
+   `/ship commit "<message>"` (and `/ship merge` once the day is finished).
 
 ## STOP — hand control back to the user
 

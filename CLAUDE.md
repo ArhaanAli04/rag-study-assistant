@@ -457,7 +457,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 
 ## Claude Code Setup
 
-- **Skills** (`.claude/skills/`, user-invoked only): `/run-day <N>` reads Day N of `docs/timeline.md`, writes a brief to `docs/briefs/dayNN.md`, stops for approval, then implements checkpoint by checkpoint — the default way to start a day; `/run-item <ID>` does the same for a single tracker item outside the timeline; `/pre-commit` runs checks and reports, with no git writes.
+- **Skills** (`.claude/skills/`, user-invoked only): `/run-day <N>` reads Day N of `docs/timeline.md`, writes a brief to `docs/briefs/dayNN.md`, stops for approval, then implements checkpoint by checkpoint — the default way to start a day; `/run-item <ID>` does the same for a single tracker item outside the timeline; `/pre-commit` runs checks and reports, with no git writes; `/ship commit "day NN - …"` / `/ship merge` is the only skill that writes to git — commit + push + draft PR + watch CI, or merge a green PR into `develop` with a merge commit — with a safety scan (no `.env`, runtime data, `*.db` or secret-looking lines staged) and an explicit "yes" before every commit and merge. Releases (`develop` → `master` + tag) stay manual.
 - **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell), session-start context (git state and In Progress items), ruff check on edited `.py` files (rules from `ruff.toml`, the same set CI enforces), and reminders after editing this repo's trap files.
 - **Workflow, anchor and resume prompts:** `docs/claude-cheatsheet.md`.
 

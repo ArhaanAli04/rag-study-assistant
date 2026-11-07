@@ -22,33 +22,25 @@ from app.core.config import settings
 from app.core.request_id import RequestIdMiddleware
 from typing import Optional, List, Dict, Any, Awaitable, Callable
 from app.schemas.auth import PasswordChange, UserCreate
-from app.schemas.chat import ChatRequest, ChatResponse
 from app.schemas.documents import SearchRequest
 from app.schemas.feedback import FeedbackRequest
 from app.schemas.quiz import QuizRequest
 from app.schemas.users import ProfileUpdate
-from app.services.session_service import (
-    get_or_create_session,
-    add_message,
-    get_recent_messages,
-)
 from app.generation.llm_client import LLMClient
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.services.caches.semantic_cache import SemanticCache
 from app.retrieval.context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
-import json
 from app.generation.topic_classifier import TopicClassifier
 from app.generation.concept_extractor import ConceptExtractor
 from app.core.gemini import build_gemini_client
 from app.retrieval.embeddings import EmbeddingService
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
-from app.retrieval.confidence import LOW_CONFIDENCE_BELOW, grounding_level as grounding_for
 from app.services.caches.query_cache import QueryCache
 from app.services.caches.web_cache import WebCache
 import redis
-from app.core.errors import UserFriendlyError
-from app.services.chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
+from app.services.chat_pipeline import ChatPipeline
+from app.services.quiz_service import generate_quiz_text
 from app.services.account_service import delete_user_account
 from dataclasses import asdict
 from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
@@ -99,6 +91,14 @@ semantic_cache = SemanticCache(index_builder=index_builder)
 compressor = SimpleContextCompressor()
 concept_map_service = ConceptMapService(
     ConceptMapRetriever(retrieval_service), ConceptExtractor(gemini_client)
+)
+chat_pipeline = ChatPipeline(
+    retrieval_service=retrieval_service,
+    llm_client=llm_client,
+    topic_classifier=topic_classifier,
+    semantic_cache=semantic_cache,
+    query_decomposer=query_decomposer,
+    compressor=compressor,
 )
 
 
@@ -573,191 +573,6 @@ async def rename_session(
         }
     }
 
-@app.post("/chat", response_model=ChatResponse)
-async def chat(
-    body: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    user_id_int = current_user.id
-    user_id_str = str(current_user.id)
-    doc_version = current_user.doc_version  # GET VERSION
-
-    # Refused turns are not stored: a stored one would be replayed to Gemini as history.
-    injection_phrase = find_injection_phrase(body.query)
-    if injection_phrase is not None:
-        logger.warning(f"Prompt-injection phrase {injection_phrase!r} refused for user {user_id_int} on /chat")
-        return ChatResponse(
-            answer=INJECTION_REFUSAL,
-            session_id=body.session_id or 0,
-            confidence=0.0,
-            fallback_used=False,
-            grounding_level="none",
-            sources=[],
-            followups=[],
-        )
-
-    # SAFETY GUARDRAILS - EARLY RETURN
-    unsafe_keywords = ["suicide", "kill myself", "nuke", "die","self harm","explosives", "terrorist", "make a bomb"]
-    q_lower = body.query.lower()
-    if any(k in q_lower for k in unsafe_keywords):
-        safe_answer = (
-            "I am not able to help with that request. "
-            "If you are in distress or in danger, please reach out to a trusted person or "
-            "your local emergency services."
-        )
-        chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
-        add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
-        add_message(db, chat_session.id, user_id_int, role="assistant", content=safe_answer, sources="")
-        return ChatResponse(
-            answer=safe_answer,
-            session_id=chat_session.id,
-            confidence=0.0,
-            fallback_used=False,
-            grounding_level="none",
-            sources=[],
-            followups=[],
-        )
-    # 0) Semantic cache lookup
-    cached = semantic_cache.lookup(body.query, user_id=user_id_int, user_doc_version=doc_version, mode=body.mode)
-    if cached is not None:
-        return ChatResponse(**cached)
-
-    # 1) Get or create session
-    chat_session = get_or_create_session(db, user_id_int, body.session_id, body.query)
-    message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
-
-    # 2) Fetch prior history BEFORE adding the current user message
-    #    so the current question is not duplicated in the conversation context.
-    recent_msgs_db = get_recent_messages(db, chat_session.id)
-    recent_messages = [{"role": m.role, "content": m.content} for m in recent_msgs_db]
-
-    # 3) Log user message
-    add_message(db, chat_session.id, user_id_int, role="user", content=body.query)
-
-    # ✅ TOPIC DETECTION - Auto-tag session on first message or if still "General"
-    if message_count == 0 or chat_session.topic == "General":
-        try:
-            topic_result = topic_classifier.classify_topic(body.query)
-            if topic_result['confidence'] > 0.3:
-                chat_session.topic = topic_result['topic']
-                db.commit()
-                logger.info(
-                    f" Session {chat_session.id} tagged: {topic_result['topic']} "
-                    f"(confidence: {topic_result['confidence']:.2f})"
-                )
-        except Exception as e:
-            logger.error(f"Topic classification error: {e}")
-
-    # 4) Query decomposition
-    subqueries = query_decomposer.decompose(body.query)
-
-    all_context_chunks: List[Dict[str, Any]] = []
-    final_confidence = 0.0
-    any_fallback = False
-
-    for subq in subqueries:
-        retrieval_result = retrieval_service.hybrid_retrieve(
-            query=subq,
-            user_id=user_id_str,
-            doc_version=doc_version,
-            top_k=body.top_k,
-            rerank_top_k=5,
-        )
-        child_chunks = retrieval_result["results"]
-        top_docs = [c["metadata"].get("document_id", "N/A") for c in child_chunks[:3]]
-        logger.info("RETRIEVAL subq='%s' conf=%.2f fallback=%s top_docs=%s",
-                    subq[:40], retrieval_result["confidence"],
-                    retrieval_result["fallback_used"], top_docs)
-        all_candidates = retrieval_result.get("all_candidates", child_chunks)
-
-        parent_chunks = retrieval_service.expand_to_parent_context(
-            top_results=child_chunks,
-            all_results=all_candidates,
-            max_parents=3,
-        )
-
-        all_context_chunks.extend(child_chunks + parent_chunks)
-
-        final_confidence = max(final_confidence, retrieval_result["confidence"])
-        any_fallback = any_fallback or retrieval_result["fallback_used"]
-
-    # 5) Contextual compression across all sub-queries
-    compressed_context = compressor.compress(all_context_chunks)
-
-    # 6) Determine grounding level based on confidence
-    if final_confidence >= 0.7:
-        grounding_level = "strict"
-    elif final_confidence >= 0.3:
-        grounding_level = "loose"
-    else:
-        grounding_level = "none"
-
-    # 7) Build multi-turn prompt payload + call LLM
-    try:
-        prompt = llm_client.build_prompt(
-            question=body.query,
-            context_chunks=compressed_context,
-            recent_messages=recent_messages,
-            grounding_level=grounding_level,
-            mode=body.mode,
-        )
-        answer = llm_client.generate_answer(prompt)
-
-        followups = llm_client.generate_followups(body.query, answer, mode=body.mode)
-
-    except RuntimeError as e:
-        error_type = UserFriendlyError.classify_error(e)
-        error_response = UserFriendlyError.get_message(error_type)
-        
-        logger.error(f"LLM RuntimeError ({error_type}): {e}")
-        # Log assistant's safe message
-        add_message(db, chat_session.id, user_id_int, role="assistant", content=error_response['error'], sources="")
-        return ChatResponse(
-            answer=error_response['error'],
-            session_id=chat_session.id,
-            confidence=0.0,
-            fallback_used=any_fallback,
-            grounding_level=grounding_level,
-            sources=[],
-            followups=[],
-        )
-    # 7) Log assistant message
-    add_message(
-        db,
-        chat_session.id,
-        user_id_int,
-        role="assistant",
-        content=answer,
-        sources=",".join(
-            [
-                f"{c['metadata'].get('source_type','')}:{c['metadata'].get('file_name', c['metadata'].get('url',''))}"
-                for c in compressed_context
-            ]
-        ),
-    )
-
-    resp_dict = {
-        "answer": answer,
-        "session_id": chat_session.id,
-        "confidence": final_confidence,
-        "fallback_used": any_fallback,
-        "grounding_level": grounding_level,  # NEW FIELD
-        "sources": [c["metadata"] for c in compressed_context],
-        "followups": followups,
-    }
-
-    # 8) Store in semantic cache
-    semantic_cache.store(body.query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=body.mode)
-
-    # NEW: log low-confidence queries for later analysis
-    if final_confidence < 0.3:
-        logger.warning(
-            "LOW_CONFIDENCE_QUERY user_id=%s session_id=%s conf=%.2f query=%r",
-            user_id_int, chat_session.id, final_confidence, body.query
-        )
-    return ChatResponse(**resp_dict)
-
 @app.get("/chat/stream")
 async def chat_stream(
     query: str,
@@ -783,229 +598,8 @@ async def chat_stream(
     if not current_user:
         raise HTTPException(status_code=401, detail="Not authenticated")
 
-    user_id_int = current_user.id
-    user_id_str = str(current_user.id)
-    doc_version = getattr(current_user, 'doc_version', 0)
-
-    # Refusals go out as a 200 event stream: EventSource can't read the body of a 400 or
-    # a text/plain reply and would show a connection error instead. Not stored (see /chat).
-    injection_phrase = find_injection_phrase(query)
-    if injection_phrase is not None:
-        logger.warning(f"Prompt-injection phrase {injection_phrase!r} refused for user {user_id_int} on /chat/stream")
-        return StreamingResponse(
-            refusal_sse_events(INJECTION_REFUSAL, session_id, mode),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache"},
-        )
-
-    unsafe_keywords = ["explosive", "bomb", "suicide", "self harm"]
-    if any(k in query.lower() for k in unsafe_keywords):
-        return StreamingResponse(
-            refusal_sse_events(
-                "I'm unable to assist with that request. Please seek help from trusted professionals.",
-                session_id,
-                mode,
-            ),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache"},
-        )
-
-    # Semantic cache (non-blocking lookup)
-    cached = semantic_cache.lookup(query, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
-    if cached:
-        # Create/update session for cached response
-        chat_session = get_or_create_session(db, user_id_int, session_id, query)
-        # ✅ CHECK MESSAGE COUNT BEFORE ADDING
-        message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
-        add_message(db, chat_session.id, user_id_int, role="user", content=query)
-        
-        
-        if message_count ==0 or chat_session.topic == "General":
-            try:
-                topic_result = topic_classifier.classify_topic(query)
-                if topic_result['confidence'] > 0.3:
-                    chat_session.topic = topic_result['topic']
-                    db.commit()
-                    logger.info(
-                        f" Session {chat_session.id} tagged (cached): {topic_result['topic']} "
-                        f"(confidence: {topic_result['confidence']:.2f})"
-                    )
-            except Exception as e:
-                logger.error(f"Topic classification error (cached): {e}")
-        async def cached_stream():
-            # Send metadata
-            metadata = {
-                "session_id": chat_session.id,
-                "confidence": cached.get("confidence", 100),
-                "fallback_used": False,
-                "grounding_level": cached.get("grounding_level", "strict"),
-                "sources": cached.get("sources", []),
-                "mode": mode,
-            }
-            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
-            
-            # Send cached answer as tokens
-            cached_answer = cached.get("answer", "")
-            for char in cached_answer:
-                yield f"data: {json.dumps({'type': 'token', 'data': char})}\n\n"
-            
-            # Log assistant message and get ID
-            assistant_msg_id = add_message(
-                db, chat_session.id, user_id_int, 
-                role="assistant", 
-                content=cached_answer,
-                sources=",".join([str(s.get("file_name", s.get("url", ""))) for s in cached.get("sources", [])])
-            )
-
-            # Send message ID
-            yield f"data: {json.dumps({'type': 'message_id', 'data': assistant_msg_id})}\n\n"
-            # Send DONE
-            yield "data: [DONE]\n\n"
-        
-        return StreamingResponse(cached_stream(), media_type="text/event-stream",
-                                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"})
-
-    # 1) Session setup
-    chat_session = get_or_create_session(db, user_id_int, session_id, query)
-    message_count = db.query(Message).filter(Message.session_id == chat_session.id).count()
-
-    # Fetch prior history BEFORE adding the current user message
-    recent_messages = [
-        {"role": m.role, "content": m.content}
-        for m in get_recent_messages(db, chat_session.id)
-    ]
-
-    # Log current user message
-    add_message(db, chat_session.id, user_id_int, role="user", content=query)
-
-    # Topic detection
-    if message_count == 0 or chat_session.topic == "General":
-        try:
-            topic_result = topic_classifier.classify_topic(query)
-            if topic_result['confidence'] > 0.3:
-                chat_session.topic = topic_result['topic']
-                db.commit()
-                logger.info(
-                    f" Session {chat_session.id} tagged: {topic_result['topic']} "
-                    f"(confidence: {topic_result['confidence']:.2f})"
-                )
-        except Exception as e:
-            logger.error(f"Topic classification error: {e}")
-
-    # 2) Retrieval + processing
-    subqueries = query_decomposer.decompose(query)
-    all_context_chunks = []
-    final_confidence = 0.0
-    any_fallback = False
-
-    for subq in subqueries:
-        retrieval_result = retrieval_service.hybrid_retrieve(
-            query=subq, user_id=user_id_str, doc_version=doc_version,
-            top_k=top_k, rerank_top_k=5,
-        )
-        child_chunks = retrieval_result["results"]
-        all_candidates = retrieval_result.get("all_candidates", child_chunks)
-
-        parent_chunks = retrieval_service.expand_to_parent_context(
-            top_results=child_chunks,
-            all_results=all_candidates,
-            max_parents=3,
-        )
-        all_context_chunks.extend(child_chunks + parent_chunks)
-        final_confidence = max(final_confidence, retrieval_result["confidence"])
-        any_fallback = any_fallback or retrieval_result["fallback_used"]
-
-    compressed_context = compressor.compress(all_context_chunks)
-
-    # 3) Determine grounding + build multi-turn prompt payload
-    grounding_level = grounding_for(final_confidence)
-
-    prompt = llm_client.build_prompt(
-        question=query,
-        context_chunks=compressed_context,
-        recent_messages=recent_messages,
-        grounding_level=grounding_level,
-        mode=mode,
-    )
-
-    # 4) STREAM THE ANSWER
-    async def generate():
-        try:
-            # Send initial metadata
-            metadata = {
-                "session_id": chat_session.id,
-                "confidence": final_confidence,
-                "fallback_used": any_fallback,
-                "grounding_level": grounding_level,
-                "sources": [c["metadata"] for c in compressed_context],
-                "mode": mode,
-            }
-            yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
-
-            # Log low confidence as failed query
-            if final_confidence < LOW_CONFIDENCE_BELOW:
-                from app.db.database import FailedQuery
-                failed_query = FailedQuery(
-                    user_id=str(user_id_int),
-                    session_id=chat_session.id,
-                    query=query,
-                    confidence=final_confidence,
-                    feedback=None,
-                    reason='low_confidence',
-                    comment=f"Automatic log: confidence={final_confidence}",
-                    timestamp=datetime.datetime.utcnow()
-                )
-                db.add(failed_query)
-                db.commit()
-
-            # Stream tokens
-            full_answer = ""
-            for token in llm_client.stream_answer(prompt):
-                full_answer += token
-                yield f"data: {json.dumps({'type': 'token', 'data': token})}\n\n"
-
-            # Log assistant message and get ID
-            assistant_msg_id = add_message(
-                db, chat_session.id, user_id_int, 
-                role="assistant", 
-                content=full_answer,
-                sources=",".join([c["metadata"].get("file_name", c["metadata"].get("url", "")) for c in compressed_context])
-            )
-
-            # Send message ID to frontend
-            yield f"data: {json.dumps({'type': 'message_id', 'data': assistant_msg_id})}\n\n"
-
-            # Final message
-            yield "data: [DONE]\n\n"
-
-            # Cache the response
-            resp_dict = {
-                "answer": full_answer,
-                "session_id": chat_session.id,
-                "confidence": final_confidence,
-                "fallback_used": any_fallback,
-                "grounding_level": grounding_level,
-                "sources": [c["metadata"] for c in compressed_context],
-                "followups": [],
-            }
-            semantic_cache.store(query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
-
-        except RuntimeError as e:
-            error_type = UserFriendlyError.classify_error(e)
-            error_response = UserFriendlyError.get_message(error_type)
-            
-            logger.error(f"Stream RuntimeError ({error_type}): {e}")
-            yield f"data: {json.dumps({'type': 'error', 'data': error_response['error']})}\n\n"
-        except Exception as e:
-            logger.error(f"Unexpected stream error: {e}")
-            error_response = UserFriendlyError.get_message("unknown")
-            yield f"data: {json.dumps({'type': 'error', 'data': error_response['error']})}\n\n"
-
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-    )
-
+    chat = chat_pipeline.answer(db, current_user, query, session_id, top_k, mode)
+    return StreamingResponse(chat.events, media_type="text/event-stream", headers=chat.headers)
 
 
 @app.post("/quiz")
@@ -1014,63 +608,15 @@ async def generate_quiz(
     current_user: User = Depends(get_current_user),
 ):
     """Generate quiz questions from internet knowledge (not user documents)"""
-    
     logger.info(f"Generating {body.difficulty} quiz for user {current_user.id}, topic: {body.topic}")
-
-    # Build difficulty-specific prompt
-    difficulty_instructions = {
-        "easy": "basic, straightforward questions suitable for beginners",
-        "medium": "moderate difficulty questions requiring understanding of key concepts",
-        "hard": "advanced, challenging questions requiring deep understanding and critical thinking"
-    }
-    
-    difficulty_desc = difficulty_instructions[body.difficulty]
-    
-    # Build prompt for internet-based quiz
-    if body.include_answers:
-        prompt = f"""You are an expert quiz creator. Generate {body.num_questions} multiple-choice questions about "{body.topic}".
-
-Difficulty Level: {body.difficulty.upper()} - Create {difficulty_desc}.
-IMPORTANT: Use plain text only. Do NOT use markdown formatting (no **, ##, or other symbols).
-
-Format each question EXACTLY like this:
-
-Question X: [question text]
-A) [option A]
-B) [option B]
-C) [option C]
-D) [option D]
-Correct Answer: [letter]
-Explanation: [brief explanation]
-
-Make the questions educational and accurate. Include varied topics within {body.topic}."""
-    else:
-        prompt = f"""You are an expert quiz creator. Generate {body.num_questions} multiple-choice questions about "{body.topic}".
-
-Difficulty Level: {body.difficulty.upper()} - Create {difficulty_desc}.
-IMPORTANT: Use plain text only. Do NOT use markdown formatting (no **, ##, or other symbols).
-
-Format each question as:
-Question X: [question text]
-A) [option A]
-B) [option B]
-C) [option C]
-D) [option D]
-
-Question 2: [question text]
-A) [option A]
-B) [option B]
-C) [option C]
-D) [option D]
-
-Do NOT include answers. Make the questions educational and accurate."""
-
     try:
-        quiz_text = llm_client.generate_answer({"current_user_text": prompt, "contents": []})
+        quiz_text = generate_quiz_text(
+            llm_client, body.topic, body.num_questions, body.difficulty.value, body.include_answers
+        )
     except RuntimeError as e:
         logger.error(f"LLM error in /quiz: {e}")
         raise HTTPException(
-            status_code=503, 
+            status_code=503,
             detail="Quiz generation service is temporarily unavailable."
         )
 

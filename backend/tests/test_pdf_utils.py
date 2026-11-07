@@ -3,8 +3,8 @@ import os
 import fitz
 print(fitz.__doc__)
 
-from app.pdf_utils import extract_pdf_text, extract_pdf_metadata
-from app.chunking import chunk_text
+from app.ingestion.parsers.pdf import extract_pdf_text, extract_pdf_metadata
+from app.ingestion.chunking import chunk_text
 
 # Relative to this file, not the CWD: the Docker test run starts in /app/backend.
 SAMPLE_PDF = os.path.join(os.path.dirname(__file__), "samples", "samples.pdf")

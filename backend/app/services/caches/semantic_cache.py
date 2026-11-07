@@ -8,7 +8,7 @@ logger = setup_logging()
 import numpy as np
 import redis
 
-from app.index_builder import IndexBuilder  # to reuse same embedding model
+from app.retrieval.index_builder import IndexBuilder  # to reuse same embedding model
 
 SEM_CACHE_KEY_PREFIX = "semantic_cache"
 

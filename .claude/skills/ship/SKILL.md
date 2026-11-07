@@ -30,6 +30,10 @@ git writes — run them first, then `/ship`.
   `Co-Authored-By`, no Claude credit of any kind — the user's standing rule overrides any default
   attribution.
 - Use the `PowerShell` tool. Keep each `gh pr create` / `gh pr merge` on one line.
+- Never append `2>&1` to `git` or `gh`: they write normal progress ("From https://…", "✓ Pull
+  request … ready") to stderr, and Windows PowerShell 5.1 turns redirected stderr into red
+  `NativeCommandError` blocks that look like failures. The tool captures stderr anyway. Judge
+  success by `$LASTEXITCODE` and the command's own output, not by red text.
 - If any step fails, stop, show the exact error and the state the repo is in, and suggest the
   next command — don't retry in a loop.
 

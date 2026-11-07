@@ -6,10 +6,10 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db import Base, Document, User
-from app.document_service import register_upload
-from app.upload_storage import new_upload_path
-from app.utils_file import compute_file_hash
+from app.db.database import Base, Document, User
+from app.services.document_service import register_upload
+from app.ingestion.upload_storage import new_upload_path
+from app.ingestion.file_hash import compute_file_hash
 
 PDF_BYTES = b"%PDF-1.4 the same study notes"
 

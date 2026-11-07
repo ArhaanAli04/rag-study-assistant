@@ -125,7 +125,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
         return
     os.chdir(_state["cwd"])
     # Windows can't delete open files: release the SQLite file and the app's log handlers first.
-    db_module = sys.modules.get("app.db")
+    db_module = sys.modules.get("app.db.database")
     if db_module is not None:
         db_module.engine.dispose()
     workdir = str(_state["workdir"])

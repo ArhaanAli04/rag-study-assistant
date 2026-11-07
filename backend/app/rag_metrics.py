@@ -12,7 +12,7 @@ from ragas.metrics import (
     context_recall, 
     context_precision
 )
-from app.llm_client import LLMClient
+from app.generation.llm_client import LLMClient
 from app.main import llm_client  # reuse your existing client
 
 class RAGEvaluator:

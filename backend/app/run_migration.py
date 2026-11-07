@@ -2,7 +2,7 @@
 Run database migration to add concept map columns
 """
 
-from app.db import init_db
+from app.db.database import init_db
 
 if __name__ == "__main__":
     print("=" * 70)

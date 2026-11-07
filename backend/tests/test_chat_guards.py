@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from app.chat_guards import INJECTION_PHRASES, INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
+from app.services.chat_guards import INJECTION_PHRASES, INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
 
 
 @pytest.mark.parametrize("query", [

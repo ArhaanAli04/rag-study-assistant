@@ -8,13 +8,13 @@ from sqlalchemy import create_engine, func
 from sqlalchemy.orm import Session as DbSession, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.account_service import delete_user_account
-from app.concept_models import ConceptMap, ConceptMapNode
-from app.db import Base, Document, FailedQuery, Message, Session as ChatSession, User
-from app.keyword_index import BM25KeywordIndex
-from app.models import DocumentChunk
-from app.upload_storage import new_upload_path
-from app.vector_store import FaissVectorStore
+from app.services.account_service import delete_user_account
+from app.db.models.concept_map import ConceptMap, ConceptMapNode
+from app.db.database import Base, Document, FailedQuery, Message, Session as ChatSession, User
+from app.retrieval.keyword_index import BM25KeywordIndex
+from app.ingestion.models import DocumentChunk
+from app.ingestion.upload_storage import new_upload_path
+from app.retrieval.vector_store import FaissVectorStore
 
 A, B = 1, 2
 DIM = 4

@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pytest
 
-from app.semantic_cache import SemanticCache, _cache_key
+from app.services.caches.semantic_cache import SemanticCache, _cache_key
 from tests.fakes import FakeRedis
 
 

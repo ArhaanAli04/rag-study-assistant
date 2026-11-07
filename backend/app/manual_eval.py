@@ -1,5 +1,5 @@
 from app.main import retrieval_service
-from app.db import SessionLocal, User
+from app.db.database import SessionLocal, User
 
 queries = [
     ("supervised learning", [5]),

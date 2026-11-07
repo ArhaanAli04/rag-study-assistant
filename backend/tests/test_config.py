@@ -100,7 +100,7 @@ def test_empty_allowed_origins_allows_no_origin(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_empty_tavily_key_turns_web_search_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.web_search_client import WebSearchClient
+    from app.retrieval.web.search_client import WebSearchClient
 
     monkeypatch.setattr(config.settings, "TAVILY_API_KEY", SecretStr(""))
 
@@ -110,7 +110,7 @@ def test_empty_tavily_key_turns_web_search_off(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_empty_gemini_key_still_fails_when_a_client_is_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.llm_client import LLMClient
+    from app.generation.llm_client import LLMClient
 
     monkeypatch.setattr(config.settings, "GEMINI_API_KEY", SecretStr(""))
 

@@ -3,7 +3,7 @@ from typing import Any, Dict, List
 
 import pytest
 
-from app.concept_extractor import ConceptExtractor
+from app.generation.concept_extractor import ConceptExtractor
 
 WEB = ["https://en.wikipedia.org/wiki/Photosynthesis", "https://biology.stackexchange.com/q/1"]
 DOCS = ["biology_notes.pdf", "chapter2.docx"]

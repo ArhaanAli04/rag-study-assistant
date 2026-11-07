@@ -1,9 +1,9 @@
 import os
-from app.pdf_utils import extract_pdf_text, extract_pdf_metadata
-from app.pdf_table_utils import extract_tables_camelot, extract_tables_pdfplumber
-from app.ocr_utils import ocr_from_image
-from app.docx_utils import extract_docx_content
-from app.image_preprocessing import preprocess_image
+from app.ingestion.parsers.pdf import extract_pdf_text, extract_pdf_metadata
+from app.ingestion.tables.pdf_tables import extract_tables_camelot, extract_tables_pdfplumber
+from app.ingestion.ocr.ocr import ocr_from_image
+from app.ingestion.parsers.docx import extract_docx_content
+from app.ingestion.ocr.image_preprocessing import preprocess_image
 
 class DocumentParser:
     def __init__(self, path):

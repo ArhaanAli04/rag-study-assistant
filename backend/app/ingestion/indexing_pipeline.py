@@ -2,15 +2,15 @@
 import os
 from typing import List
 
-from app.chunk_builder import (
+from app.ingestion.chunk_builder import (
     build_chunks_from_pdf,
     build_chunks_from_pptx,
     build_chunks_from_docx,
 )
-from app.models import DocumentChunk
-from app.index_builder import IndexBuilder
-from app.unified_parser import DocumentParser  # if you want a generic entry point
-from app.keyword_index import BM25KeywordIndex
+from app.ingestion.models import DocumentChunk
+from app.retrieval.index_builder import IndexBuilder
+from app.ingestion.parsers.unified import DocumentParser  # if you want a generic entry point
+from app.retrieval.keyword_index import BM25KeywordIndex
 
 
 class IndexingPipeline:

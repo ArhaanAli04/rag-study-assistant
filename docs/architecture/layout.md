@@ -1,8 +1,9 @@
 # Backend package layout
 
-Status: **proposed on Day 7 (2026-11-06), awaiting approval.** Days 7–10 (Phase 3) move the
-backend from 62 flat modules in `src/` into the package below. This file is the map for those
-moves: each module has one target path and one day.
+Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07).** Days 7–10 (Phase 3) move
+the backend from 62 flat modules in `src/` into the package below. This file is the map for those
+moves: each module has one target path and one day. After Day 8, only the Day 9 / Day 10 rows are
+still flat in `backend/app/`.
 
 ## Target tree
 
@@ -46,6 +47,16 @@ rag-study-assistant/
 4. **Configuration comes only from `app.core.config.settings`.** No `os.getenv` or `load_dotenv` anywhere else in `app/`.
 5. **Runtime state** (`data/`, `uploads/`, `logs/`) stays CWD-relative, so it lives in `backend/` locally and at `/app/backend/{data,uploads,logs}` in Docker. It never moves inside `app/`.
 6. **Moves and rewrites go in separate commits** so `git log --follow` keeps each file's history. Rename detection is by content similarity, and PRs merge with a merge commit, never squash.
+
+### Known exceptions to rule 1 (found by the Day 8 moves)
+Each has an owner day that removes it. Add new ones here, never silently.
+
+| Edge | Why it exists | Removed on |
+|---|---|---|
+| `retrieval/retrieval_service.py` → `services/caches/{query_cache,web_cache}` (upward) | `RetrievalService` calls the Redis cache helpers directly | Day 9, proposed (decide when wiring DI): caches injected into `RetrievalService` from the lifespan |
+| `ingestion/indexing_pipeline.py` → `retrieval/{index_builder,keyword_index}` (sideways) | the pipeline writes chunks into the indexes itself | Day 9, proposed (decide when wiring DI): indexing orchestration moves into a `services/` use case |
+| `retrieval/{vector_store,index_builder}.py` → `ingestion/models.py` (`DocumentChunk`, sideways) | the chunk dataclass is shared by both layers | Day 13: the pgvector chunk model replaces `DocumentChunk` |
+| `core/security.py` → `db/database.py` (upward from `core`) | `get_db` and `get_current_user*` still live in `security` | Day 9: they move to `api/deps.py` |
 
 ## Module map
 

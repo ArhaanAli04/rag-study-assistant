@@ -4,9 +4,9 @@ from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
 
-from app.db import SessionLocal, Document
-from app.upload_storage import is_inside_user_dir
-from app.utils_file import compute_file_hash
+from app.db.database import SessionLocal, Document
+from app.ingestion.upload_storage import is_inside_user_dir
+from app.ingestion.file_hash import compute_file_hash
 
 
 def register_document(

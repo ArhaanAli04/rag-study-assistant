@@ -2,9 +2,9 @@
 from typing import List
 from tqdm import tqdm
 
-from app.models import DocumentChunk
-from app.embedding_service import EmbeddingService
-from app.vector_store import FaissVectorStore
+from app.ingestion.models import DocumentChunk
+from app.retrieval.embeddings import EmbeddingService
+from app.retrieval.vector_store import FaissVectorStore
 
 
 class IndexBuilder:

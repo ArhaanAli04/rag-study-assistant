@@ -1,9 +1,9 @@
 import os
-from app.pdf_table_utils import extract_tables_camelot, extract_tables_pdfplumber
-from app.ocr_utils import ocr_from_image
-from app.docx_utils import extract_docx_content
-from app.image_preprocessing import preprocess_image_extra
-from app.unified_parser import DocumentParser
+from app.ingestion.tables.pdf_tables import extract_tables_camelot, extract_tables_pdfplumber
+from app.ingestion.ocr.ocr import ocr_from_image
+from app.ingestion.parsers.docx import extract_docx_content
+from app.ingestion.ocr.image_preprocessing import preprocess_image_extra
+from app.ingestion.parsers.unified import DocumentParser
 
 def test_pdf_table_extraction():
     pdf_path = "tests/samples/table_test.pdf"

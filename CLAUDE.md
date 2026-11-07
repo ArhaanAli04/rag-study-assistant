@@ -67,11 +67,17 @@ Blockers:     none. Local runtime state was moved by hand to backend/{data,uploa
 ```
 rag-study-assistant/
 ├── backend/                  ← the Python project; run the app from here (CWD = backend/)
-│   ├── app/                  ← the package, imported as `app.*` (Day 7); flat until Day 8 regroups it
-│   │   ├── main.py           ← FastAPI app: all routes, most chat logic, global singletons
+│   ├── app/                  ← the package, imported as `app.*` (Day 7), regrouped Day 8
+│   │   ├── main.py           ← FastAPI app: all routes, most chat logic, global singletons (split Day 9)
 │   │   ├── core/             ← config.py (Settings), logging.py, request_id.py, security.py, errors.py
-│   │   ├── routes/auth_routes.py ← Google OAuth login/callback, /auth/logout
-│   │   └── services/         ← oauth_service.py (Authlib client)
+│   │   ├── db/               ← database.py (Base, engine, ORM models, startup migrations), models/concept_map.py
+│   │   ├── ingestion/        ← pipeline, chunking, upload storage; parsers/, ocr/, tables/
+│   │   ├── retrieval/        ← embeddings, FAISS, BM25, retrieval service, rerank, decomposition, web/
+│   │   ├── generation/       ← llm_client.py, topic_classifier.py, concept_extractor.py
+│   │   ├── services/         ← documents, sessions, accounts, concept maps, chat guards, oauth; caches/
+│   │   ├── schemas/          ← Pydantic request/response models (concept_maps, chat, auth, …)
+│   │   ├── routes/auth_routes.py ← Google OAuth login/callback, /auth/logout (→ api/routes Day 9)
+│   │   └── *.py              ← still flat: eval scripts, one-off DB scripts, dead code (Day 10)
 │   ├── tests/                ← offline pytest suite (conftest fakes Gemini, Tavily, Redis) + samples/
 │   ├── data/                 ← app.db (SQLite), faiss_indexes/ — gitignored
 │   └── logs/, uploads/       ← runtime output — gitignored
@@ -92,22 +98,22 @@ rag-study-assistant/
 
 ### Backend module map (`backend/app/`)
 
-Paths are relative to `backend/app/`. Day 8 regroups the flat modules into `ingestion/`,
-`retrieval/`, `generation/`, `services/`, `schemas/` and `db/`; the target path and day of every
-module are in `docs/architecture/layout.md`.
+Paths are relative to `backend/app/`. Day 8 regrouped the modules into `db/`, `ingestion/`,
+`retrieval/`, `generation/`, `services/` and `schemas/`; the target path and day of every module,
+and the known exceptions to the downward-only dependency rule, are in `docs/architecture/layout.md`.
 
 | Area | Modules | Notes |
 |---|---|---|
 | Core (Day 7) | `core/config.py`, `core/logging.py`, `core/request_id.py`, `core/security.py`, `core/errors.py` | `Settings`: every env var, read once at import. `request_id`: per-request ID (`X-Request-ID`) stamped on log lines by `RequestIdFilter`. `security`: JWT, password hashing, and (until Day 9's `api/deps.py`) `get_db` / `get_current_user*`. `logging`: rotating file + console handlers, G8 redaction |
-| App & data | `main.py`, `db.py`, `concept_models.py`, `models.py`, `account_service.py` | `db.py`: Base, SQLite engine, ORM models, startup column migrations. `models.py`: `DocumentChunk` data model. `account_service.py`: `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
+| App & data | `main.py`, `db/database.py`, `db/models/concept_map.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `db/database.py`: Base, SQLite engine, ORM models, startup column migrations. `ingestion/models.py`: `DocumentChunk` data model. `account_service.py`: `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1). `schemas/`: the request models formerly in `main.py` |
 | Auth | `core/security.py`, `routes/auth_routes.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
-| Ingestion | `indexing_pipeline.py`, `chunk_builder.py`, `chunking.py`, `pdf_utils.py`, `pptx_pipeline.py`, `pptx_utils.py`, `docx_utils.py`, `text_preprocessing.py`, `document_service.py`, `utils_file.py`, `upload_storage.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
-| OCR / tables | `unified_parser.py`, `ocr_utils.py`, `image_preprocessing.py`, `pdf_table_utils.py`, `table_utils.py` | not reachable from `/upload` (images are rejected) |
-| Indexes | `embedding_service.py`, `index_builder.py`, `vector_store.py`, `keyword_index.py` | in-memory FAISS + BM25 (see Known Issues) |
-| Retrieval | `retrieval_service.py`, `query_decomposer.py`, `query_preprocessor.py`, `reranker.py`, `context_compressor.py`, `web_search_client.py`, `web_scraper.py` | `reranker.py` does no real reranking |
-| Generation | `llm_client.py`, `topic_classifier.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient` |
-| Sessions & caches | `session_service.py`, `semantic_cache.py`, `cache.py`, `web_cache.py` | |
-| Concept maps | `concept_map_service.py`, `hybrid_retriever.py`, `concept_extractor.py`, `concept_map_schemas.py` | |
+| Ingestion | `ingestion/{indexing_pipeline,chunk_builder,chunking,text_preprocessing,file_hash,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/document_service.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
+| OCR / tables | `ingestion/parsers/unified.py`, `ingestion/ocr/{ocr,image_preprocessing}.py`, `ingestion/tables/{pdf_tables,tables}.py` | not reachable from `/upload` (images are rejected) |
+| Indexes | `retrieval/{embeddings,index_builder,vector_store,keyword_index}.py` | in-memory FAISS + BM25 (see Known Issues) |
+| Retrieval | `retrieval/{retrieval_service,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `reranker.py` does no real reranking |
+| Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient` |
+| Sessions & caches | `services/session_service.py`, `services/chat_guards.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | |
+| Concept maps | `services/concept_map_service.py`, `retrieval/concept_map_retriever.py`, `generation/concept_extractor.py`, `schemas/concept_maps.py` | |
 | Eval / experiments | `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | non-functional or print-only; all import `main` |
 | Ad-hoc scripts | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; the old `src/test_*.py` manual scripts now live in `scripts/manual/` (Day 5) | the `app/` scripts run as `python -m app.<name>` from `backend/`; the manual scripts call live services, still use pre-Day 7 paths (Day 10) and are never collected by pytest (`pytest.ini` → `backend/tests/` only) |
 | Dead code | `frontend.py` (Streamlit stub), `document_delete_service.py` (never called) | |
@@ -259,7 +265,7 @@ Found while writing this file; evidence and direction live under each ID.
 ## Conventions for This Repo
 
 - **No backend work without its UI (owner's rule).** Every user-visible backend capability — a new endpoint, response field, status, flag, score, or feature — ships with its frontend integration **in the same day/PR**: the screen or control that uses it, plus loading, empty, and error states. Never "UI later". Briefs list the UI changes for every deliverable; if something is genuinely backend-only (internal refactor, tracing, migrations), the brief says so explicitly. The UI overhaul phase restyles existing screens — it is not where features first get wired in.
-- **Run the backend from `backend/`** (`uvicorn app.main:app`). The package is `app`: imports are absolute (`from app.db import User`), never bare module names or relative imports, and nothing inside `backend/` edits `sys.path`. `pytest.ini` puts `backend/` on the path for tests; Alembic adds it itself. Dependencies point down only (`api` → `services` → `retrieval` / `generation` / `ingestion` → `db` → `core`); rules and the module map are in `docs/architecture/layout.md`.
+- **Run the backend from `backend/`** (`uvicorn app.main:app`). The package is `app`: imports are absolute (`from app.db.database import User`), never bare module names or relative imports, and nothing inside `backend/` edits `sys.path`. `pytest.ini` puts `backend/` on the path for tests; Alembic adds it itself. Dependencies point down only (`api` → `services` → `retrieval` / `generation` / `ingestion` → `db` → `core`); rules and the module map are in `docs/architecture/layout.md`.
 - **Configuration comes only from `app.core.config.settings`** (Day 7). No `os.getenv` or `load_dotenv` in `backend/app/`; a new variable is a `Settings` field plus an `.env.example` entry. Secrets are `SecretStr`: read them with `.get_secret_value()` at the call site and never log `settings`. `settings` is built once at import, so tests override fields with `monkeypatch.setattr(settings, ...)`; a later `setenv` doesn't reach it.
 - **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
@@ -334,18 +340,18 @@ with one `ValidationError` that lists all of them.
 | Variable | Required | Used by / default |
 |---|---|---|
 | `GEMINI_API_KEY` | yes — startup fails without it | LLM, embeddings, topic classifier, concept extractor |
-| `TAVILY_API_KEY` | for web search | `web_search_client.py`; if missing, web chunks are silently skipped |
+| `TAVILY_API_KEY` | for web search | `retrieval/web/search_client.py`; if missing, web chunks are silently skipped |
 | `JWT_SECRET_KEY` | yes | JWT signing (`core/security.py`) and `SessionMiddleware` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `services/oauth_service.py` |
 | `JWT_ALGORITHM`, `JWT_EXPIRATION_MINUTES` | no | `HS256`, `10080` (7 days) |
-| `REDIS_URL` | no | Query cache (`cache.py`) and web cache (`web_cache.py`); default `redis://localhost:6379/0`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380); in Docker compose sets `redis://redis:6379/0` |
-| `SEMANTIC_CACHE_REDIS_URL` | no | Semantic cache (`semantic_cache.py`). Unset → `REDIS_URL` → `redis://localhost:6379/1`. Docker: `redis://redis:6379/1`. Render sets only `REDIS_URL`, so there the semantic cache still shares DB 0 |
+| `REDIS_URL` | no | Query cache (`services/caches/query_cache.py`) and web cache (`services/caches/web_cache.py`); default `redis://localhost:6379/0`. Locally `.env` sets `redis://localhost:6380/0` (compose maps Redis to host port 6380); in Docker compose sets `redis://redis:6379/0` |
+| `SEMANTIC_CACHE_REDIS_URL` | no | Semantic cache (`services/caches/semantic_cache.py`). Unset → `REDIS_URL` → `redis://localhost:6379/1`. Docker: `redis://redis:6379/1`. Render sets only `REDIS_URL`, so there the semantic cache still shares DB 0 |
 | `BASE_URL`, `FRONTEND_URL` | no | OAuth redirects; `http://localhost:8000`, `http://localhost:3000` |
 | `ALLOWED_ORIGINS` | no | Comma-separated CORS allowlist (entries trimmed). Default: `http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app`. On Render: only `https://rag-study-assistant-chi.vercel.app` |
-| `TESSERACT_PATH`, `PORT` | no | OCR binary path, set as pytesseract's `tesseract_cmd` by `ocr_utils.py`; unset → `tesseract` on `PATH`. Windows host `.env`: the `tesseract.exe` path; the Docker image sets `ENV TESSERACT_PATH=/usr/bin/tesseract` (so Render gets it without compose), and compose sets it again because `env_file: .env` would otherwise pass the Windows path in. uvicorn port in the Dockerfile (default 8000) |
+| `TESSERACT_PATH`, `PORT` | no | OCR binary path, set as pytesseract's `tesseract_cmd` by `ingestion/ocr/ocr.py`; unset → `tesseract` on `PATH`. Windows host `.env`: the `tesseract.exe` path; the Docker image sets `ENV TESSERACT_PATH=/usr/bin/tesseract` (so Render gets it without compose), and compose sets it again because `env_file: .env` would otherwise pass the Windows path in. uvicorn port in the Dockerfile (default 8000) |
 
 `.env.example` lists every backend variable with placeholders; keep it in sync when adding one.
-`DATABASE_URL` is not read by anything (SQLite path is hardcoded in `db.py`) — it returns on Day 13.
+`DATABASE_URL` is not read by anything (SQLite path is hardcoded in `db/database.py`) — it returns on Day 13.
 
 Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (default
 `http://localhost:8000`), `REACT_APP_GOOGLE_CLIENT_ID`. CRA inlines these at **build** time; the
@@ -375,7 +381,7 @@ attached — not verified for this deployment.
 ### Redis key schema
 
 ```
-query_cache:{sha256(user_id::doc_version::query)}  DB 0            TTL 3600s  /search results                cache.py
+query_cache:{sha256(user_id::doc_version::query)}  DB 0            TTL 3600s  /search results                query_cache.py
 websearch:{query}                                  DB 0            TTL 3600s  Tavily chunks, no embeddings   web_cache.py
 semantic_cache:{user_id}                           SEMANTIC_CACHE  no TTL     one JSON list of ≤ 64 entries
                                                    _REDIS_URL's DB            per user; entries also carry
@@ -447,7 +453,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 
 ## Open Decisions (ask the owner before acting)
 
-- **Migrations:** make Alembic the real path (fix the URL, import all models in `env.py`) vs. keep the `db.py` startup migrations. Either way, retire the one-off scripts.
+- **Migrations:** make Alembic the real path (fix the URL, import all models in `env.py`) vs. keep the `db/database.py` startup migrations. Either way, retire the one-off scripts.
 - **Chat endpoints:** delete `POST /chat` (the frontend only streams) vs. extract a shared pipeline that both call.
 - **Index persistence — decided 2026-11-04:** pgvector + Postgres full-text on Supabase (Days 13–16), uploaded files in Supabase Storage (Day 15). Render's filesystem is ephemeral, so nothing durable stays on it; `qdrant-client` can go with the Day 10 dependency cleanup.
 - **Dependencies:** remove unused packages vs. keep those tied to planned items (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); reconcile or delete `src/requirements.txt`, which has drifted from the root file.

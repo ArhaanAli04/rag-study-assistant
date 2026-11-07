@@ -3,7 +3,7 @@ from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from app.services.oauth_service import get_google_oauth_client
 from app.core.security import create_access_token
-from app.db import SessionLocal, User
+from app.db.database import SessionLocal, User
 from app.core.config import settings
 from datetime import timedelta
 import logging

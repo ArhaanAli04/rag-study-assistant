@@ -1,7 +1,7 @@
 """
 Test semantic cache hit rates at different similarity thresholds.
 """
-from app.semantic_cache import SemanticCache
+from app.services.caches.semantic_cache import SemanticCache
 from app.main import index_builder, semantic_cache
 from typing import List
 

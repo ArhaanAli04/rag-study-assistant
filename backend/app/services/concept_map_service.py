@@ -8,10 +8,10 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime,timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from app.db import User 
-from app.concept_models import ConceptMap, ConceptMapNode
-from app.hybrid_retriever import ConceptMapRetriever
-from app.concept_extractor import ConceptExtractor
+from app.db.database import User 
+from app.db.models.concept_map import ConceptMap, ConceptMapNode
+from app.retrieval.concept_map_retriever import ConceptMapRetriever
+from app.generation.concept_extractor import ConceptExtractor
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

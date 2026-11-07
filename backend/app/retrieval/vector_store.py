@@ -2,7 +2,7 @@
 import faiss
 import numpy as np
 from typing import List, Dict
-from app.models import DocumentChunk
+from app.ingestion.models import DocumentChunk
 import json
 import os
 class FaissVectorStore:

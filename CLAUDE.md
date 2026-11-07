@@ -31,30 +31,31 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  day 07 - docs (Checkpoint 6: CLAUDE.md paths and commands, Day 7 outcome, post 9
-              line) on feature/day07-refactor-core → PR #8 (draft) into develop. Before it:
-              ac99840 Settings + request ID, fbbea8d core/ moves, a467435 src/ → backend/app/
-              move (90 renames), cbd20e9 layout doc + brief
+Last commit:  4cd0d14 day 08 - test_docx_pdf_utils real assertions + B5 strict xfail, on
+              feature/day08-refactor-modules → PR #10 (draft) into develop; Checkpoint 6 docs
+              (Day 8 outcome, post 9 line, B5 known issue, this block) still to commit. Before it:
+              014be69 lazy OCR/table imports, 27067b6 pure moves (42 renames)
 Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
               v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
-              on ESLint warnings). Days 4–7 reach master with the Day 10 release (v0.2.0) — the
+              on ESLint warnings). develop has Days 4–7 (PR #8) and the /ship skill (PR #9).
+              Days 4–8 reach master with the Day 10 release (v0.2.0) — the
               first PR-based release (PR develop → master, merge commit, then tag)
-Uncommitted:  none
+Uncommitted:  Checkpoint 6 docs: CLAUDE.md, docs/briefs/day08.md, docs/posts/09-launch-recap.md
 Untracked:    none (planning docx/pdf files, the Tesseract installer — now alone in the old
               root tests/samples/ — and post screenshots in docs/posts/assets/ are gitignored)
-Day 7:        The backend is the package backend/app/ (CWD backend/: uvicorn app.main:app;
-              tests in backend/tests, pytest from the repo root). Absolute app.* imports, no
-              sys.path hacks. core/: config.py (one pydantic-settings Settings for every env
-              var, SecretStr secrets, absolute repo-root .env; no os.getenv/load_dotenv left in
-              app/), logging.py, request_id.py (pure ASGI middleware: X-Request-ID on every
-              response, [request_id] on every app log line), security.py, errors.py. Dockerfile,
-              compose, dev.ps1, pytest.ini, alembic and hooks on the new paths; Render needs no
-              dashboard change (it runs the Dockerfile CMD). Tests 111 → 134 passed + 1 xfail
-              on host and in the container. Map: docs/architecture/layout.md; notes in
-              docs/briefs/day07.md
-Next:         merge PR #8 into develop, then Day 8 (/run-day 8): regroup modules into
-              ingestion/ retrieval/ generation/ services/ schemas/ db/ (pure moves), lazy OCR
-              and table imports, test_docx_pdf_utils sample paths
+Day 8:        backend/app/ regrouped into db/ ingestion/ (parsers/ ocr/ tables/) retrieval/
+              (web/) generation/ services/ (caches/) schemas/ — pure moves, all 42 recorded as
+              renames; main.py's 9 request models now in schemas/. Still flat: main.py and
+              routes/ (Day 9), eval + one-off scripts and dead code (Day 10). 4 known layering
+              exceptions listed in docs/architecture/layout.md. img2table, camelot, pytesseract
+              and cv2 imported lazily. test_docx_pdf_utils now opens its samples and asserts
+              real content; it found B5 (deskew rotates scans 90°, strict xfail until Day 10).
+              Suite 134 passed + 2 xfailed (B3, B5) on host, container and CI. app.main import
+              still ~24 s (23–25 s measured): each google.genai.Client costs ~3 s to build and
+              main.py builds several — Day 9 tackles it. Notes in docs/briefs/day08.md
+Next:         merge PR #10 into develop, then Day 9 (/run-day 9): routers + app factory with
+              lifespan and Depends, one ChatPipeline (delete POST /chat — confirm), B2, one
+              keyword safety list, one shared Gemini client and no startup embedding call
 Blockers:     none. Local runtime state was moved by hand to backend/{data,uploads,logs}; a
               checkout from before Day 7 must do the same (Move-Item src\data, src\uploads,
               src\logs backend\) or the app starts with an empty database
@@ -256,6 +257,7 @@ Found while writing this file; evidence and direction live under each ID.
 | Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
 | Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` and are never collected | T1 | Done |
 | Image and PPTX-slide table extraction silently returns nothing: three OpenCV wheels share `cv2` and a non-contrib build wins (confirmed in the backend image too); `test_table_extraction_on_image` is a strict xfail until the Day 10 fix | B3 | P1 |
+| Image deskew (`preprocess_image`) counts the white background as text, OpenCV 4.5+ reports 90°, so scans are rotated sideways and the unified parser's OCR returns `''`. Not reachable today (`/upload` rejects images; PPTX OCR uses another function); `test_unified_parser_image` is a strict xfail until the Day 10 fix | B5 | P2 |
 | Fixed Day 5: concept-map generation returned 500 whenever a node had empty sources (`concept_extractor` wrapped the whole source list) | B4 | Done |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
 | Dead code, drifted requirements files, unused deps, installer still in git history | T3 | P2 |

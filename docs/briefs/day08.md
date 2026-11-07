@@ -293,3 +293,66 @@ spinner for the whole request, so no UI change is needed.
   not app code); worker start → "Application startup complete" was ~24 s.
 - **Uncommitted from before today:** `.claude/skills/ship/SKILL.md` (+4 lines: don't append `2>&1`
   to git/gh). Not part of Day 8 — commit it separately or with today's docs.
+
+## Outcome
+Date: 2026-11-07. Four commits on `feature/day08-refactor-modules` → draft PR #10 into `develop`;
+CI (`backend`, `frontend`, `docker`) green after each of the first three.
+
+### Commits and files
+- **`27067b6` — pure moves (Checkpoints 1–3), 86 files; git recorded all 42 moves as renames** (26 at R100, lowest R074 `unified_parser.py` → `ingestion/parsers/unified.py`)
+  - `db/`: `database.py` (was `db.py`), `models/concept_map.py` (was `concept_models.py`)
+  - `ingestion/`: `indexing_pipeline`, `chunk_builder`, `chunking`, `models`, `text_preprocessing`, `upload_storage`, `file_hash` (was `utils_file`); `parsers/{pdf,pptx,pptx_pipeline,docx,unified}`; `ocr/{ocr,image_preprocessing}`; `tables/{pdf_tables,tables}`
+  - `retrieval/`: `embeddings` (was `embedding_service`), `index_builder`, `vector_store`, `keyword_index`, `retrieval_service`, `reranker`, `query_decomposer`, `query_preprocessor`, `context_compressor`, `concept_map_retriever` (was `hybrid_retriever`); `web/{search_client,scraper}`
+  - `generation/`: `llm_client`, `topic_classifier`, `concept_extractor`
+  - `services/`: `chat_guards`, `document_service`, `session_service`, `account_service`, `concept_map_service`; `caches/{semantic_cache,query_cache (was cache),web_cache}`
+  - `schemas/`: `concept_maps` (was `concept_map_schemas`), and new `documents`, `chat`, `quiz`, `feedback`, `auth`, `users` holding the 9 classes cut verbatim from `main.py:82-137`
+  - 13 empty `__init__.py`; import lines rewritten by a scratchpad script (old → new module table, import lines only, CRLF kept) in 34 files incl. `main.py`, `core/security.py`, `routes/auth_routes.py`, the still-flat eval / one-off scripts, 9 test files and `alembic/env.py`; `conftest.py` teardown now looks up `app.db.database`
+  - `docs/architecture/layout.md`: status line + "Known exceptions to rule 1" (4 edges, each with an owner day); `CLAUDE.md`: Repo Structure, module map and file references → new paths
+  - `.claude/skills/ship/SKILL.md`: the earlier "never append `2>&1` to git/gh" note rode along
+- **`014be69` — lazy imports (Checkpoint 4), 5 files**
+  - `ingestion/tables/tables.py` (img2table), `ingestion/tables/pdf_tables.py` (camelot, pdfplumber), `ingestion/ocr/ocr.py` (pytesseract via a `_pytesseract()` helper that also applies `TESSERACT_PATH`; a duplicate top-level `import pytesseract` removed), `ingestion/ocr/image_preprocessing.py` (cv2)
+  - This brief's Risks: the Gemini-client finding below
+- **`4cd0d14` — `test_docx_pdf_utils.py` (Checkpoint 5), 4 files**
+  - Samples anchored to `Path(__file__).parent / "samples"` and copied into `tmp_path` (the preprocessors write next to their input; `tests/` is read-only in the container); a missing sample fails; `print` replaced by assertions on content read from the samples on host and container: table header `Standout Feature | Your Project | NotebookLM` (camelot and pdfplumber, now two tests), DOCX first paragraph, ≥ 10 OCR words from the handwritten scan
+  - Found **B5**: `test_unified_parser_image` is `xfail(strict=True)`. Added to `docs/improvements.md` (diagnosis), `docs/improvement-tracker.md` (P2 row), `docs/timeline.md` (Day 10 bullet; also the owner's Day 9 startup-cost bullet)
+- **Checkpoint 6 (this commit):** this Outcome, the post 9 line, CLAUDE.md Known Issues (B5) and Current Status
+
+### Checks run
+| Check | Result |
+|---|---|
+| Baseline before any change | 134 passed, 1 xfailed (25.4 s) |
+| `python -m pytest` after each move checkpoint | 134 passed, 1 xfailed (23.3 s / 22.1 s / 24.7 s); `test_api_smoke.py` untouched |
+| `.\scripts\dev.ps1 test` after Checkpoint 3 / 4 | 134 passed, 1 xfailed (83.4 s / 102.4 s) |
+| After Checkpoint 5, host / container | **134 passed, 2 xfailed** (31.8 s / 107.5 s) — 6 old silent tests → 7 real ones (6 pass + B5 xfail) |
+| `ruff check .` | clean after every checkpoint |
+| `uvicorn app.main:app` (Checkpoint 3) | starts; `/health` ok; `/openapi.json` lists all 28 route paths |
+| Leftover old import names (grep) | none in `backend/`, `alembic/` |
+| Heavy libraries in `sys.modules` after `import app.main` | before: img2table, camelot, pytesseract, cv2, pdfplumber; after: only pdfplumber (used by `parsers/pdf.py` on every PDF) |
+| CI on PR #10 | green after `27067b6` (backend 1m56s), `014be69` (1m52s), `4cd0d14` (1m54s) |
+
+### Import time — measured (host venv, Python 3.12, real `.env`, fresh process per run)
+| Import | Before | After |
+|---|---|---|
+| `app.ingestion.indexing_pipeline` | 16.93 s, 13.2 s, 12.72 s | 9.73 s, 4.9 s, 7.48 s |
+| `app.main` | 26.88 s, 25.28 s, 25.59 s | 23.05 s, 24 s, 24.93 s |
+| `-X importtime`: ingestion chain inside `app.main` | 10.2 s cumulative | 5.8 s |
+
+- **Target < 5 s: not reached.** `app.main`'s own module body takes 7.1–9.2 s and `topic_classifier`'s 2.1–2.8 s. Timed directly: `IndexBuilder()` 3.43 s (a `genai.Client` plus one embedding call), `LLMClient()` 2.81 s. Constructing a `google.genai.Client` costs ~3 s on this host, and `main.py` builds several at import. Day 9 now has the bullet: one shared client in the lifespan, no startup embedding call, measured against today's 23–25 s.
+- **Reload:** not measured cleanly. On the Windows host WatchFiles shut the worker down on the first change but started a new one only after a second change; worker start → "Application startup complete" was ~24 s.
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Module moves, `schemas/` split | — | backend-only: no endpoint, field, status or flag changed; 28 routes and the SSE contract identical (smoke tests unchanged and green) |
+| Lazy OCR / table imports | — | backend-only: the first PPTX-with-images upload after a restart pays the import cost; the upload spinner already covers the request |
+| `test_docx_pdf_utils.py`, B5 xfail | — | backend-only: tests and docs |
+
+### Deferred or dropped
+- **Timeline "Update Dockerfile WORKDIR/CMD, docker-compose, alembic/env.py sys.path and root scripts":** done on Day 7; today only `alembic/env.py`'s import line changed.
+- **Reload < 5 s:** not reached (above); Day 9.
+- **B5 fix:** Day 10 (owner's decision: strict xfail today).
+- **Not touched, by design:** the `print()` calls and broad `except Exception` in the moved ingestion modules (pure moves / lazy-import commit only); `scripts/manual/*` bare imports (Day 10).
+
+### Tracker Notes (for the owner)
+- **B5:** row added today (Not Started, scheduled Day 10).
+- **T3:** no change today.

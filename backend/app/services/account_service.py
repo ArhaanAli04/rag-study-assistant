@@ -4,17 +4,28 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol, Sequence
+from typing import Optional, Protocol, Sequence
 
 import redis
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session as DbSession
 
+from app.core.security import verify_password
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
 from app.db.database import Document, FailedQuery, Message, User, Session as ChatSession
 from app.ingestion.upload_storage import UnsafeUploadPath, ensure_inside_root, user_upload_dir
 
 logger = logging.getLogger("rag_assistant.account")
+
+
+def authenticate_user(db: DbSession, email: str, password: str) -> Optional[User]:
+    """The email/password user, or None. OAuth-only users have no password and can't log in this way."""
+    user = db.query(User).filter(User.email == email).first()
+    if user is None or not user.hashed_password:
+        return None
+    if not verify_password(password, user.hashed_password):
+        return None
+    return user
 
 
 class UserScopedIndex(Protocol):

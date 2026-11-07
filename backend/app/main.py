@@ -13,10 +13,9 @@ from app.ingestion.indexing_pipeline import IndexingPipeline
 from app.retrieval.index_builder import IndexBuilder
 from app.retrieval.keyword_index import BM25KeywordIndex
 from app.retrieval.retrieval_service import RetrievalService
-from app.core.security import (
-    get_db, get_password_hash, authenticate_user, verify_password,
-    create_access_token, get_current_user,get_current_user_optional
-)
+from app.api.deps import get_current_user, get_db, get_user_from_query_token
+from app.services.account_service import authenticate_user
+from app.core.security import create_access_token, get_password_hash, verify_password
 from starlette.middleware.sessions import SessionMiddleware
 from app.core.config import settings
 from app.core.request_id import RequestIdMiddleware
@@ -56,7 +55,7 @@ from app.schemas.concept_maps import (
     DeleteConceptMapResponse,
     SourceStatistics
 )
-from app.routes.auth_routes import router as auth_router
+from app.api.routes.auth import router as auth_router
 app = FastAPI(title="RAG Study Assistant API")
 app.add_middleware(
     SessionMiddleware,
@@ -256,18 +255,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         content={"detail": "Internal server error. Please try again later."}
     )
 
-from fastapi import Depends, HTTPException, status
-from sqlalchemy.orm import Session
-from app.core.security import (
-    get_db,
-    get_password_hash,
-    authenticate_user,
-    create_access_token,
-    get_current_user,
-)
-from app.db.database import User
-from fastapi.security import OAuth2PasswordRequestForm
-from jose import JWTError, jwt
+from fastapi import HTTPException, status
 
 
 @app.post("/register")
@@ -579,25 +567,9 @@ async def chat_stream(
     session_id: int = 0,
     top_k: int = 5,
     mode: str = "quick",
-    token: Optional[str] = None,
+    current_user: User = Depends(get_user_from_query_token),
     db: Session = Depends(get_db),
 ):
-    # Manual token auth
-    current_user = None
-    if token:
-        try:
-            from jose import jwt
-            from app.core.security import SECRET_KEY, ALGORITHM
-            payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-            email = payload.get("sub")
-            if email:
-                current_user = db.query(User).filter(User.email == email).first()
-        except:
-            pass
-    
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     chat = chat_pipeline.answer(db, current_user, query, session_id, top_k, mode)
     return StreamingResponse(chat.events, media_type="text/event-stream", headers=chat.headers)
 

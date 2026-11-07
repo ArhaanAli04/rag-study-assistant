@@ -1,12 +1,10 @@
+"""Password hashing and JWTs. The request-time pieces (DB session, current user) live in app.api.deps."""
 from datetime import datetime, timedelta
-from typing import Optional
-from jose import JWTError, jwt
+from typing import Any, Dict, Optional
+
+from jose import jwt
 from passlib.context import CryptContext
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.orm import Session
-from app.core.errors import UserFriendlyError
-from app.db.database import SessionLocal, User
+
 from app.core.config import settings
 
 SECRET_KEY = settings.JWT_SECRET_KEY.get_secret_value()
@@ -14,46 +12,21 @@ ALGORITHM = settings.JWT_ALGORITHM
 ACCESS_TOKEN_EXPIRE_MINUTES = settings.JWT_EXPIRATION_MINUTES
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password: str, hashed_password: Optional[str]) -> bool:
     """Verify password for traditional login users"""
     if not hashed_password:  # OAuth users have no password
         return False
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password):
+def get_password_hash(password: str) -> str:
     """Hash password for traditional registration"""
     return pwd_context.hash(password)
 
 
-def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
-    """Authenticate traditional email/password users"""
-    user = db.query(User).filter(User.email == email).first()
-    if not user:
-        return None
-    
-    # Check if user is OAuth-only (no password)
-    if not user.hashed_password:
-        return None  # OAuth users can't login with password
-    
-    if not verify_password(password, user.hashed_password):
-        return None
-    
-    return user
-
-
-def create_access_token(data: dict, expires_delta: timedelta | None = None):
+def create_access_token(data: Dict[str, Any], expires_delta: timedelta | None = None) -> str:
     """Create JWT token for both traditional and OAuth users"""
     to_encode = data.copy()
     expire = datetime.utcnow() + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
@@ -62,51 +35,6 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     return encoded_jwt
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
-    """Get current user from JWT token (works for both auth types)"""
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=UserFriendlyError.get_message("auth_expired")['error'],
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-    except JWTError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=UserFriendlyError.get_message("auth_expired")['error'],
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    
-    user = db.query(User).filter(User.email == email).first()
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=UserFriendlyError.get_message("auth_expired")['error'],
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return user
-
-
-# Optional auth scheme (for SSE streams, etc.)
-oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
-
-
-async def get_current_user_optional(
-    token: str = Depends(oauth2_scheme_optional), 
-    db: Session = Depends(get_db)
-) -> Optional[User]:
-    """Optional authentication - returns None if no valid token"""
-    if not token:
-        return None
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
-        if email is None:
-            return None
-        user = db.query(User).filter(User.email == email).first()
-        return user
-    except JWTError:
-        return None
+def decode_access_token(token: str) -> Dict[str, Any]:
+    """The token's claims. Raises jose.JWTError when the token is malformed, forged or expired."""
+    return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])

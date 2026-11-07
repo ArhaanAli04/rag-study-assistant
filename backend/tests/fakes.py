@@ -45,6 +45,9 @@ class FakeRedis:
         self.store.clear()
         self.ttls.clear()
 
+    def close(self) -> None:
+        """The app closes its clients at shutdown; the shared in-memory store survives it."""
+
 
 class FakeRedisServer:
     """One shared FakeRedis behind every way the app builds a client.

@@ -1,8 +1,8 @@
 
 import logging
-from typing import Any, Dict, List, Optional, Tuple
-from functools import lru_cache
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
+from app.retrieval import confidence as conf
 from app.retrieval.query_preprocessor import (
     preprocess_query_for_vector,
     preprocess_query_for_keyword,
@@ -10,20 +10,42 @@ from app.retrieval.query_preprocessor import (
 from app.retrieval.keyword_index import BM25KeywordIndex
 from app.retrieval.reranker import CrossEncoderReranker
 from app.retrieval.index_builder import IndexBuilder
-from app.services.caches.query_cache import get_cached_response, set_cached_response  # your Redis helpers
 from app.retrieval.web.search_client import WebSearchClient
-from app.services.caches.web_cache import get_cached_web_results, set_cached_web_results
 from app.retrieval.web.scraper import fetch_and_extract_text
 from app.retrieval.context_compressor import SimpleContextCompressor
 
 # A child of the app logger reuses its handlers; calling setup_logging() again would duplicate every line.
 logger = logging.getLogger("rag_assistant.retrieval")
 
+L1_CACHE_MAX_ENTRIES = 256
+
+
+# Shapes of the Redis caches the app injects (services/caches/); declared here so retrieval never
+# imports the services layer above it.
+class QueryResultCache(Protocol):
+    def get(self, user_id: str | None, query: str, doc_version: int) -> Optional[Any]: ...
+
+    def set(self, user_id: str | None, query: str, doc_version: int, result: Any) -> None: ...
+
+
+class WebResultCache(Protocol):
+    def get(self, query: str) -> Optional[List[Dict[str, Any]]]: ...
+
+    def set(self, query: str, results: List[Dict[str, Any]]) -> None: ...
+
 
 class RetrievalService:
-    def __init__(self, index_builder: IndexBuilder, bm25_index: Optional[BM25KeywordIndex] = None):
+    def __init__(
+        self,
+        index_builder: IndexBuilder,
+        bm25_index: Optional[BM25KeywordIndex],
+        query_cache: QueryResultCache,
+        web_cache: WebResultCache,
+    ) -> None:
         self.index_builder = index_builder
         self.bm25_index = bm25_index
+        self.query_cache = query_cache
+        self.web_cache = web_cache
         self.reranker = CrossEncoderReranker()
         # weights for hybrid
         self.vector_weight = 0.6
@@ -31,6 +53,8 @@ class RetrievalService:
         # web search client (lazy init)
         self.web_client: Optional[WebSearchClient] = None
         self.compressor = SimpleContextCompressor()
+        # Per instance: a class-level dict was shared by every RetrievalService in the process.
+        self._l1_cache: Dict[Tuple[str, str, int], Dict[str, Any]] = {}
 
     def _embed_texts(self, texts: List[str]) -> List[List[float]]:
         """
@@ -40,32 +64,25 @@ class RetrievalService:
         return self.index_builder.embed_texts(texts)
 
     # -------- L1 exact-match cache (per process) --------
-    @lru_cache(maxsize=256)
-    def _l1_cache_get(self, user_id: str, query: str,doc_version: int) -> Optional[Dict[str, Any]]:
-        return None  # lru_cache requires a function; we ignore this return.
+    def l1_cache_lookup(self, user_id: str, query: str, doc_version: int) -> Optional[Dict[str, Any]]:
+        return self._l1_cache.get((user_id, query, doc_version))
 
-    def l1_cache_lookup(self, user_id: str, query: str,doc_version: int) -> Optional[Dict[str, Any]]:
-        # lru_cache can't hold mutable objects safely; use a manual dict instead:
-        return self._manual_l1_cache.get((user_id, query,doc_version))
-
-    def l1_cache_store(self, user_id: str, query: str,doc_version: int, value: Dict[str, Any]):
-        self._manual_l1_cache[(user_id, query,doc_version)] = value
-        if len(self._manual_l1_cache) > 256:
+    def l1_cache_store(self, user_id: str, query: str, doc_version: int, value: Dict[str, Any]) -> None:
+        self._l1_cache[(user_id, query, doc_version)] = value
+        if len(self._l1_cache) > L1_CACHE_MAX_ENTRIES:
             # naive eviction: pop oldest
-            self._manual_l1_cache.pop(next(iter(self._manual_l1_cache)))
+            self._l1_cache.pop(next(iter(self._l1_cache)))
 
     def l1_cache_purge_user(self, user_id: str) -> int:
         """Drop the user's L1 entries (account deletion); returns how many were removed."""
-        stale = [key for key in self._manual_l1_cache if key[0] == user_id]
+        stale = [key for key in self._l1_cache if key[0] == user_id]
         for key in stale:
-            del self._manual_l1_cache[key]
+            del self._l1_cache[key]
         return len(stale)
-
-    _manual_l1_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     # -------- Existing semantic_search (vector only) can stay if you use it elsewhere --------
     def semantic_search(self, query: str, user_id: str | None = None, top_k: int = 5,filters: dict | None = None, doc_version: int = 0):
-        cached = get_cached_response(user_id, query,doc_version)
+        cached = self.query_cache.get(user_id, query, doc_version)
         if cached is not None:
             return cached
         
@@ -75,7 +92,7 @@ class RetrievalService:
             filters["user_id"] = user_id
 
         results = self.index_builder.search(query, top_k=top_k, filters=filters)
-        set_cached_response(user_id, query,doc_version, results)
+        self.query_cache.set(user_id, query, doc_version, results)
         return results
 
     def get_web_chunks(
@@ -91,7 +108,7 @@ class RetrievalService:
         [{"text": ..., "metadata": {...}, "embedding": [...]}, ...]
         """
         # 1) Redis cache for web search results (without embeddings)
-        cached = get_cached_web_results(query)
+        cached = self.web_cache.get(query)
         if cached is not None:
             # Re-embed on the fly to avoid storing vectors in Redis
             texts = [c["text"] for c in cached]
@@ -167,7 +184,7 @@ class RetrievalService:
             {"text": c["text"], "metadata": c["metadata"]}
             for c in chunks
         ]
-        set_cached_web_results(query, light_chunks)
+        self.web_cache.set(query, light_chunks)
 
         return chunks
 
@@ -350,11 +367,11 @@ class RetrievalService:
             force_web = True
 
         if force_web:
-            confidence = min(confidence, 0.3)  # lower than 0.6 threshold
-        # Ensure confidence stays in 0-100 range
-        confidence = max(0.0, min(100.0, confidence))
+            # B2: this was min(confidence, 0.3) — 0 on the 0–100 scale.
+            confidence = min(confidence, conf.FORCED_WEB_CAP)
+        confidence = max(conf.CONFIDENCE_MIN, min(conf.CONFIDENCE_MAX, confidence))
         # 8. Fallback decision (now uses adjusted confidence)
-        fallback_used = confidence < 60.0
+        fallback_used = confidence < conf.WEB_FALLBACK_BELOW
 
 
         # 9. Build candidates from local results
@@ -400,14 +417,16 @@ class RetrievalService:
             # Check if we have web results in top results
             web_count = sum(1 for r in reranked if r["metadata"].get("source_type") == "web")
             
-            if web_count > 0 and final_confidence < 40.0:
+            if web_count > 0 and final_confidence < conf.WEB_RESCORE_BELOW:
                 # We relied on web fallback - set moderate confidence
                 # Based on: number of results + reranker scores
                 top_scores = [r.get("score", 0) for r in reranked[:3]]
                 avg_score = sum(top_scores) / len(top_scores) if top_scores else 0
-                
-                # Web results confidence: 40-75 range
-                web_confidence = min(75.0, 40.0 + (len(reranked) * 5) + (avg_score * 20))
+
+                web_confidence = min(
+                    conf.WEB_CONFIDENCE_CEILING,
+                    conf.WEB_CONFIDENCE_FLOOR + (len(reranked) * 5) + (avg_score * 20),
+                )
                 final_confidence = max(final_confidence, web_confidence)
                 logger.debug("Web fallback confidence: %.1f (avg rerank score: %.3f)", web_confidence, avg_score)
 
@@ -425,7 +444,6 @@ class RetrievalService:
 
         # Store in L1 cache and in Redis cache (if you like)
         self.l1_cache_store(user_id, query, doc_version, result_payload)
-        # optional: set_cached_response(user_id, query, result_payload)
 
         return result_payload
     

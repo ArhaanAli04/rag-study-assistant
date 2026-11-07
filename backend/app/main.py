@@ -43,6 +43,10 @@ from app.generation.concept_extractor import ConceptExtractor
 from app.core.gemini import build_gemini_client
 from app.retrieval.embeddings import EmbeddingService
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
+from app.retrieval.confidence import LOW_CONFIDENCE_BELOW, grounding_level as grounding_for
+from app.services.caches.query_cache import QueryCache
+from app.services.caches.web_cache import WebCache
+import redis
 from app.core.errors import UserFriendlyError
 from app.services.chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
 from app.services.account_service import delete_user_account
@@ -81,7 +85,13 @@ gemini_client = build_gemini_client()
 index_builder = IndexBuilder(EmbeddingService(gemini_client))
 bm25_index = BM25KeywordIndex()
 indexing_pipeline = IndexingPipeline(index_builder=index_builder, bm25_index=bm25_index)
-retrieval_service = RetrievalService(index_builder=index_builder, bm25_index=bm25_index)
+redis_client = redis.from_url(settings.redis_url)
+retrieval_service = RetrievalService(
+    index_builder=index_builder,
+    bm25_index=bm25_index,
+    query_cache=QueryCache(redis_client),
+    web_cache=WebCache(redis_client),
+)
 llm_client = LLMClient(gemini_client)
 topic_classifier = TopicClassifier(gemini_client)
 query_decomposer = QueryDecomposer()
@@ -908,7 +918,7 @@ async def chat_stream(
     compressed_context = compressor.compress(all_context_chunks)
 
     # 3) Determine grounding + build multi-turn prompt payload
-    grounding_level = "strict" if final_confidence >= 70.0 else "loose" if final_confidence >= 30.0 else "none"
+    grounding_level = grounding_for(final_confidence)
 
     prompt = llm_client.build_prompt(
         question=query,
@@ -933,7 +943,7 @@ async def chat_stream(
             yield f"data: {json.dumps({'type': 'metadata', 'data': metadata})}\n\n"
 
             # Log low confidence as failed query
-            if final_confidence < 30.0:  # Threshold for "low confidence"
+            if final_confidence < LOW_CONFIDENCE_BELOW:
                 from app.db.database import FailedQuery
                 failed_query = FailedQuery(
                     user_id=str(user_id_int),

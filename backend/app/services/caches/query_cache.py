@@ -1,10 +1,10 @@
-import json
 import hashlib
+import json
+from typing import Any, Optional
+
 import redis
 
-from app.core.config import settings
-
-redis_client = redis.from_url(settings.redis_url)
+QUERY_CACHE_TTL_SECONDS = 3600
 
 
 def _make_query_key(user_id: str | None, query: str, doc_version: int) -> str:
@@ -13,14 +13,24 @@ def _make_query_key(user_id: str | None, query: str, doc_version: int) -> str:
     return f"query_cache:{h}"
 
 
-def get_cached_response(user_id: str | None, query: str, doc_version: int):
-    key = _make_query_key(user_id, query, doc_version)
-    data = redis_client.get(key)
-    if not data:
-        return None
-    return json.loads(data)
+class QueryCache:
+    """/search results in Redis, keyed by user + doc_version + query (doc_version bump = invalidation)."""
 
+    def __init__(self, redis_client: redis.Redis) -> None:
+        self.redis = redis_client
 
-def set_cached_response(user_id: str | None, query: str, doc_version: int, result, ttl_seconds: int = 3600):
-    key = _make_query_key(user_id, query, doc_version)
-    redis_client.setex(key, ttl_seconds, json.dumps(result))
+    def get(self, user_id: str | None, query: str, doc_version: int) -> Optional[Any]:
+        data = self.redis.get(_make_query_key(user_id, query, doc_version))
+        if not data:
+            return None
+        return json.loads(data)
+
+    def set(
+        self,
+        user_id: str | None,
+        query: str,
+        doc_version: int,
+        result: Any,
+        ttl_seconds: int = QUERY_CACHE_TTL_SECONDS,
+    ) -> None:
+        self.redis.setex(_make_query_key(user_id, query, doc_version), ttl_seconds, json.dumps(result))

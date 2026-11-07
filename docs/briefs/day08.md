@@ -280,5 +280,16 @@ spinner for the whole request, so no UI change is needed.
 - **CLAUDE.md:** I'll update only the Repo Structure and module-map paths today so the file stays
   true; Current Status stays yours to edit.
 - **`.claude/hooks/edit_reminders.py`** already matches the new paths (`(.+/)?`); no change.
+- **Found in Checkpoint 4 — the < 5 s target is out of reach today, and not because of imports.**
+  `-X importtime` on `app.main` after the lazy imports: the ingestion chain fell from 10.2 s to
+  5.8 s cumulative, but `app.main`'s own body takes 7.1–9.2 s and `topic_classifier`'s 2.1–2.8 s.
+  Timed directly: `IndexBuilder()` 3.43 s (a `genai.Client` plus one embedding call) and
+  `LLMClient()` 2.81 s — each `google.genai.Client` construction costs ~3 s on this Windows host,
+  and `main.py` builds several at import (embeddings, LLM, topic classifier). **For Day 9:** build
+  one `genai.Client` in the lifespan and share it, and use the known embedding dimension instead of
+  `IndexBuilder`'s startup embedding call. Both are behaviour changes, so not today.
+- **`uvicorn --reload` on the Windows host:** in one measurement the first file change shut the
+  worker down but didn't start a new one until a second change. Not investigated (reload trigger,
+  not app code); worker start → "Application startup complete" was ~24 s.
 - **Uncommitted from before today:** `.claude/skills/ship/SKILL.md` (+4 lines: don't append `2>&1`
   to git/gh). Not part of Day 8 — commit it separately or with today's docs.

@@ -1,5 +1,4 @@
 from PIL import Image, ImageEnhance, ImageFilter
-import cv2
 import numpy as np
 
 def preprocess_image(image_path):
@@ -7,6 +6,9 @@ def preprocess_image(image_path):
     Deskew, denoise, and enhance scanned images for OCR/table extraction.
     Returns processed image path.
     """
+    # Imported here: OpenCV costs ~1 s at import, and only the deskew step needs it.
+    import cv2
+
     img = Image.open(image_path)
     img = img.convert('L')
 

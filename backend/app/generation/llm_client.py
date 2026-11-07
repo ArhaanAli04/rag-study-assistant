@@ -1,7 +1,6 @@
 from typing import List, Dict, AsyncGenerator
 from google import genai
 from google.genai import types as genai_types
-from app.core.config import settings
 import time
 import random
 
@@ -11,11 +10,8 @@ class LLMClient:
     Uses native multi-turn conversation format for proper memory across turns.
     """
 
-    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
-        api_key = settings.GEMINI_API_KEY.get_secret_value()
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set")
-        self.client = genai.Client(api_key=api_key)
+    def __init__(self, client: genai.Client, model_name: str = "gemini-2.5-flash-lite") -> None:
+        self.client = client
         self.model_name = model_name
         # circuit breaker state
         self._consecutive_failures = 0

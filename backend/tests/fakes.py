@@ -112,10 +112,12 @@ class _FakeModels:
     def __init__(self, gemini: FakeGemini) -> None:
         self._gemini = gemini
 
-    def embed_content(self, model: str, contents: Any, **kwargs: Any) -> _EmbedResponse:
+    def embed_content(self, model: str, contents: Any, config: Any = None, **kwargs: Any) -> _EmbedResponse:
         self._gemini.embed_calls += 1
         texts = contents if isinstance(contents, list) else [contents]
-        return _EmbedResponse([_Embedding(fake_embedding(str(t))) for t in texts])
+        # Like the real API: the requested size wins, so the app's EMBEDDING_DIM contract is exercised.
+        dim = getattr(config, "output_dimensionality", None) or FAKE_EMBEDDING_DIM
+        return _EmbedResponse([_Embedding(fake_embedding(str(t), dim)) for t in texts])
 
     def generate_content(self, model: str, contents: Any, **kwargs: Any) -> _TextResponse:
         self._gemini.prompts.append(contents)

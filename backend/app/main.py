@@ -38,7 +38,11 @@ from app.services.caches.semantic_cache import SemanticCache
 from app.retrieval.context_compressor import SimpleContextCompressor
 from fastapi.responses import StreamingResponse
 import json
-from app.generation.topic_classifier import topic_classifier
+from app.generation.topic_classifier import TopicClassifier
+from app.generation.concept_extractor import ConceptExtractor
+from app.core.gemini import build_gemini_client
+from app.retrieval.embeddings import EmbeddingService
+from app.retrieval.concept_map_retriever import ConceptMapRetriever
 from app.core.errors import UserFriendlyError
 from app.services.chat_guards import INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
 from app.services.account_service import delete_user_account
@@ -47,7 +51,7 @@ from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_
 from fastapi.middleware.cors import CORSMiddleware
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
 # Add these imports to your existing imports
-from app.services.concept_map_service import get_concept_map_service
+from app.services.concept_map_service import ConceptMapService
 from app.schemas.concept_maps import (
     GenerateConceptMapRequest,
     GenerateConceptMapResponse,
@@ -73,14 +77,19 @@ app.add_middleware(
 )
 app.include_router(auth_router)
 logger = setup_logging()
-index_builder = IndexBuilder()
+gemini_client = build_gemini_client()
+index_builder = IndexBuilder(EmbeddingService(gemini_client))
 bm25_index = BM25KeywordIndex()
 indexing_pipeline = IndexingPipeline(index_builder=index_builder, bm25_index=bm25_index)
 retrieval_service = RetrievalService(index_builder=index_builder, bm25_index=bm25_index)
-llm_client = LLMClient()
+llm_client = LLMClient(gemini_client)
+topic_classifier = TopicClassifier(gemini_client)
 query_decomposer = QueryDecomposer()
 semantic_cache = SemanticCache(index_builder=index_builder)
 compressor = SimpleContextCompressor()
+concept_map_service = ConceptMapService(
+    ConceptMapRetriever(retrieval_service), ConceptExtractor(gemini_client)
+)
 
 
 @app.get("/health")
@@ -1173,7 +1182,7 @@ async def generate_concept_map(
     - Returns structured concept map
     """
     try:
-        service = get_concept_map_service()
+        service = concept_map_service
         
         result = service.generate_concept_map(
             topic=request.topic,
@@ -1213,7 +1222,7 @@ async def list_concept_maps(
     - Paginated results
     """
     try:
-        service = get_concept_map_service()
+        service = concept_map_service
         
         maps = service.list_user_concept_maps(
             user_id=current_user.id,
@@ -1250,7 +1259,7 @@ async def get_concept_map(
     - Verifies user ownership
     """
     try:
-        service = get_concept_map_service()
+        service = concept_map_service
         
         concept_map = service.get_concept_map_by_id(
             map_id=map_id,
@@ -1288,7 +1297,7 @@ async def delete_concept_map(
     - Returns confirmation
     """
     try:
-        service = get_concept_map_service()
+        service = concept_map_service
         
         deleted = service.delete_concept_map(
             map_id=map_id,
@@ -1329,7 +1338,7 @@ async def get_concept_map_statistics(
     - Node and edge counts
     """
     try:
-        service = get_concept_map_service()
+        service = concept_map_service
         
         stats = service.get_source_statistics(
             user_id=current_user.id,

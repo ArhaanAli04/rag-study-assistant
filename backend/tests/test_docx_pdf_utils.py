@@ -8,8 +8,6 @@ import re
 import shutil
 from pathlib import Path
 
-import pytest
-
 from app.ingestion.ocr.image_preprocessing import preprocess_image_extra
 from app.ingestion.ocr.ocr import ocr_from_image
 from app.ingestion.parsers.docx import extract_docx_content
@@ -75,14 +73,6 @@ def test_unified_parser_pdf(tmp_path: Path) -> None:
     assert result["tables"][0].iloc[0].tolist() == TABLE_HEADER
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "B5: preprocess_image's deskew counts the white background as text (97.5% of pixels), "
-        "OpenCV 4.5+ reports that rectangle's angle as 90, and the page is rotated 90 degrees and "
-        "cropped, so Tesseract reads nothing. Remove this marker on Day 10."
-    ),
-)
 def test_unified_parser_image(tmp_path: Path) -> None:
     result = DocumentParser(str(sample_copy(tmp_path, "scan_handwritten.png"))).parse()
 

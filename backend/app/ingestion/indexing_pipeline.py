@@ -9,7 +9,6 @@ from app.ingestion.chunk_builder import (
 )
 from app.ingestion.models import DocumentChunk
 from app.retrieval.index_builder import IndexBuilder
-from app.ingestion.parsers.unified import DocumentParser  # if you want a generic entry point
 from app.retrieval.keyword_index import BM25KeywordIndex
 
 

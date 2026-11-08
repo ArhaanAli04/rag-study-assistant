@@ -14,10 +14,11 @@ from hook_io import configure_utf8_streams, project_dir, read_payload, relative_
 
 REMINDER_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (
-        re.compile(r"^(src/)?requirements\.txt$"),
-        "Requirements files are UTF-16LE with CRLF — confirm the encoding survived this edit. "
-        "Dependency changes need the user's approval. The two files differ; Docker installs the "
-        "root requirements.txt.",
+        re.compile(r"^requirements\.(in|txt)$"),
+        "Dependency changes need the user's approval. Edit requirements.in (direct deps, a reason "
+        "each); requirements.txt is a generated UTF-8 lock — regenerate it with the command in "
+        "its header (python:3.11-slim, old lock as constraints), never hand-edit it, and keep the "
+        "B3 contrib OpenCV reinstall in the Dockerfile and CI.",
     ),
     (
         re.compile(r"^alembic/versions/"),

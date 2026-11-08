@@ -31,39 +31,32 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  51f4a43 day 09 - one router per area under api/routes, on
-              feature/day09-routers-di → PR #11 (draft) into develop, CI green on all 5 commits
-              (c533056 Gemini client, 67c3eb2 B2, f499a76 ChatPipeline, 00e9bea auth move R100,
-              51f4a43 routers). Checkpoints 5 + 6 (factory + lifespan, docs, this block) still
-              to commit
-Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
-              v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
-              on ESLint warnings). develop has Days 4–8 (PRs #8, #10) and the /ship skill (PR #9).
-              Days 4–9 reach master with the Day 10 release (v0.2.0) — the
-              first PR-based release (PR develop → master, merge commit, then tag)
-Uncommitted:  Checkpoints 5 + 6: backend/app/main.py, backend/tests/{conftest,fakes,
-              test_app_factory}.py, CLAUDE.md, docs/{timeline,improvements,improvement-tracker}.md,
-              docs/architecture/layout.md, docs/briefs/day09.md, docs/posts/09-launch-recap.md,
-              .claude/hooks/edit_reminders.py
-Untracked:    backend/tests/test_app_factory.py (planning docx/pdf files, the Tesseract installer
-              and post screenshots in docs/posts/assets/ are gitignored)
-Day 9:        main.py 1353 → 66 lines: create_app() + lifespan builds every long-lived object once
-              (services/container.py → app.state.services, reached via api/deps.py Depends); 9
-              routers in api/routes/ (auth moved as its own R100 commit). One shared Gemini client
-              (was 5 at import + 2 on the first concept map), no startup embedding call
-              (EMBEDDING_DIM = 3072, confirmed live). One ChatPipeline behind /chat/stream; POST
-              /chat deleted. B2 fixed (cap 30 not 0.3, thresholds in retrieval/confidence.py).
-              One UNSAFE_KEYWORDS list ("die"/"nuke" false positives dropped). Concept maps share
-              the app's retrieval service (R5 half done). Suite 157 passed + 2 xfailed (B3, B5) on
-              host and container; test_api_smoke.py unchanged. app.main import 9.5–10.4 s (was
-              23.8–25.8 s; the rest is library imports — genai SDK 2.75 s, parsers 2.44 s); host
-              server start 14.1 s (was ~24 s). 17/17 live API checks. Eval scripts now fail at
-              import (owner: leave for Days 10–12). Notes in docs/briefs/day09.md
-Next:         commit Checkpoints 5 + 6 (/ship commit), owner's browser check (zero frontend
-              edits), /ship merge PR #11. Then Day 10 (/run-day 10) — release day: dead code + deps
-              (T3), B3, B5, eval scripts → backend/eval/, then develop → master as v0.2.0. Release
-              notes must list the 3 user-visible changes from Day 9: POST /chat removed, B2 cap
-              30, merged safety list (docs/briefs/day09.md#outcome)
+Last commit:  73afc0d day 10 - requirements.in + generated UTF-8 lock, on feature/day10-cleanup →
+              PR #12 (draft) into develop, CI green on all 3 commits (c79b092 dead code + eval
+              package, baac824 B5, 73afc0d requirements + B3). Checkpoints 5 + 6 (ruff F401,
+              docs, this block) still to commit
+Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. develop has Days 4–9
+              (PRs #8–#11). Days 4–10 reach master with the v0.2.0 release — the first PR-based
+              release (PR develop → master, merge commit, then tag); notes drafted in
+              docs/briefs/day10.md#release-notes-draft-v020
+Uncommitted:  Checkpoints 5 + 6: ruff.toml + 12 files losing unused imports, CLAUDE.md,
+              docs/{timeline,improvements,improvement-tracker,claude-cheatsheet}.md,
+              docs/architecture/layout.md, docs/briefs/day10.md, docs/posts/09-launch-recap.md,
+              .claude/hooks/edit_reminders.py, .claude/skills/pre-commit/SKILL.md
+Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
+              docs/posts/assets/ are gitignored)
+Day 10:       Dead code, the 7 one-off DB scripts and scripts/manual/ deleted; eval scripts in
+              backend/eval/ (python -m eval.<name> from backend/, build_services(), no app.main).
+              requirements.in (direct deps, one reason each) + generated UTF-8 lock made in
+              python:3.11-slim: 191 → 157 packages, no surviving version moved; src/requirements.txt
+              deleted. B3 fixed (contrib OpenCV reinstalled last in Dockerfile + CI; ruled tables
+              extract); B5 fixed (deskew fits the ink, OpenCV 0–90 angle; scan OCR 0 → 29 words).
+              New: B6 (preprocess_image output name), B7 (borderless tables, Day 16). ruff gains
+              F401. Suite 166 passed, 0 xfailed on host and container. Image 3.05 → 2.55 GB.
+              Notes in docs/briefs/day10.md
+Next:         commit Checkpoints 5 + 6 (/ship commit), /ship merge PR #12, then the v0.2.0
+              release by hand (PR develop → master, merge commit, tag v0.2.0, Render health check
+              path /health, verify Render + Vercel). Then Day 11 (/run-day 11) — retrieval eval (E4)
 Blockers:     none. Local runtime state was moved by hand to backend/{data,uploads,logs}; a
               checkout from before Day 7 must do the same (Move-Item src\data, src\uploads,
               src\logs backend\) or the app starts with an empty database
@@ -85,24 +78,23 @@ rag-study-assistant/
 │   │   ├── retrieval/        ← embeddings, FAISS, BM25, retrieval service, rerank, decomposition, web/
 │   │   ├── generation/       ← llm_client.py, topic_classifier.py, concept_extractor.py
 │   │   ├── services/         ← container.py (composition root), chat_pipeline, quiz, documents, sessions, accounts, concept maps, chat guards, oauth; caches/
-│   │   ├── schemas/          ← Pydantic request/response models (concept_maps, auth, documents, …)
-│   │   └── *.py              ← still flat: eval scripts (broken since Day 9: they import removed `app.main` globals), one-off DB scripts, dead code (Day 10)
+│   │   └── schemas/          ← Pydantic request/response models (concept_maps, auth, documents, …)
+│   ├── eval/                 ← eval scripts (Day 10): python -m eval.<name> from backend/; rewritten Days 11–12; not in the image
 │   ├── tests/                ← offline pytest suite (conftest fakes Gemini, Tavily, Redis) + samples/
 │   ├── data/                 ← app.db (SQLite), faiss_indexes/ — gitignored
 │   └── logs/, uploads/       ← runtime output — gitignored
-├── src/requirements.txt      ← older local pin set that differs from the root file (T3); unused by Docker; deleted Day 10
 ├── frontend/                 ← React 19 (react-scripts), Tailwind, React Flow, react-markdown
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
-├── scripts/                  ← dev.ps1 (Docker dev helper); manual/ (live-service scripts, pre-Day 7 paths until Day 10)
+├── scripts/                  ← dev.ps1 (Docker dev helper)
 ├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
 ├── docs/                     ← timeline.md (61-day build plan), architecture/layout.md (target package layout + module map), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
 ├── .github/workflows/ci.yml  ← CI: backend, frontend, docker jobs (the required checks)
 ├── ruff.toml                 ← lint rules for CI, the edit hook and local `ruff check .`
-├── fix_db.py, recreate_db.py, migrate_user_model.py   ← one-off SQLite repair scripts
 ├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
 ├── pytest.ini                ← testpaths = backend/tests, pythonpath = backend
-└── requirements.txt          ← pinned deps; UTF-16LE with CRLF (the Dockerfile installs this one)
+├── requirements.in           ← direct dependencies, one reason each — the file to edit (Day 10)
+└── requirements.txt          ← generated UTF-8 lock (Linux, Python 3.11); the Dockerfile and CI install it
 ```
 
 ### Backend module map (`backend/app/`)
@@ -124,11 +116,10 @@ and the known exceptions to the downward-only dependency rule, are in `docs/arch
 | Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient`; every class takes the shared `genai.Client` |
 | Chat & caches | `services/chat_pipeline.py`, `services/session_service.py`, `services/chat_guards.py`, `services/quiz_service.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | `ChatPipeline`: the one chat pipeline (behind `/chat/stream`). `chat_guards.py`: the injection phrases and the one unsafe-keyword list (G3 replaces both) |
 | Concept maps | `services/concept_map_service.py`, `retrieval/concept_map_retriever.py`, `generation/concept_extractor.py`, `schemas/concept_maps.py` | |
-| Eval / experiments | `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | non-functional or print-only; they import globals `app.main` no longer has (Day 9), so they fail at import until Days 10–12 rewrite them on `build_services()` |
-| Ad-hoc scripts | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; the old `src/test_*.py` manual scripts now live in `scripts/manual/` (Day 5) | the `app/` scripts run as `python -m app.<name>` from `backend/`; the manual scripts call live services, still use pre-Day 7 paths (Day 10) and are never collected by pytest (`pytest.ini` → `backend/tests/` only) |
-| Dead code | `frontend.py` (Streamlit stub), `document_delete_service.py` (never called) | |
+| Eval / experiments (outside `app/`) | `backend/eval/{rag_metrics,rag_eval_runner,sample_eval_data,manual_eval,cache_tuner}.py` | Day 10: moved out of `app/`, each `main()` builds its objects with `build_services()`; run as `python -m eval.<name>` from `backend/` (live Gemini + Redis). Still print-only, word-overlap or RAGAS-wired-wrong (E1, E2); the retrieval checks only see documents indexed in the same process (I4). Days 11–12 rewrite them; `.dockerignore` keeps them out of the image |
 
-Frontend dead code: `components/MessageBubble.js` — the chat renders `components/MessageList.js`.
+The one-off DB scripts, `scripts/manual/`, `frontend.py`, `document_delete_service.py` and
+`MessageBubble.js` were deleted on Day 10 (git history has them).
 
 ---
 
@@ -150,9 +141,12 @@ Frontend dead code: `components/MessageBubble.js` — the chat renders `componen
 | Deploy | Docker; Render (backend), Vercel (frontend); `docker-compose.yml` for the local full stack |
 | CI | GitHub Actions (`.github/workflows/ci.yml`); ruff 0.15.18 pinned in the CI job only (not in `requirements.txt`), rules in `ruff.toml` |
 
-Installed but never imported in `backend/app/`: `langchain*`, `langgraph*`, `langsmith`, `instructor`,
-`tiktoken`, `qdrant-client`. `ragas` is imported only by the broken `rag_metrics.py`;
-`streamlit` only by the dead `frontend.py`.
+Kept but not imported by `backend/app/` (Day 10, each with its reason in `requirements.in`):
+`langgraph` (A1), `langsmith` (O1), `instructor` (S1), `tiktoken` (C1; also required by
+`tavily-python`); `ragas` + `datasets` are imported only by `backend/eval/rag_metrics.py`. `ragas`
+pulls in `langchain`, `langchain-community`, `langchain-openai` and `openai`, so those leave with it
+if Day 12 chooses the Gemini judge. Removed Day 10: `streamlit`, `qdrant-client`, `opencv-python`,
+`scikit-learn`, `sympy`, `safetensors`, `tokenizers`, `pdf2image`, `oauth`, `bcrypt` (+ orphans).
 
 **README drift** — claimed in `README.md` but not true today: sentence-transformers MiniLM
 embeddings (now Gemini), cross-encoder / BM25 "reranking" (it is score fusion plus a no-op),
@@ -266,12 +260,14 @@ Found while writing this file; evidence and direction live under each ID.
 | Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
 | Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
 | Fixed Day 9: confidence compared on the wrong scale. `POST /chat`'s 0.7 / 0.3 grounding went with the endpoint; the forced-web cap is 30, not 0.3; every threshold is a named constant in `retrieval/confidence.py`. Thresholds still unvalidated (E4, Day 11) | B2 | Done |
-| Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` and are never collected | T1 | Done |
-| Image and PPTX-slide table extraction silently returns nothing: three OpenCV wheels share `cv2` and a non-contrib build wins (confirmed in the backend image too); `test_table_extraction_on_image` is a strict xfail until the Day 10 fix | B3 | P1 |
-| Image deskew (`preprocess_image`) counts the white background as text, OpenCV 4.5+ reports 90°, so scans are rotated sideways and the unified parser's OCR returns `''`. Not reachable today (`/upload` rejects images; PPTX OCR uses another function); `test_unified_parser_image` is a strict xfail until the Day 10 fix | B5 | P2 |
+| Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` (deleted Day 10) and are never collected | T1 | Done |
+| Fixed Day 10: the contrib OpenCV build is reinstalled last (Dockerfile, CI, venv setup), so `cv2.ximgproc` is complete and ruled tables in images / PPTX slide images extract again; the Docker build asserts it | B3 | Done |
+| Fixed Day 10: deskew fits the ink (inverted Otsu), not the paper, and folds OpenCV's (0, 90] angle; `scan_handwritten.png` OCR 0 → 29 words | B5 | Done |
+| `preprocess_image` names its output with `.replace('.png', …)`, so a `.jpeg` / `.tif` input is overwritten by its own preprocessed copy. Not reachable from any user path today | B6 | P2 |
+| img2table's defaults (used by `extract_tables_from_image`) miss tables without ruling lines (`tableimage2.jpg`: 0 → 1 table with `borderless_tables=True`); measure false positives on real slide decks first (Day 16) | B7 | P2 |
 | Fixed Day 5: concept-map generation returned 500 whenever a node had empty sources (`concept_extractor` wrapped the whole source list) | B4 | Done |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
-| Dead code, drifted requirements files, unused deps, installer still in git history | T3 | P2 |
+| Done Day 10 except the Tesseract installer still in git history (purge decided on Day 60) | T3 | P2 |
 
 ---
 
@@ -288,7 +284,8 @@ Found while writing this file; evidence and direction live under each ID.
 - **Keep the prompt prefix stable.** Don't add new per-turn variation to the system instruction or the start of history; variable content belongs in the final user turn (CO4).
 - **Eval and experiment code must not `import main`.** It gets its objects from `build_services()` (`services/container.py`) or constructs `IndexBuilder` / `RetrievalService` directly — `app.main` no longer exposes any of them.
 - **Measure retrieval and prompt changes** with the eval harness once E4 exists, and record before/after numbers in the tracker's Notes column.
-- **`requirements.txt` is UTF-16LE with CRLF.** Preserve the encoding when editing. Docker installs the root file; `src/requirements.txt` is a different, older local pin set (it adds `torch` and `transformers` and lacks `Authlib` and `bcrypt`), so don't treat it as a mirror (T3).
+- **Dependencies: edit `requirements.in`, regenerate `requirements.txt`** (Day 10). The `.in` file lists direct dependencies with a reason each; the lock is generated in `python:3.11-slim` with the old lock as constraints (command in its header) and is never hand-edited. Both are UTF-8. A new dependency still needs the owner's OK. After any `pip install -r requirements.txt`, reinstall the contrib OpenCV build last (B3): `pip install --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.88`.
+- **The host venv is not the lock.** It is Python 3.12; camelot-py requires `pypdf>=4,<6` on Python ≥ 3.12 and `pypdf<4` below, so the venv keeps `pypdf` 5.9.0 while the image and CI have 3.17.4. Windows also adds `colorama`. CI and the container (`.\scripts\dev.ps1 test`) run the exact Linux / 3.11 lock and are the reference.
 - **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID).
 - **Git flow** (since Day 1): `master` = released code, `develop` = integration branch.
   - **Branch protection (since Day 6), on both `master` and `develop`:** every change lands through a PR (0 approvals — solo repo); the required checks are exactly the three CI jobs `backend`, `frontend`, `docker` (bound to the GitHub Actions app; Vercel and GitGuardian checks are not required); branches need not be up to date; force-pushes and deletions are blocked; **administrators included** — direct pushes to either branch are rejected, for the owner too. Renaming a CI job means updating both protection rules first, or every PR waits forever.
@@ -305,6 +302,14 @@ Found while writing this file; evidence and direction live under each ID.
 There is no Makefile.
 
 ```powershell
+# Backend venv setup / after requirements.txt changes (B3: contrib OpenCV must be written last)
+.\venv\Scripts\Activate.ps1
+# The lock pins pypdf 3.17.4 (Python 3.11); on the 3.12 venv camelot needs pypdf>=4, so a plain
+# `pip install -r requirements.txt` fails with ResolutionImpossible. Install everything but that pin:
+Get-Content requirements.txt | Where-Object { $_ -notmatch '^pypdf==' } | Set-Content $env:TEMP\req-host.txt
+pip install -r $env:TEMP\req-host.txt     # pip then picks a pypdf 4.x/5.x that camelot accepts
+pip install --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.88
+
 # Backend — GEMINI_API_KEY must be set (settings validation); startup makes no Gemini call since Day 9
 .\venv\Scripts\Activate.ps1
 cd backend; uvicorn app.main:app --reload  # http://localhost:8000  (Swagger UI at /docs)
@@ -337,8 +342,8 @@ ruff check .
 gh pr checks <N>                          # the three required jobs: backend, frontend, docker
 gh run list --branch develop --limit 5    # recent runs; gh run view <id> --log-failed for a red one
 
-# Ad-hoc eval scripts (need live Gemini + Redis; run from backend/ as modules until Day 10 moves them)
-cd backend; python -m app.rag_eval_runner
+# Ad-hoc eval scripts (need live Gemini + Redis; rewritten Days 11–12)
+cd backend; python -m eval.rag_eval_runner   # also eval.manual_eval, eval.cache_tuner
 ```
 
 ---
@@ -470,8 +475,8 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 - **Migrations:** make Alembic the real path (fix the URL, import all models in `env.py`) vs. keep the `db/database.py` startup migrations. Either way, retire the one-off scripts.
 - **Chat endpoints — decided 2026-11-08 (Day 9):** `POST /chat` deleted; one `ChatPipeline` behind `/chat/stream`. A JSON endpoint, if one is ever needed, must call the same pipeline.
 - **Index persistence — decided 2026-11-04:** pgvector + Postgres full-text on Supabase (Days 13–16), uploaded files in Supabase Storage (Day 15). Render's filesystem is ephemeral, so nothing durable stays on it; `qdrant-client` can go with the Day 10 dependency cleanup.
-- **Dependencies:** remove unused packages vs. keep those tied to planned items (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); reconcile or delete `src/requirements.txt`, which has drifted from the root file.
-- **Dead code and repo hygiene:** delete `MessageBubble.js`, `backend/app/frontend.py`, and `document_delete_service.py` (or wire it in). The Tesseract installer is untracked now but still in git history; purging it would need a history rewrite and force-push.
+- **Dependencies — decided 2026-11-08 (Day 10):** unused packages removed; those tied to planned items kept (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); `src/requirements.txt` deleted. `ragas` (and the langchain packages it pulls in) waits for the Day 12 RAGAS-vs-judge decision.
+- **Dead code — done Day 10.** Still open: the Tesseract installer is untracked but still in git history; purging it needs a history rewrite and force-push (decided on Day 60).
 
 ---
 

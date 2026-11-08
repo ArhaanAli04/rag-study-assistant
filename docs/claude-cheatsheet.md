@@ -110,10 +110,10 @@ For a single item: `Resume [ID]. Read docs/briefs/[ID].md …` with the /run-ite
 
 | Hook | When | What it does |
 |---|---|---|
-| Command guard | Before every Bash/PowerShell command | Blocks `git reset --hard`, `checkout .`, `restore .`, `clean -f`, force-push, `stash drop/clear`, `branch -D`; recursive deletes of source dirs; deleting `src/data` or `app.db`; `recreate_db.py`; Redis `FLUSHALL/FLUSHDB`; `alembic downgrade`; SQL `DROP` |
+| Command guard | Before every Bash/PowerShell command | Blocks `git reset --hard`, `checkout .`, `restore .`, `clean -f`, force-push, `stash drop/clear`, `branch -D`; recursive deletes of source dirs; deleting `backend/data`, `src/data` or `app.db`; Redis `FLUSHALL/FLUSHDB`; `alembic downgrade`; SQL `DROP` |
 | Session context | Start, resume, `/clear`, `/compact` | Adds git state, last commit, and In Progress items with their brief paths to Claude's context |
 | Ruff bug-only check | After Claude edits a `.py` file | `ruff check --select E9,F63,F7,F82` on that file; findings go back to Claude to fix |
-| Edit reminders | After Claude edits a trap file | One-line notes: requirements encoding, Alembic, the two chat endpoints, `user_id` scoping, prompt layout |
+| Edit reminders | After Claude edits a trap file | One-line notes: requirements.in vs the generated lock, Alembic, the SSE contract in `chat_pipeline.py`, `user_id` scoping, prompt layout |
 
 Scripts live in `.claude/hooks/`; review or disable them with `/hooks`. The guard is a seatbelt
 against accidents, not a security boundary.

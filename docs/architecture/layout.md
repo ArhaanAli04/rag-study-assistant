@@ -1,10 +1,10 @@
 # Backend package layout
 
-Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07); Day 9 applied (2026-11-08).**
-Days 7–10 (Phase 3) move the backend from 62 flat modules in `src/` into the package below. This
-file is the map for those moves: each module has one target path and one day. After Day 9, only the
-Day 10 rows (eval and one-off scripts, dead code) are still flat in `backend/app/`; Day 9 deferred
-two rows to Days 13 and 15 (marked below).
+Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07); Days 9–10 applied (2026-11-08).**
+Days 7–10 (Phase 3) moved the backend from 62 flat modules in `src/` into the package below. This
+file is the map for those moves: each module has one target path and one day. Nothing is flat in
+`backend/app/` any more; Day 9 deferred two rows to Days 13 and 15 (marked below), and Day 10
+deleted `scripts/manual/` instead of moving it (its scripts imported modules gone since Day 7).
 
 ## Target tree
 
@@ -26,13 +26,13 @@ rag-study-assistant/
 │   │   │                          quiz, accounts, OAuth client
 │   │   └── schemas/             ← Pydantic request/response models
 │   ├── tests/                   ← pytest suite + samples/ + fakes.py (offline, Day 5)
-│   ├── eval/                    ← eval harness and experiments (Days 10–12)
-│   ├── scripts/                 ← one-off and manual scripts
+│   ├── eval/                    ← eval harness and experiments (Days 10–12); not in the image
+│   ├── scripts/                 ← one-off scripts when they appear (Day 16 reindex); none today
 │   ├── data/  uploads/  logs/   ← runtime state, gitignored (Docker: named volumes)
 ├── frontend/                    ← unchanged
 ├── alembic/  alembic.ini        ← stays at the root until Day 13 (T2)
 ├── docs/  .github/  .claude/  scripts/dev.ps1
-├── Dockerfile  docker-compose*.yml  requirements.txt  pytest.ini  ruff.toml
+├── Dockerfile  docker-compose*.yml  requirements.in  requirements.txt  pytest.ini  ruff.toml
 ```
 
 ## Rules
@@ -162,11 +162,11 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 ### eval, scripts, dead code
 | Current | Target | Day |
 |---|---|---|
-| `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | `backend/eval/`, no longer importing `main` (rewritten on Days 11–12) | 10 |
-| `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; root `fix_db.py`, `recreate_db.py`, `migrate_user_model.py` | deleted (superseded by Alembic, Day 13) | 10 |
-| `scripts/manual/*` | `backend/scripts/manual/` | 10 |
-| `frontend.py`, `document_delete_service.py` | deleted | 10 |
-| `src/requirements.txt` | deleted (one UTF-8 root requirements file) | 10 |
+| `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | `backend/eval/` (`python -m eval.<name>` from `backend/`), objects from `build_services()`, no `app.main` (rewritten on Days 11–12) | 10 ✓ |
+| `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; root `fix_db.py`, `recreate_db.py`, `migrate_user_model.py` | deleted (superseded by Alembic, Day 13) | 10 ✓ |
+| `scripts/manual/*` | deleted, not moved (Day 10 decision: 10 of 11 imported modules gone since Day 7–8; covered by the offline suite and `test_api_smoke.py`) | 10 ✓ |
+| `frontend.py`, `document_delete_service.py` | deleted | 10 ✓ |
+| `src/requirements.txt` | deleted; root `requirements.in` (direct deps) + generated UTF-8 `requirements.txt` lock | 10 ✓ |
 | `tests/` | `backend/tests/` | 7 |
 
 ## What runs where after Day 7

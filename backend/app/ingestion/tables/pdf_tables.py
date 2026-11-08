@@ -1,4 +1,3 @@
-import os
 
 # camelot and pdfplumber are imported inside each function: camelot alone costs seconds at
 # import, and every app start reaches this module through the unified parser.

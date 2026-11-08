@@ -286,6 +286,7 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - CO3: look up content_hash in document_chunks and reuse an existing embedding before calling the API
 - scripts/reindex_all.py: re-embeds every user's documents from Supabase Storage into document_chunks (needed once — FAISS only ever lived in memory)
 - Remove FAISS / BM25 code and the faiss-cpu and rank-bm25 dependencies once parity is confirmed
+- B7: measure img2table's `borderless_tables=True` on the Day 11 corpus's slide decks (tables found vs. expected, false positives on pictures and diagrams); enable it in extract_tables_from_image only if the false positives are acceptable, and record both numbers in the tracker
 - Verify: upload time for a 50-page PDF before vs. after; E4 re-run with pgvector vs. the FAISS baseline recorded in the tracker
 
 ### Day 17 — Concept maps use your documents (R5) — release
@@ -531,6 +532,7 @@ Focus: Header-based streaming, refresh tokens, rate limits, background ingestion
 - Move the OAuth callback token from ?token= to a URL fragment (#token=) so it never reaches server or proxy logs; update AuthCallback.js to read it from the hash
 - Short-lived access tokens (~15 min) + rotating refresh token in an httpOnly, Secure, SameSite cookie; refresh_tokens table with revocation; /auth/logout revokes
 - Rate limiting per user/IP on /chat/stream, /upload, /login, /register backed by Redis (slowapi — new dependency, confirm)
+- Enable ruff's default rules (E4, E7, E9, F) and fix the findings, including the bare except (E722) and E402
 - UI:
   - ChatWindow.js switches to the fetch-based stream; the API client refreshes the access token silently and retries once
   - A clear "too many requests — try again in N s" message on 429, using Retry-After

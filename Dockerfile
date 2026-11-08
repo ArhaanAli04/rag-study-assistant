@@ -13,7 +13,11 @@ ENV PATH="/opt/venv/bin:$PATH"
 
 # Copied before the source so code edits reuse the cached dependency layer.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# B3: camelot's opencv-python-headless and img2table's opencv-contrib-python-headless both write
+# cv2/; reinstalling contrib last makes its complete cv2.ximgproc win (see requirements.in).
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.88 \
+    && python -c "import cv2; assert hasattr(cv2.ximgproc, 'niBlackThreshold'), 'B3: non-contrib cv2 won'"
 
 # -------- Stage 2: runtime --------
 FROM python:3.11-slim
@@ -51,7 +55,8 @@ WORKDIR /app/backend
 EXPOSE 8000
 
 # Slim images have no curl. urlopen raises on connection errors and non-2xx responses.
-# start-period covers the Gemini embedding call IndexBuilder makes at import time.
+# start-period covers the ~10 s of library imports before uvicorn listens (no network calls at
+# startup since Day 9).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
     CMD python -c "import sys, urllib.request; urllib.request.urlopen(sys.argv[1], timeout=4)" "http://127.0.0.1:${PORT:-8000}/health" || exit 1
 

@@ -562,6 +562,12 @@ a live upload). The old test asserted only
 last / force-reinstall, or a constraints file), in the Dockerfile and locally; confirm camelot
 still works; then remove the strict `xfail` on `test_table_extraction_on_image`. Ask before
 changing requirements.
+**Fixed (Day 10):** `opencv-python` removed; after `pip install -r requirements.txt` the Dockerfile
+(which then asserts `cv2.ximgproc.niBlackThreshold`), CI and the documented venv setup run
+`pip install --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.88`. camelot's PDF
+tables still pass. The xfail's sample turned out to have a second problem — it has no ruling lines,
+which img2table's defaults never detect — so the test now uses the ruled `tableimage.png` and that
+gap is B7.
 
 ### B4 — Concept-map generation fails with a 500 when a node has empty sources (P1, Done Day 5)
 `ConceptExtractor._add_source_attribution` (`src/concept_extractor.py`) fills in sources for
@@ -593,6 +599,33 @@ becomes a real bug as soon as image or handwritten-note upload is enabled, and i
 **Direction:** threshold the text pixels (inverted Otsu) before collecting coordinates, handle
 OpenCV's 0–90° angle convention, and keep the original size; then remove the strict `xfail` on
 `test_unified_parser_image` and record the OCR output before and after.
+**Fixed (Day 10):** `estimate_skew_angle` thresholds the ink with inverted Otsu, passes (x, y)
+points (`np.nonzero` gives (row, col), which mirrors the angle), folds (0, 90] onto (−45, 45], and
+skips pages with under 50 ink pixels. `scan_handwritten.png`: OCR 0 → 29 words, skew estimate
+90° → 0°. `test_image_preprocessing.py` covers ±7°, 15°, upright and blank pages.
+
+### B6 — `preprocess_image` overwrites inputs that aren't `.png` / `.jpg` (P2)
+`preprocess_image` and `preprocess_image_extra` (`backend/app/ingestion/ocr/image_preprocessing.py`)
+build the output path with `image_path.replace('.png', '_preprocessed.png').replace('.jpg', …)`.
+For any other extension (`.jpeg`, `.tif`, `.bmp`, `.webp`) neither replace matches, so the output
+path is the input path and the "preprocessed" image overwrites the original. A `.png` anywhere
+earlier in the path (a folder named `scans.png/`) is rewritten too. Found on Day 10.
+**Why it matters:** not reachable from any user path today (`/upload` rejects images). Once image
+upload exists, the stored original is silently replaced by a grayscale, contrast-boosted copy.
+**Direction:** derive the output name from `Path(image_path)` (`with_stem(stem + "_preprocessed")`),
+or write to a temp file; add a test for a `.jpeg` input.
+
+### B7 — Tables without ruling lines are never extracted from images (P2)
+`extract_tables_from_image` (`backend/app/ingestion/tables/tables.py`) calls img2table's
+`extract_tables()` with its defaults, which detect only tables drawn with ruling lines. Measured on
+Day 10 (host and container agree): `tableimage2.jpg` (no lines) 0 tables by default, 1 table (7×7)
+with `borderless_tables=True`; the ruled `tableimage.png` 1 table (10×5) either way; the two non-table
+samples (`sampleimg1.png`, `scan_handwritten.png`) 0 either way.
+**Why it matters:** lecture slides often lay tables out without lines, so their content is never
+indexed as a table, silently.
+**Direction:** measure `borderless_tables=True` on real slide decks (the Day 11 corpus) for recall
+and false positives — pictures and diagrams detected as tables would index junk text — before
+enabling it. Scheduled Day 16.
 
 ---
 
@@ -652,3 +685,8 @@ force-push, so decide that deliberately. Delete the stray and dead files, drop
 `DATABASE_URL` or make `db.py` read it, keep a single UTF-8 `requirements.txt`, and prune
 dependencies not tied to a planned item (`tiktoken` → C1, `instructor` → S1, `langsmith` →
 O1, `langgraph` → A1).
+**Done (Days 4 and 10)** except the installer in git history (purge decision, Day 60). Day 10:
+dead code, the one-off DB scripts and `scripts/manual/` deleted; `requirements.in` (direct
+dependencies) + a generated UTF-8 lock replace both UTF-16 files (191 → 157 packages). `ragas`
+stays until Day 12 because it requires `langchain`, `langchain-community`, `langchain-openai` and
+`instructor`; `langgraph` requires `langchain-core`; `tavily-python` requires `tiktoken`.

@@ -3,7 +3,7 @@ RAG-specific evaluation metrics using RAGAS library.
 Faithfulness, Answer Relevancy, Context Recall, Context Precision.
 """
 import os
-from typing import List, Dict, Any
+from typing import List, Dict
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import (
@@ -13,10 +13,9 @@ from ragas.metrics import (
     context_precision
 )
 from app.generation.llm_client import LLMClient
-from app.main import llm_client  # reuse your existing client
 
 class RAGEvaluator:
-    def __init__(self):
+    def __init__(self, llm_client: LLMClient) -> None:
         self.llm_client = llm_client
         # RAGAS needs OpenAI-style client, we'll wrap Gemini
         os.environ["OPENAI_API_KEY"] = "dummy"  # RAGAS doesn't use real key with custom LLM

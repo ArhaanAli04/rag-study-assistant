@@ -1,6 +1,5 @@
 #normalize text
 import re
-import string
 
 def normalize_text(text):
     """

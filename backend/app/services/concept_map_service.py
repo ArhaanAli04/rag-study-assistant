@@ -8,7 +8,6 @@ from typing import List, Dict, Optional, Any
 from datetime import datetime,timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
-from app.db.database import User 
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
 from app.generation.concept_extractor import ConceptExtractor

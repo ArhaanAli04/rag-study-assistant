@@ -1,6 +1,5 @@
 #complete PPTX processing pipeline
 from app.ingestion.parsers.pptx import extract_pptx_text, extract_pptx_metadata
-from app.ingestion.ocr.ocr import extract_text_from_image_with_preprocessing
 from app.ingestion.tables.tables import extract_tables_from_pptx_slides
 from app.ingestion.text_preprocessing import clean_text
 from app.ingestion.chunking import chunk_text

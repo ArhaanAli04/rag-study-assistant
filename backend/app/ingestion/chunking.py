@@ -1,4 +1,3 @@
-import re
 
 def chunk_text(text, chunk_size=1000, overlap=100):
     # Split into paragraphs, then stitch into token-sized chunks
@@ -16,7 +15,7 @@ def chunk_text(text, chunk_size=1000, overlap=100):
         chunks.append(current.strip())
     return chunks
 
-from app.ingestion.parsers.pdf import extract_pdf_text,extract_pdf_metadata
+from app.ingestion.parsers.pdf import extract_pdf_text
 
 
 def chunk_pdf(file_path):

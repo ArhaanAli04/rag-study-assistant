@@ -3,7 +3,7 @@ RAG-specific evaluation metrics using RAGAS library.
 Faithfulness, Answer Relevancy, Context Recall, Context Precision.
 """
 import os
-from typing import List, Dict, Any
+from typing import List, Dict
 from datasets import Dataset
 from ragas import evaluate
 from ragas.metrics import (

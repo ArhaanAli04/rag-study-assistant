@@ -2,12 +2,13 @@
 # (.claude/hooks/ruff_check.py) and local runs (`ruff check .`).
 #
 # A ratchet: only rules the whole repo already passes are enforced, so CI gates on definite
-# bugs without a 90-finding cleanup in files Phase 3 moves anyway. Day 10 (T3) adds F401 after
-# the dead-code pass, then ruff's defaults. Tighten only, never loosen.
+# bugs without a large cleanup in one go. Day 10 (T3) added F401 after the dead-code pass; Day 38
+# enables ruff's defaults (E4, E7, E9, F) and fixes their findings. Tighten only, never loosen.
 
 target-version = "py311"
 extend-exclude = ["frontend"]
 
 [lint]
 # E9 syntax errors · F63 invalid comparisons · F7 misplaced statements · F82 undefined names
-select = ["E9", "F63", "F7", "F82"]
+# F401 unused imports
+select = ["E9", "F63", "F7", "F82", "F401"]

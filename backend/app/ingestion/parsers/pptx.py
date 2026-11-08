@@ -1,7 +1,5 @@
 #extract text from PPTX slides
 from pptx import Presentation
-from pptx.util import Inches, Pt
-import os
 
 def extract_pptx_text(file_path):
     """

@@ -4,7 +4,6 @@ Pydantic schemas for Concept Map API
 
 from pydantic import BaseModel, Field
 from typing import List, Dict, Optional, Any
-from datetime import datetime
 
 
 class GenerateConceptMapRequest(BaseModel):

@@ -444,3 +444,140 @@ New dependencies: **none.** Removals: Decision 4 table, each on your approval.
 - **Recorded, not fixing:** `preprocess_image` names its output with
   `.replace('.png', …)`, so a `.jpeg`/`.tif` input overwrites itself. `tables.py` still swallows
   every exception with `print`. `README.md` drift is Day 61's rewrite.
+- **Found during implementation (recorded):**
+  - **B3 had a second cause.** With the contrib build in place, img2table ran cleanly but found
+    0 tables in `tableimage2.jpg`: it has no ruling lines, and img2table's defaults only detect
+    ruled tables. Same on Linux / 3.11 and Windows / 3.12. → **B7** (P2, Day 16). The test now uses
+    the ruled `tableimage.png`.
+  - **`pypdf` can't match the lock on the host.** camelot-py 1.0.9 requires `pypdf<4` on Python
+    < 3.12 and `pypdf>=4,<6` on ≥ 3.12. The venv (3.12.1) keeps 5.9.0, so a plain
+    `pip install -r requirements.txt` there fails with `ResolutionImpossible`. CLAUDE.md's venv
+    setup filters that one pin out. CI and the container are the reference.
+  - **`cache_tuner.py` could never have run:** its `lookup()` calls lacked `user_id`,
+    `doc_version` and `mode` (required since Day 1). Fixed while rewiring it.
+  - **The guard hook blocks `Remove-Item src -Recurse`** (by design). The owner removes the
+    untracked `src/` caches by hand.
+  - **Image size:** CI's `docker` job took 6m52s on the first run with the new lock (cold cache);
+    it was 1–2 min before.
+  - **The eval scripts keep `print` and one broad `except Exception`** (`rag_eval_runner.py`):
+    they're rewritten on Days 11–12.
+
+## Outcome
+Date: 2026-11-08. Four commits on `feature/day10-cleanup` → draft PR #12 into `develop`. CI
+(`backend`, `frontend`, `docker`) is green on the first three; the fourth is this commit. Owner
+decisions: 1A, 2A, 3B, 4 (all ten removals), 5A, 6A, 7A. Mid-day: keep `pypdf` 5.9.0 in the venv
+(A), and point the B3 test at the ruled sample, splitting borderless tables out as B7 (B).
+
+### Commits and files
+- **`c79b092` — Checkpoints 1 + 2, deletions + eval package (31 files)**
+  - deleted: `backend/app/{frontend,document_delete_service,add_concept_tables,add_doc_version,run_migration,update_existing_sessions}.py`, root `fix_db.py`, `recreate_db.py`, `migrate_user_model.py`, `frontend/src/components/MessageBubble.js`, `scripts/manual/` (11 scripts + README)
+  - `.claude/hooks/guard_commands.py`: the `recreate_db.py` rule removed (its target is gone)
+  - new `backend/eval/` package: `rag_metrics.py` (R096), `sample_eval_data.py` (R100), `cache_tuner.py` (R056), `rag_eval_runner.py` (R051), `manual_eval.py` (rewritten past git's rename threshold). Each has a typed `main()` that uses `build_services()`, with no `app.main` import
+  - this brief
+- **`baac824` — Checkpoint 3, B5 (3 files)**: `ingestion/ocr/image_preprocessing.py` (`estimate_skew_angle`, typed `preprocess_image`); new `tests/test_image_preprocessing.py` (6 tests); `tests/test_docx_pdf_utils.py` (xfail and its `import pytest` removed)
+- **`73afc0d` — Checkpoint 4, requirements + B3 (6 files)**: new `requirements.in`; `requirements.txt` regenerated (UTF-8); `src/requirements.txt` deleted; `Dockerfile` (contrib reinstall + `niBlackThreshold` assertion in the builder; HEALTHCHECK comment); `.github/workflows/ci.yml` (contrib reinstall); `tests/test_pptx_utils.py` (xfail removed, `test_opencv_contrib_build_wins`, ruled sample, `import pytest` removed)
+- **Checkpoints 5 + 6 (this commit)**
+  - `ruff.toml`: `F401` enforced; comment points at Day 38 for the defaults
+  - unused imports removed (15, in 12 files): `generation/llm_client.py`, `ingestion/{chunking,indexing_pipeline,text_preprocessing}.py`, `ingestion/parsers/{pptx,pptx_pipeline,unified}.py`, `ingestion/tables/pdf_tables.py`, `schemas/concept_maps.py`, `services/{concept_map_service,oauth_service}.py`, `eval/rag_metrics.py`. None was a side-effect import or re-export (no test monkeypatches them)
+  - `CLAUDE.md`: Current Status (by request), repo structure, module map (eval row; dead-code and ad-hoc-script rows gone), Tech Stack's kept/removed packages, Known Issues (B3, B5 done; B6, B7 new; T3), Conventions (`requirements.in` + lock + B3 line; the host venv isn't the lock), Key Commands (venv setup that filters the `pypdf` pin, `python -m eval.…`), Open Decisions (dependencies, dead code)
+  - `docs/improvement-tracker.md` (by request): B3, B5, T3 → Done (T3: the installer purge stays open for Day 60); B6, B7 added (P2)
+  - `docs/improvements.md`: B3 / B5 / T3 status lines; new B6 and B7 entries
+  - `docs/timeline.md`: Day 16 bullet (B7 on the Day 11 corpus); Day 38 bullet (ruff defaults incl. E722 and E402)
+  - `docs/architecture/layout.md`: status; target tree; Day 10 rows ✓ (`scripts/manual/` deleted, not moved)
+  - `.claude/hooks/edit_reminders.py` (`requirements.in`/lock reminder), `.claude/skills/pre-commit/SKILL.md` (paths, UTF-8 + lock checks, the one-pipeline check replaces the POST `/chat` one), `docs/claude-cheatsheet.md` (guard + reminders rows)
+  - `docs/posts/09-launch-recap.md`: Day 10 line
+
+### Checks run
+| Check | Result |
+|---|---|
+| Baseline | 157 passed, 2 xfailed |
+| Host `python -m pytest` after each checkpoint | 157 + 2 xf → 157 + 2 xf → 164 + 1 xf → **166 passed, 0 xfailed** → 166 (after F401) |
+| Container `.\scripts\dev.ps1 test` | after CP3: 164 + 1 xf; after CP4 (image rebuilt from the new lock): **166 passed, 0 xfailed** |
+| `ruff check .` | clean after every checkpoint; F401 enforced from CP5 |
+| `py_compile` | every changed `.py` file; all of `backend/app` + `backend/eval` after F401 |
+| Eval scripts import from `backend/` | ok (`eval.rag_eval_runner`, `eval.manual_eval`, `eval.cache_tuner`) |
+| Frontend after `MessageBubble.js` deletion | `npm run build` (CI=true) ok; Jest 5 suites / 11 tests passed |
+| Lock regeneration (`python:3.11-slim`, old lock as constraints) | `pip check` clean before and after the contrib reinstall; `niBlackThreshold` present |
+| Built image `rag-backend:day10` | `docker build .` ok (assertion in the build); `pip check` clean; `niBlackThreshold` True; `pypdf` 3.17.4 |
+| Venv | 37 stale packages uninstalled; `pip check` clean; `niBlackThreshold` True; documented host install command dry-runs with exit 0 |
+| CI on PR #12 | green: `c79b092` (backend 1m46s, docker 1m43s, frontend 37s), `baac824` (1m52s / 1m2s / 52s), `73afc0d` (1m28s / **6m52s**, cold cache / 46s) |
+
+### Measured
+| What | Before | After |
+|---|---|---|
+| Packages in `requirements.txt` | 191 (UTF-16LE, a full freeze) | **157** (UTF-8, generated lock) + 44 direct deps in `requirements.in` |
+| Surviving packages whose version changed | — | **0** (`itsdangerous` and `hf-xet` newly pinned at the versions the old image already ran: 2.2.0, 1.8.0) |
+| Backend image size | 3.05 GB | **2.55 GB** |
+| `scan_handwritten.png` via `DocumentParser` (host) | 0 words (≥ 3 letters), 0 chars; skew estimate 90° | **29 words, 307 chars**; 0.0° (container: 29 words, 298 chars) |
+| Tables from images (host = container) | every image → `[]` (img2table crashed on `cv2.ximgproc`) | `tableimage.png` 1 table 10×5; `tableimage2.jpg` 0 (no ruling lines — B7; 1 table 7×7 with `borderless_tables=True`) |
+| Strict xfails | 2 | **0** |
+| Tests | 157 | **166** (+6 deskew, +1 OpenCV build, +2 former xfails) |
+| Unused imports (F401) | 22 at brief time | 0 (15 removed today; the other 7 went with deleted or edited files) |
+
+Packages removed (34): `streamlit`, `qdrant-client`, `opencv-python`, `scikit-learn`, `sympy`,
+`safetensors`, `tokenizers`, `pdf2image`, `oauth`, `bcrypt` (approved) + orphans `altair`, `blinker`,
+`gitdb`, `gitpython`, `grpcio`, `h2`, `hpack`, `hyperframe`, `joblib`, `jsonschema`,
+`jsonschema-specifications`, `mpmath`, `narwhals`, `portalocker`, `protobuf`, `pydeck`,
+`referencing`, `rpds-py`, `smmap`, `threadpoolctl`, `toml`, `tornado`, `watchdog` + `colorama`
+(Windows-only, so a Linux lock doesn't pin it).
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Dead code, one-off and manual scripts, eval move, requirements, ruff, docs, hooks | — | backend-only / tooling: no endpoint, field, status or flag changed (route table untouched; `test_api_smoke.py` unchanged and green) |
+| `MessageBubble.js` deleted | no importer (grep); chat renders `MessageList.js` | nothing; build + Jest green |
+| B3: ruled tables in PPTX slide images extracted again | existing sources rendering in `MessageList.js` (unchanged) | answers can now draw on tables in slide images; no new field or state |
+| B5 deskew | — | backend-only: `/upload` rejects images, so no user path reaches it |
+
+### Deferred or dropped
+- `scripts/manual/` deleted instead of moved (Decision 5A; layout row updated).
+- `langchain*` removal → Day 12, together with the RAGAS decision (Decision 1A; `ragas` requires them).
+- Borderless table detection → B7, Day 16. `preprocess_image` output name → B6 (P2, unscheduled).
+- ruff defaults → Day 38 (timeline bullet added).
+- Installer purge from git history → Day 60 (T3's open remainder).
+- Release v0.2.0 and the Render / Vercel verification → the owner, after merging PR #12.
+
+### Tracker Notes (written today at the owner's request)
+- **B3:** Done. **B5:** Done (0 → 29 words). **T3:** Done except the installer in history (Day 60).
+  **B6**, **B7:** added (P2).
+
+### Release notes draft (v0.2.0)
+For the PR `develop` → `master` body and the GitHub release. It covers Days 4–10.
+
+**User-visible changes**
+1. **`POST /chat` removed** (Day 9). The app has only ever used `GET /chat/stream`, which is
+   unchanged. Any external caller of `POST /chat` now gets 404/405.
+2. **Forced-web confidence cap is 30, not 0.3** (B2, Day 9). When your documents don't cover a
+   question and no web result makes the top 5 (e.g. web search is down), the answer is grounded
+   "loose" at a confidence of 30 instead of always "none". `metadata.confidence` reads ≤ 30
+   instead of ≤ 0.3, and the question is logged as a failed query only below 30.
+3. **One safety keyword list** (Day 9). Questions containing "die" or "nuke" ("I studied…",
+   "diet", "diesel") are no longer refused. "kill myself" and "terrorist" are now refused in
+   streaming chat. Spacing variants such as "self   harm" match.
+4. **Tables in PPTX slide images are extracted again** (B3, Day 10). An OpenCV packaging clash had
+   silently disabled this in production. Ruled tables in slide images are now indexed. Tables
+   without ruling lines are still missed (B7, planned).
+5. **Every API response carries an `X-Request-ID` header** (Day 7). It matches the `[request_id]`
+   on that request's server log lines, so quote it when reporting a problem. A safe incoming
+   `X-Request-ID` is reused.
+
+**Operational changes**
+- **New backend Dockerfile** (Day 4): multi-stage build, runs as an unprivileged user (uid 1000),
+  `HEALTHCHECK` on `/health`, no user data baked into the image. Since Day 10 it installs from
+  the generated lock and asserts the contrib OpenCV build. Image size 3.4 → 2.55 GB.
+- **Package layout** (Days 7–9): the backend lives in `backend/app/` and runs as
+  `uvicorn app.main:app` from `/app/backend`, via the Dockerfile's `CMD`. No Render setting
+  changes for this (confirmed Day 7).
+- **Startup** (Day 9): no Gemini call at startup (no startup embedding call, one shared client).
+- **Dependencies** (Day 10): `requirements.in` + a generated UTF-8 lock, 191 → 157 packages.
+- **Render: set the service's Health Check Path to `/health`** (Settings → Health & Alerts).
+  Render doesn't use the Dockerfile's `HEALTHCHECK`; with the path set, a deploy whose `/health`
+  fails is not promoted.
+
+**Release checklist (owner)**
+1. `/ship merge` PR #12 into `develop`.
+2. `gh pr create --base master --head develop --title "release v0.2.0"` with the notes above, then wait for CI.
+3. `gh pr merge <N> --merge` (merge commit, never squash or rebase).
+4. `git checkout master; git pull origin master; git tag v0.2.0; git push origin v0.2.0`.
+5. Render: set the Health Check Path to `/health`, watch the deploy go green, `GET /health`.
+6. Vercel: production deploy green; log in and stream one answer.

@@ -1,6 +1,6 @@
 # Post 4 — "What one RAG request actually costs"
 
-Publish after: Day 22 · Fed by days: 20–22 · Format: PDF carousel
+Publish after: Day 25 · Fed by days: 23–25 · Format: text + 2–3 images
 
 ## Hook
 One chat message in my study app makes N model calls and costs $X. I couldn't have told you
@@ -13,7 +13,7 @@ that before adding tracing — and one prompt-layout change cut the bill by Y%.
 - Prompt management and versioning outside the code
 - User feedback attached to the trace that produced the answer
 
-## Slide outline
+## Outline
 1. Hook with the cost number
 2. Anatomy of one request (span tree)
 3. Where the latency goes (p50/p95 per stage)

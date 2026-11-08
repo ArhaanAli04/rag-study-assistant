@@ -1,6 +1,6 @@
 # Post 5 — "5 retrieval upgrades, measured one at a time"
 
-Publish after: Day 29 (v0.4.0) · Fed by days: 23–29 · Format: PDF carousel
+Publish after: Day 32 (v0.5.0) · Fed by days: 26–32 · Format: text + 2–3 images
 
 ## Hook
 Everyone lists RAG techniques. I added them one at a time to a real app and measured each on
@@ -16,10 +16,10 @@ a fixed golden set. Some helped a lot; one barely mattered.
 - Token-based chunking and context budgets
 - Semantic-cache threshold tuning (precision/recall of cache hits)
 
-## Slide outline
+## Outline
 1. Hook
 2. The measuring stick: golden set + CI gate
-3. One slide per technique: what it is, the delta it gave
+3. One short section per technique: what it is, the delta it gave
 4. Summary table: technique → Recall@5 / faithfulness / latency / cost change
 5. What didn't help, and why
 6. Lesson + repo link

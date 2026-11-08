@@ -1,6 +1,6 @@
 # Post 1 — "My RAG app was leaking users' notes to each other"
 
-Publish after: Day 3 (v0.1.0 deployed) · Fed by days: 1–3 · Format: PDF carousel
+Publish after: Day 3 (v0.1.0 deployed) · Fed by days: 1–3 · Format: text + 2–3 images
 
 ## Hook
 A semantic cache made my study assistant faster — and served one user's answers, built from
@@ -14,7 +14,7 @@ should scope everything.
 - Secrets in logs — tokens in query strings end up in request and access logs
 - Per-user file storage and path sanitization
 
-## Slide outline
+## Outline
 1. Hook + the symptom
 2. What a semantic cache is (diagram)
 3. The bug: entries keyed by version + mode, not user
@@ -25,9 +25,29 @@ should scope everything.
 8. Lesson + repo link
 
 ## Visuals needed
-- [ ] Diagram: request → semantic cache → hit/miss, before vs. after (user in the key)
-- [ ] Code card: the before/after lookup filter
-- [ ] Screenshot: the isolation test passing (user A cached, user B misses)
+- [x] Code card: the before/after lookup filter — `docs/posts/assets/post01-code-card-falsy-zero.png`
+- [x] Screenshot: two accounts, the same question, each sees only its own PDF — framed: `docs/posts/assets/post01-two-accounts-framed.png` (raw capture: `post01-day03-two-account-isolation.png`)
+- [ ] Optional third image: diagram of one shared cache list (before) vs. one list per user (after)
+
+## Draft — post text (2026-11-06)
+Images, in this order: `post01-code-card-falsy-zero.png`, then `post01-two-accounts-framed.png`.
+
+> I audited my own RAG study assistant before building anything new, and the first thing I found was that its semantic cache could serve one student an answer built from another student's private notes.
+>
+> The cache matched questions on document version and answer mode, but not on the user. The filter was `if not version`, and new users start at version 0. Zero is falsy, so for every new account the filter quietly turned itself off.
+>
+> The same audit turned up three more ways data could cross between users:
+> 🔑 login tokens written to logs in three places (420 lines locally → 0)
+> 📁 one shared upload folder where two students' `notes.pdf` overwrote each other
+> 🌐 a CORS setup that echoed back any origin, even with credentials
+>
+> All four are fixed and deployed. After the fix, a second account received 0 of the first account's sources. Every fix is backed by tests: the backend suite went from 26 to 81 tests over these three days.
+>
+> The rule I'm keeping: in a multi-tenant RAG app, every cache key, search filter and file path carries the user, and there's a test that proves it.
+>
+> This is post 1 of a series on rebuilding this app properly: evals, pgvector, observability, agents.
+>
+> #RAG #AIEngineering #LLM #Security #Python
 
 ## Material log
 <!-- /run-day appends one entry per day below, newest last. -->

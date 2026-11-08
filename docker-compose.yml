@@ -1,4 +1,6 @@
-
+# Shared, production-like stack: the backend image Render builds and the nginx frontend build.
+#   docker compose up --build                        → dev (this file + docker-compose.override.yml)
+#   docker compose -f docker-compose.yml up --build  → this file alone, as deployed
 services:
   # ==================== Backend Service ====================
   backend:
@@ -8,27 +10,26 @@ services:
     container_name: rag-backend
     ports:
       - "8000:8000"
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-    volumes:
-      # Persist uploaded files and FAISS indexes
-      - ./src/data:/app/src/data
-      - ./src/logs:/app/src/logs
-      # Uploads live outside the container layer so they survive container recreation (G7)
-      - uploads:/app/src/uploads
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-      - DATABASE_URL=sqlite:///./data/app.db
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-      - JWT_ALGORITHM=HS256
-      - FRONTEND_URL=http://localhost:3000
+    # Secrets and settings come from .env; `environment` overrides the few values that differ
+    # inside the container (the host-run .env points Redis at localhost:6380).
     env_file:
       - .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      # Own DB, so flushing the query/web caches in DB 0 leaves cached answers alone (T3)
+      - SEMANTIC_CACHE_REDIS_URL=redis://redis:6379/1
+      - TESSERACT_PATH=/usr/bin/tesseract
+      - FRONTEND_URL=http://localhost:3000
+    volumes:
+      # Runtime state in Docker-managed volumes, so it survives container recreation and never
+      # lands in the working tree. The image pre-creates these directories owned by `app`.
+      # Day 7 moved the mount points from /app/src/*; the named volumes (and their data) are the same.
+      - data:/app/backend/data
+      - uploads:/app/backend/uploads
+      - logs:/app/backend/logs
     depends_on:
-      - redis
+      redis:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - rag-network
@@ -38,11 +39,13 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # CRA inlines REACT_APP_* at build time; without this, `npm run build` reads
+        # .env.production and the bundle calls the Render backend.
+        - REACT_APP_API_URL=http://localhost:8000
     container_name: rag-frontend
     ports:
       - "3000:80"
-    environment:
-      - REACT_APP_API_URL=http://localhost:8000
     depends_on:
       - backend
     restart: unless-stopped
@@ -58,6 +61,11 @@ services:
       - "6380:6379"
     volumes:
       - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
     restart: unless-stopped
     networks:
       - rag-network
@@ -65,7 +73,9 @@ services:
 # ==================== Volumes ====================
 volumes:
   redis-data:
+  data:
   uploads:
+  logs:
 
 # ==================== Networks ====================
 networks:

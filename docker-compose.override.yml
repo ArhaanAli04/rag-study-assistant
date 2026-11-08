@@ -1,0 +1,36 @@
+# Dev-only additions, merged automatically by `docker compose up`.
+# Skip this file with `docker compose -f docker-compose.yml ...` to run the stack as deployed.
+services:
+  backend:
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/backend/app
+    environment:
+      # Windows bind mounts don't deliver inotify events into the Linux VM; poll instead.
+      - WATCHFILES_FORCE_POLLING=true
+    volumes:
+      # Live source: only the package, so the host's backend/data, uploads and logs never reach
+      # the container; those stay in the named volumes from the base file.
+      - ./backend/app:/app/backend/app
+      # Read-only: tests write only to pytest's tmp_path (Day 5).
+      - ./backend/tests:/app/backend/tests:ro
+      # test_llm_modes reads ChatInput.js to check the frontend's modes against the backend's.
+      - ./frontend/src:/app/frontend/src:ro
+
+  frontend:
+    build:
+      target: dev
+    # !override: list merging would keep the base file's 3000:80 next to this one.
+    ports: !override
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      # CRA 5 watches through webpack's watchpack; the chokidar flag covers older paths.
+      - WATCHPACK_POLLING=true
+      - CHOKIDAR_USEPOLLING=true
+      # The browser reaches the dev server's hot-reload socket on the host port.
+      - WDS_SOCKET_PORT=3000
+    volumes:
+      - ./frontend:/app
+      # Anonymous volume keeps the image's node_modules instead of the (Windows) host's.
+      - /app/node_modules

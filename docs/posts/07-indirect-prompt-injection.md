@@ -1,6 +1,6 @@
 # Post 7 — "The realistic attack on RAG isn't the user — it's the PDF"
 
-Publish after: Day 34 (defences deployed) · Fed by days: 32 (moderation), 33 · Format: PDF carousel or short video
+Publish after: Day 37 (defences deployed) · Fed by days: 35 (moderation), 36 · Format: text + 2–3 images (or a short video)
 
 ## Hook
 I hid one line of white text in a PDF, uploaded it, and my study assistant started giving
@@ -16,7 +16,7 @@ wrong answers. Here's how indirect prompt injection works and the layers I added
 - Model-based moderation vs. keyword lists
 - Red-teaming with an attack success rate metric
 
-## Slide outline
+## Outline
 1. Hook (the poisoned PDF demo)
 2. Direct vs. indirect injection
 3. How the attack reaches the model in a RAG pipeline

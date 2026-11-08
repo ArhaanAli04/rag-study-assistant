@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 01 two accounts</title>
+<link rel="stylesheet" href="brand.css">
+<style>
+  .stack { gap: 32px; }
+
+  /* Crops of the 3831×1890 two-window screenshot. Each half is cropped to 1880 px (dropping the
+     left window's scrollbar) and scaled to the 960 px window: rows ~340–1115 hold the question
+     and the start of the cited answer; the mask fades the cut instead of slicing a sentence. */
+  .shot {
+    height: 396px;
+    background-image: url("../assets/post01-day03-two-account-isolation.png");
+    background-repeat: no-repeat;
+    background-size: 1956px 965px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 72%, transparent 100%);
+  }
+  .shot.a { background-position: 0 -174px; }
+  .shot.b { background-position: -979px -174px; }
+
+  .window .title b.file { color: var(--code); }
+</style>
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">01</span>
+  </header>
+
+  <main class="stack">
+    <section class="window">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">Account A · uploaded <b class="file">samples.pdf</b></div>
+      </div>
+      <div class="shot a"></div>
+    </section>
+
+    <section class="window">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">Account B · uploaded <b class="file">table_test.pdf</b></div>
+      </div>
+      <div class="shot b"></div>
+    </section>
+  </main>
+</body>
+</html>

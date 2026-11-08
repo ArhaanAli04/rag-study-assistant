@@ -6,7 +6,9 @@ disable-model-invocation: true
 
 # /pre-commit — Checks before committing
 
-This repo has no Makefile, linter, type checker, or CI, so this command is the quality gate.
+CI (`.github/workflows/ci.yml`, since Day 6) runs ruff, the offline pytest suite, the frontend
+tests and build, and both Docker builds on every PR, and branch protection requires them. This
+command runs the same checks locally before you push, plus a rule review CI can't do.
 Run the steps in order and stop at the first failure:
 - If the failure is in code changed this session, fix it and rerun that step.
 - If it looks pre-existing or unrelated to this session's change, report it and ask before
@@ -16,23 +18,30 @@ Run the steps in order and stop at the first failure:
 
 - `git status --short` (includes untracked files) and `git diff --stat`, then `git diff` for
   the review in step 4.
-- Group the changed files: backend (`src/**/*.py`), tests (`tests/`), frontend
-  (`frontend/**`), Docker (`Dockerfile`, `docker-compose.yml`), dependencies
-  (`requirements.txt`, `src/requirements.txt`), docs.
+- Group the changed files: backend (`backend/app/**/*.py`, `backend/eval/**/*.py`), tests
+  (`backend/tests/`), frontend (`frontend/**`), Docker (`Dockerfile`, `docker-compose*.yml`),
+  CI (`.github/workflows/`), dependencies (`requirements.in`, `requirements.txt`), docs.
 
 ## 2. Backend compile check — only if `.py` files changed
 
 ```powershell
 python -m py_compile <each changed .py file>
+ruff check .
 ```
+
+`ruff check .` reads `ruff.toml` — the same rules the CI `backend` job enforces (CI pins ruff
+0.15.18; use that version if your local one disagrees).
 
 ## 3. Tests
 
 ```powershell
-python -m pytest tests -q
+python -m pytest -q
 ```
 
-Pass `tests` explicitly — `pytest.ini` is ignored until T1 is fixed.
+Since Day 5 (T1) `pytest.ini` is honoured: a plain run collects only `backend/tests/`, runs offline
+(fake Gemini/Redis/Tavily, network guard in `backend/tests/conftest.py`) and needs no API keys.
+The host venv is Python 3.12 and not identical to the lock (see CLAUDE.md, Conventions); if a
+dependency or parser changed, also run `.\scripts\dev.ps1 test` (Linux / 3.11, the exact lock).
 
 ## 4. Diff review against the rules
 
@@ -40,7 +49,7 @@ Review only added or changed lines. Report each finding with file:line.
 
 | Check | Source |
 |---|---|
-| `print(` added in `src/` | Global: use `logging` |
+| `print(` added in `backend/app/` | Global: use `logging` |
 | Bare `except:` or broad `except Exception` without meaningful handling | Global |
 | New or changed Python functions without type hints | Global |
 | `TODO` comments, or placeholders that silently do nothing instead of raising `NotImplementedError` | Global |
@@ -48,7 +57,7 @@ Review only added or changed lines. Report each finding with file:line.
 | Hardcoded keys, tokens, or passwords; any change to `.env` files or `frontend/.env.production` | CLAUDE.md: Secrets |
 | Search filters, cache keys, or file paths for user data not scoped by `user_id` | CLAUDE.md |
 | A change to a user's document set without a `User.doc_version` bump | CLAUDE.md |
-| Pipeline logic changed in only one of `POST /chat` / `GET /chat/stream` | CLAUDE.md |
+| Chat logic added outside `services/chat_pipeline.py`, or the SSE frame order changed without `ChatWindow.js` | CLAUDE.md: one chat pipeline, one SSE contract |
 | Retrieved or web text placed in the system instruction; new per-turn variation added to it | CLAUDE.md, G5, CO4 |
 | New third-party imports, or any dependency-file change | Global: no new dependencies without approval |
 | `import main` / `from main import` in eval or experiment code | CLAUDE.md |
@@ -56,9 +65,12 @@ Review only added or changed lines. Report each finding with file:line.
 
 ## 5. Dependencies — only if a requirements file changed
 
-- Confirm the approved dependency is the only addition.
-- Confirm the encoding is still UTF-16LE (Git Bash: `file requirements.txt`). The Dockerfile
-  installs the root `requirements.txt`, so that is the copy that must be correct.
+- Confirm the approved dependency is the only addition, in `requirements.in` with its reason.
+- If `requirements.txt` changed, `requirements.in` must have changed too (the lock is generated,
+  never hand-edited), and the diff must show no version moves beyond the intended package —
+  list any that do.
+- Both files are UTF-8 (Day 10). The Dockerfile and CI install `requirements.txt`, then
+  force-reinstall `opencv-contrib-python-headless` (B3); confirm that line is still there.
 
 ## 6. Frontend — only if `frontend/` changed
 
@@ -72,7 +84,7 @@ build. There is no lint script. `--watchAll=false` matters: without it `npm test
 interactive watch mode and never exits. Both commands are slow on this machine (several
 minutes each), so run them in the background.
 
-## 7. Docker — only if `Dockerfile`, `docker-compose.yml`, or `requirements.txt` changed
+## 7. Docker — only if `Dockerfile`, `docker-compose*.yml`, `requirements.in` or `requirements.txt` changed
 
 ```powershell
 docker build -t rag-backend:precommit .
@@ -97,7 +109,8 @@ If Docker isn't running, mark this step as skipped with that reason.
    post Material log entries were written.
 4. A suggested commit message (text only): one short line in the `day NN - description` style
    that a future reader with no context would understand. No body, and no Claude credit or
-   `Co-Authored-By` trailer.
+   `Co-Authored-By` trailer. Print it as the ready-to-type command
+   `/ship commit "<message>"` (and `/ship merge` once the day is finished).
 
 ## STOP — hand control back to the user
 

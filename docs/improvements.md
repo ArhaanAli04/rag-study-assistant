@@ -12,6 +12,8 @@ the semantic cache.
 Items R5, G7, G8, I4, I5, I6, and the new sections 10–11 (B1, B2, T1, T2, T3) were added on
 2026-09-12 from the codebase review done while writing `CLAUDE.md`.
 
+B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07).
+
 Priority legend:
 - **P0** — cheap to fix, and either a correctness/security bug or something that blocks
   measuring whether other changes help (e.g. eval, safety).
@@ -68,6 +70,10 @@ extra `IndexBuilder` also costs a Gemini embedding call when the service is firs
 **Direction:** pass `main.py`'s shared `retrieval_service` into `ConceptMapRetriever`
 (through `get_concept_map_service`), and add a test that a document indexed through the
 pipeline is returned by the concept-map retriever.
+**Status (Day 9, 2026-11-08):** half done. `ConceptMapRetriever` now requires the app's shared
+`RetrievalService` (`services/container.py`), so the private empty index is gone
+(`test_app_factory.py` asserts the sharing). Still open for Day 17: the retrieval test above, and
+the UI — `CreateMapForm.js` hard-codes `useDocuments = false`, so users can't pick documents yet.
 
 ---
 
@@ -532,6 +538,94 @@ and the forced-fallback path ends in "none" grounding whenever no web chunk make
 same grounding thresholds everywhere (or consolidate the endpoints — open decision in
 `CLAUDE.md`), and set the cap to its intended value on the 0–100 scale. Validate the
 thresholds against retrieval eval results (E4).
+**Status (Day 9, 2026-11-08):** fixed. `POST /chat` was deleted (one `ChatPipeline` behind
+`/chat/stream`); the cap is `FORCED_WEB_CAP = 30.0`; the scale and every threshold are named in
+`backend/app/retrieval/confidence.py` (`grounding_level()` is the only grounding decision).
+`backend/tests/test_confidence.py` pins the forced-web path at 30 (was 0.3) and the threshold
+boundaries. Validation against E4 is still open (Day 11).
+
+### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
+Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`
+(required by `camelot-py`) and `opencv-contrib-python-headless` (required by `img2table`), all
+4.12.0.88. They all install into the same `cv2` package, so whichever pip writes last wins; in
+the local venv a non-contrib build won, and `cv2.ximgproc` is missing. `img2table` then fails
+with `module 'cv2.ximgproc' has no attribute 'niBlackThreshold'`, and
+`table_utils.extract_tables_from_image` (`src/table_utils.py:42-44`) catches the exception,
+prints it and returns `[]`. `opencv-python` is required by nothing. Found on Day 5.
+**Why it matters:** `extract_tables_from_pptx_slides` uses the same path, so tables in PPTX
+slide images uploaded through `/upload` are never extracted, with no error surfaced. Confirmed
+in the backend image built from the same Dockerfile and requirements Render uses: the test
+xfails there too, so PPTX image-table extraction is broken in production (not yet observed via
+a live upload). The old test asserted only
+`isinstance(tables, list)`, so it passed while the feature was dead.
+**Direction:** drop the unused `opencv-python` pin and make the contrib build win (install it
+last / force-reinstall, or a constraints file), in the Dockerfile and locally; confirm camelot
+still works; then remove the strict `xfail` on `test_table_extraction_on_image`. Ask before
+changing requirements.
+**Fixed (Day 10):** `opencv-python` removed; after `pip install -r requirements.txt` the Dockerfile
+(which then asserts `cv2.ximgproc.niBlackThreshold`), CI and the documented venv setup run
+`pip install --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.88`. camelot's PDF
+tables still pass. The xfail's sample turned out to have a second problem — it has no ruling lines,
+which img2table's defaults never detect — so the test now uses the ruled `tableimage.png` and that
+gap is B7.
+
+### B4 — Concept-map generation fails with a 500 when a node has empty sources (P1, Done Day 5)
+`ConceptExtractor._add_source_attribution` (`src/concept_extractor.py`) fills in sources for
+nodes the LLM returned without any. Its comments said "assign first web/doc source", but the
+code assigned the whole list wrapped in another list (`[web_sources]`), so the node's `sources`
+became `[["https://…", …]]`. `concept_map_service._save_concept_map_to_db` then runs
+`','.join(node['sources'])`, which raises `TypeError: sequence item 0: expected str instance,
+list found`, and `POST /api/concepts/generate` returns 500 "Failed to generate concept map".
+**Why it matters:** a single node with empty sources — something the LLM does whenever it skips
+the field — failed the whole concept map. Found by the Day 5 API smoke test.
+**Fix (Day 5):** assign `[web_sources[0]]` / `[doc_sources[0]]`; unit tests cover both fallbacks,
+kept sources, and no source of that type.
+
+### B5 — Image deskew rotates scans 90°, so the unified parser's OCR returns nothing (P2)
+`preprocess_image` (`backend/app/ingestion/ocr/image_preprocessing.py`) deskews by taking the
+coordinates of every pixel with `np_img > 0` and fitting `cv2.minAreaRect` to them. On a scan
+with a white background that is nearly every pixel (97.5 % of `scan_handwritten.png`), so the
+"text" rectangle is the whole image. OpenCV 4.5+ reports angles in (0, 90], and returns 90.0 for
+that axis-aligned rectangle; the code's `angle < -45` branch was written for the old [-90, 0)
+convention, so it rotates by -90°. `warpAffine` keeps the original width × height, so the page
+ends up sideways and cropped, and `DocumentParser.parse()` returns `{'type': 'image', 'text': ''}`.
+Same result on the Windows host and in the backend image (cv2 4.12.0). Found on Day 8, when
+`test_docx_pdf_utils.py` started opening its samples (its CWD-relative paths had made every
+test pass without running).
+**Why it matters:** not reachable from any user path today: `/upload` rejects images, and the
+PPTX OCR path uses `extract_text_from_image_with_preprocessing`, not `preprocess_image`. It
+becomes a real bug as soon as image or handwritten-note upload is enabled, and it fails silently
+(empty text, no error).
+**Direction:** threshold the text pixels (inverted Otsu) before collecting coordinates, handle
+OpenCV's 0–90° angle convention, and keep the original size; then remove the strict `xfail` on
+`test_unified_parser_image` and record the OCR output before and after.
+**Fixed (Day 10):** `estimate_skew_angle` thresholds the ink with inverted Otsu, passes (x, y)
+points (`np.nonzero` gives (row, col), which mirrors the angle), folds (0, 90] onto (−45, 45], and
+skips pages with under 50 ink pixels. `scan_handwritten.png`: OCR 0 → 29 words, skew estimate
+90° → 0°. `test_image_preprocessing.py` covers ±7°, 15°, upright and blank pages.
+
+### B6 — `preprocess_image` overwrites inputs that aren't `.png` / `.jpg` (P2)
+`preprocess_image` and `preprocess_image_extra` (`backend/app/ingestion/ocr/image_preprocessing.py`)
+build the output path with `image_path.replace('.png', '_preprocessed.png').replace('.jpg', …)`.
+For any other extension (`.jpeg`, `.tif`, `.bmp`, `.webp`) neither replace matches, so the output
+path is the input path and the "preprocessed" image overwrites the original. A `.png` anywhere
+earlier in the path (a folder named `scans.png/`) is rewritten too. Found on Day 10.
+**Why it matters:** not reachable from any user path today (`/upload` rejects images). Once image
+upload exists, the stored original is silently replaced by a grayscale, contrast-boosted copy.
+**Direction:** derive the output name from `Path(image_path)` (`with_stem(stem + "_preprocessed")`),
+or write to a temp file; add a test for a `.jpeg` input.
+
+### B7 — Tables without ruling lines are never extracted from images (P2)
+`extract_tables_from_image` (`backend/app/ingestion/tables/tables.py`) calls img2table's
+`extract_tables()` with its defaults, which detect only tables drawn with ruling lines. Measured on
+Day 10 (host and container agree): `tableimage2.jpg` (no lines) 0 tables by default, 1 table (7×7)
+with `borderless_tables=True`; the ruled `tableimage.png` 1 table (10×5) either way; the two non-table
+samples (`sampleimg1.png`, `scan_handwritten.png`) 0 either way.
+**Why it matters:** lecture slides often lay tables out without lines, so their content is never
+indexed as a table, silently.
+**Direction:** measure `borderless_tables=True` on real slide decks (the Day 11 corpus) for recall
+and false positives — pictures and diagrams detected as tables would index junk text — before
+enabling it. Scheduled Day 16.
 
 ---
 
@@ -591,3 +685,8 @@ force-push, so decide that deliberately. Delete the stray and dead files, drop
 `DATABASE_URL` or make `db.py` read it, keep a single UTF-8 `requirements.txt`, and prune
 dependencies not tied to a planned item (`tiktoken` → C1, `instructor` → S1, `langsmith` →
 O1, `langgraph` → A1).
+**Done (Days 4 and 10)** except the installer in git history (purge decision, Day 60). Day 10:
+dead code, the one-off DB scripts and `scripts/manual/` deleted; `requirements.in` (direct
+dependencies) + a generated UTF-8 lock replace both UTF-16 files (191 → 157 packages). `ragas`
+stays until Day 12 because it requires `langchain`, `langchain-community`, `langchain-openai` and
+`instructor`; `langgraph` requires `langchain-core`; `tavily-python` requires `tiktoken`.

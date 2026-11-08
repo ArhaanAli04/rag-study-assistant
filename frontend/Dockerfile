@@ -1,33 +1,31 @@
 # ==================== Frontend Dockerfile ====================
-# Stage 1: Build React app
-FROM node:18-alpine AS build
+# Stages: deps (npm ci, cached) → dev (CRA dev server, used by docker-compose.override.yml)
+#                               → build (production bundle) → nginx (served, the default target)
 
-# Set working directory
+# -------- deps --------
+# Node 24 = Vercel's production Node.js Version and CI's; keep all three in sync.
+FROM node:24-alpine AS deps
 WORKDIR /app
-
-# Copy package files
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci --silent
 
-# Copy frontend code
-COPY . .
+# -------- dev: hot-reloading dev server; source is bind-mounted over /app --------
+FROM deps AS dev
+EXPOSE 3000
+CMD ["npm", "start"]
 
-# Build the app
+# -------- build --------
+FROM deps AS build
+COPY . .
+# Real environment variables override .env.production in CRA, so this picks the API the bundle
+# talks to. A build ARG is visible to RUN only when passed; not passed, it stays unset and
+# .env.production (the Render URL) applies. No ENV: an empty ENV would still beat the file.
+ARG REACT_APP_API_URL
 RUN npm run build
 
-# Stage 2: Serve with Nginx
+# -------- serve with nginx --------
 FROM nginx:alpine
-
-# Copy built files from build stage
 COPY --from=build /app/build /usr/share/nginx/html
-
-# Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-
-# Expose port
 EXPOSE 80
-
-# Start nginx
 CMD ["nginx", "-g", "daemon off;"]

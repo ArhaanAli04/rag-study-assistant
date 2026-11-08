@@ -40,9 +40,6 @@ logs/
 # Post screenshots: show demo account emails and would bloat history
 docs/posts/assets/
 
-# Written by test_table_extraction_on_image until Day 5 moves it to tmp_path
-tests/samples/*_cleaned*.jpg
-
 # Binaries
 *.exe
 

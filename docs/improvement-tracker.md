@@ -23,7 +23,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | R1 | Implement a real reranker (cross-encoder or LLM-based) | Not Started | |
 | I4 | Persist and reload FAISS + BM25 indexes so restarts don't wipe search | Not Started | |
 | I5 | Remove a deleted document's chunks from FAISS + BM25 (and its file) | Not Started | |
-| R5 | Pass the shared `RetrievalService` into `ConceptMapRetriever` so maps can use documents | Not Started | |
+| R5 | Pass the shared `RetrievalService` into `ConceptMapRetriever` so maps can use documents | In Progress | Day 9: `ConceptMapRetriever` requires the app's shared `RetrievalService` (built once in `services/container.py`); the private empty index and its 2 extra Gemini clients are gone; `test_app_factory.py` asserts the sharing. Open for Day 17: retrieval test + UI toggle (`CreateMapForm.js` hard-codes `useDocuments = false`) |
 | B1 | Fix `DELETE /user/delete` crash and delete all of a user's data | Done | Day 3. `account_service.delete_user_account`: 7 tables in one transaction, then files, FAISS + BM25 tombstones, semantic + L1 cache. Live UI deletes: 200 in 57–198 ms, `index_entries_removed` 6/10/6, 0 rows left. SQLite reused freed id 3 for a new account — the purge is what keeps it clean. Test accounts 3–7 deleted |
 
 ## P1 — High-value, moderate effort
@@ -31,7 +31,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | ID | Improvement | Status | Notes |
 |----|---|---|---|
 | G2 | Call `verify_answer()` for low/loose-grounding responses | Not Started | |
-| G3 | Replace 6-keyword safety blocklist with real moderation, unify `/chat` + `/chat/stream` | Not Started | |
+| G3 | Replace 6-keyword safety blocklist with real moderation, unify `/chat` + `/chat/stream` | Not Started | Day 9 prep: endpoints unified (`POST /chat` deleted), one `UNSAFE_KEYWORDS` list in `services/chat_guards.py` called once in `ChatPipeline`; "die"/"nuke" false positives dropped; "bomb" still matches "bombardment". Moderation itself: Day 35 |
 | G5 | Indirect prompt-injection defenses (chunk scanning, spotlighting, canary, markdown `img` override, red-team set) | Not Started | |
 | E2 | Replace word-overlap "manual metrics" with LLM-as-judge (or retire once E1 fixed) | Not Started | |
 | S1 | Schema-validated structured output (`instructor` or Gemini JSON mode) for concept maps/quiz | Not Started | |
@@ -46,8 +46,10 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | CO4 | Cache-friendly prompt layout (constant system instruction) + log token/cached-token usage | Not Started | |
 | CO5 | Conversation-aware semantic cache with per-entry TTLs and a threshold tuned on labelled pairs | Not Started | |
 | I6 | Skip re-indexing unchanged re-uploads; remove old versions' chunks | Not Started | |
-| B2 | Fix confidence-scale mismatches (`/chat` grounding thresholds, forced-web cap) | Not Started | |
-| T1 | Fix `pytest.ini` header so `testpaths` / `pythonpath` apply | Not Started | |
+| B2 | Fix confidence-scale mismatches (`/chat` grounding thresholds, forced-web cap) | Done | Day 9: `POST /chat` (0.7 / 0.3 grounding) deleted; forced-web cap 0.3 → 30 (`FORCED_WEB_CAP`); the 0–100 scale and every threshold named in `retrieval/confidence.py`, `grounding_level()` the only grounding decision. `test_confidence.py`: forced-web path ends at 30.0 (was 0.3). Threshold validation against E4 still open (Day 11) |
+| B4 | Concept-map generation 500s when a node has empty sources | Done | Day 5: found by the API smoke test; `concept_extractor._add_source_attribution` now assigns the first source, not the whole list. Unit tests for both fallbacks in `tests/test_concept_extractor.py` |
+| B3 | Fix the OpenCV wheel clash that silently disables image/PPTX table extraction | Done | Day 10: unused `opencv-python` pin dropped; `opencv-contrib-python-headless` force-reinstalled after the lock in the Dockerfile (build asserts `cv2.ximgproc.niBlackThreshold`), CI and the venv setup. Strict xfail removed; new `test_opencv_contrib_build_wins`. The table test now uses the ruled `tableimage.png` (10×5 table): the old sample has no ruling lines, which img2table's defaults don't detect — split out as B7. 166 passed, 0 xfailed on host and container |
+| T1 | Fix `pytest.ini` header so `testpaths` / `pythonpath` apply | Done | Day 5: `[pytest]` header; 11 `src/test_*.py` → `scripts/manual/`; bare `pytest` collects only `tests/` (112 items). Suite 84 → 111 tests (+1 strict xfail), 42.6 s → 23.3 s on the host with no keys or network; container 77.7 s (Day 8 lazy loading). |
 | T2 | Pick one migration mechanism; if Alembic, fix its URL and model imports | Not Started | |
 
 ## P2 — Scale/architecture, revisit as usage grows
@@ -61,7 +63,10 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | I1 | Per-user/ANN FAISS indexing instead of brute-force + post-hoc filter | Not Started | |
 | I2 | Persist BM25 index to disk; avoid full rebuild on every add | Not Started | |
 | CO3 | Content-hash embedding cache | Not Started | |
-| T3 | Repo hygiene: committed installer, stray/dead files, drifted requirements files, unused deps | Not Started | 2026-09-12 (69ae920): installer untracked and now ignored via `*.exe` (still in git history); stray `stop` and unused resume sample deleted; .gitignore extended. Remaining: dead code, requirements reconcile, unused deps, `DATABASE_URL`, Docker Redis DB |
+| B5 | Fix `preprocess_image` deskew, which rotates scans 90° so the unified parser's OCR returns nothing | Done | Day 10: `estimate_skew_angle` fits the rectangle to the ink (inverted Otsu) as (x, y) points and folds OpenCV ≥ 4.5's (0, 90] angle to (−45, 45]; output keeps the input size. `scan_handwritten.png` through `DocumentParser`: 0 → 29 words (≥ 3 letters), 0 → 307 chars on the host (298 in the container); skew estimate on it 90° → 0.0°. Strict xfail removed; `test_image_preprocessing.py` (6 tests: ±7°, 15°, upright, blank, size kept) |
+| B6 | Fix `preprocess_image`'s output name so `.jpeg` / `.tif` inputs aren't overwritten | Not Started | Found Day 10. The path is built with `.replace('.png', …).replace('.jpg', …)`, so any other extension writes the "preprocessed" copy over the input. Not reachable from any user path today (`/upload` rejects images) |
+| B7 | Detect tables without ruling lines in images / PPTX slide images | Not Started | Found Day 10. `extract_tables_from_image` uses img2table's defaults, which miss tables without ruling lines (`tableimage2.jpg`: 0 → 1 table, 7×7, with `borderless_tables=True`; the ruled `tableimage.png` finds 10×5 either way; 0 false positives on 2 non-table samples). Evaluate `borderless_tables` on real slide decks before enabling — Day 16, on the Day 11 corpus |
+| T3 | Repo hygiene: committed installer, stray/dead files, drifted requirements files, unused deps | Done | 2026-09-12 (69ae920): installer untracked and now ignored via `*.exe` (still in git history); stray `stop` and unused resume sample deleted; .gitignore extended. 2026-11-03 (Day 4): Docker items done — semantic cache on its own Redis DB via `SEMANTIC_CACHE_REDIS_URL` (Docker DB 1; Render unchanged until set), `DATABASE_URL` removed from compose. Also: image no longer bakes app.db/uploads (16 MB → 480 KB src), non-root, 3.4 → 3.05 GB. Day 10: dead code, 7 one-off DB scripts and `scripts/manual/` deleted; eval scripts → `backend/eval/`; `requirements.in` + generated UTF-8 lock, 191 → 157 packages (10 removed with their orphans, no surviving version moved), `src/requirements.txt` deleted; ruff F401 (15 imports); image 3.05 → 2.55 GB. **Still open:** the installer in git history — purge decision on Day 60 |
 
 ---
 

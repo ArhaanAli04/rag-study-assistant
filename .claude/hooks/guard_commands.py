@@ -28,7 +28,8 @@ DELETE_COMMANDS: frozenset[str] = frozenset({"rm", "remove-item", "ri", "del", "
 # Commands that merely mention SQL keywords while searching, so a DROP match there is harmless.
 SEARCH_COMMANDS: frozenset[str] = frozenset({"grep", "rg", "findstr", "select-string", "sls", "git"})
 PROTECTED_DIRS: frozenset[str] = frozenset(
-    {".", "*", "/", "~", "src", "frontend", "docs", "docs/briefs", "tests", "alembic", ".claude", ".git"}
+    {".", "*", "/", "~", "src", "backend", "backend/app", "backend/tests", "frontend", "docs",
+     "docs/briefs", "tests", "alembic", ".claude", ".git"}
 )
 
 # Matched against each command segment with quoted strings blanked out, so text inside a
@@ -50,10 +51,6 @@ PATTERN_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (re.compile(r"\bgit\b.*\bstash\s+(drop|clear)\b"), "`git stash drop/clear` deletes stashed work"),
     (re.compile(r"\bgit\b.*\bbranch\b.*\s-D\b"), "`git branch -D` force-deletes a branch"),
-    (
-        re.compile(r"\b(python\d*(\.exe)?|py)\b.*\brecreate_db\.py\b", re.IGNORECASE),
-        "recreate_db.py deletes data/app.db and recreates empty tables",
-    ),
     (re.compile(r"\bredis-cli\b.*\bflush(all|db)\b", re.IGNORECASE), "FLUSHALL/FLUSHDB wipes every Redis cache"),
     (
         re.compile(r"\balembic\b.*\bdowngrade\b", re.IGNORECASE),
@@ -106,9 +103,14 @@ def normalize_target(raw: str, root: str) -> str:
 
 
 def is_app_data(target: str) -> bool:
-    """True for the SQLite database or anything under src/data/ (users, sessions, messages)."""
+    """True for the SQLite database or anything under backend/data/ (users, sessions, messages).
+
+    src/data stays covered: checkouts from before Day 7 still keep their database there.
+    """
     lowered = target.lower()
-    return lowered.endswith("app.db") or lowered == "src/data" or lowered.startswith("src/data/")
+    return lowered.endswith("app.db") or any(
+        lowered == root or lowered.startswith(f"{root}/") for root in ("backend/data", "src/data")
+    )
 
 
 def is_protected_dir(target: str) -> bool:

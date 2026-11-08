@@ -1,6 +1,6 @@
 # Post 8 — Features: a study assistant that knows what you don't know yet
 
-Publish after: Day 49 (v0.7.0, features restyled) · Fed by days: 36–45, 46–49 · Format: short demo video + 3–4 images
+Publish after: Day 59 (v0.9.0, features restyled) · Fed by days: 39, 44–52, 56–59 · Format: short demo video + 3–4 images
 
 ## Hook
 Most "chat with your notes" apps stop at chat. Mine tracks what you've mastered — every quiz
@@ -23,7 +23,7 @@ concept map coloured by what you don't know yet, and an "explain it back" tutor.
 - Spaced repetition (SM-2)
 - Citation grounding all the way to a highlighted passage
 
-## Slide / video outline
+## Outline (post + video)
 1. Hook
 2. Demo: upload → concepts extracted → chat with citations that open the highlighted page
 3. Demo: adaptive Practice quiz → mastery updates on Progress

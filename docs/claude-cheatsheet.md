@@ -8,6 +8,7 @@
 | `/run-day <N>` | Start a timeline day, e.g. `/run-day 1`. Reads Day N of `docs/timeline.md` and every tracker ID it names, writes `docs/briefs/dayNN.md`, and stops for your approval; then implements checkpoint by checkpoint. The default way to start each day. |
 | `/run-item <ID>` | Work on one tracker item outside the timeline, e.g. `/run-item G6`, or a coupled group, `/run-item I4,I5,I6`. Writes a brief to `docs/briefs/<ID>.md` and stops for your approval before implementing. |
 | `/pre-commit` | Before every commit: compile check, `pytest tests`, diff review against CLAUDE.md rules, frontend/Docker builds when relevant. Reports only — no git writes. |
+| `/ship commit "<msg>"` · `/ship merge` | The only skill that writes to git. `commit`: safety scan (no `.env`, runtime data, `*.db`, secrets), stage, show renames, ask yes → commit, push, draft PR into `develop`, watch CI. `merge`: clean tree + green CI, ask yes → merge commit (never squash), delete branch, pull `develop`. Releases stay manual. |
 
 Both live in `.claude/skills/`. Only you can start them; Claude won't invoke them on its own.
 
@@ -56,8 +57,10 @@ The full command-by-command checklist (setup, PRs, release days, Days 1–3 exce
 6. Watch it implement, confirming each checkpoint. If context gets heavy: /clear → resume prompt
 7. /pre-commit → review the report and the diff
 8. Tracker rows → Done (+ notes, before/after numbers), CLAUDE.md Current Status (or ask Claude)
-9. You: git status → git add -A → git commit → git push → PR into develop → merge
-10. git checkout develop ; git pull origin develop
+9. /ship commit "day NN - description" → safety scan, staged summary, you answer yes → commit,
+   push, draft PR into develop, CI watched (repeat at each commit point on refactor days)
+10. /ship merge → you answer yes → PR merged with a merge commit, branch deleted, develop pulled
+    (by hand instead: git status → git add -A → git commit → git push → gh pr create → gh pr merge)
 ```
 
 ## Anchor Prompt (when not using /run-day or /run-item)
@@ -107,10 +110,10 @@ For a single item: `Resume [ID]. Read docs/briefs/[ID].md …` with the /run-ite
 
 | Hook | When | What it does |
 |---|---|---|
-| Command guard | Before every Bash/PowerShell command | Blocks `git reset --hard`, `checkout .`, `restore .`, `clean -f`, force-push, `stash drop/clear`, `branch -D`; recursive deletes of source dirs; deleting `src/data` or `app.db`; `recreate_db.py`; Redis `FLUSHALL/FLUSHDB`; `alembic downgrade`; SQL `DROP` |
+| Command guard | Before every Bash/PowerShell command | Blocks `git reset --hard`, `checkout .`, `restore .`, `clean -f`, force-push, `stash drop/clear`, `branch -D`; recursive deletes of source dirs; deleting `backend/data`, `src/data` or `app.db`; Redis `FLUSHALL/FLUSHDB`; `alembic downgrade`; SQL `DROP` |
 | Session context | Start, resume, `/clear`, `/compact` | Adds git state, last commit, and In Progress items with their brief paths to Claude's context |
 | Ruff bug-only check | After Claude edits a `.py` file | `ruff check --select E9,F63,F7,F82` on that file; findings go back to Claude to fix |
-| Edit reminders | After Claude edits a trap file | One-line notes: requirements encoding, Alembic, the two chat endpoints, `user_id` scoping, prompt layout |
+| Edit reminders | After Claude edits a trap file | One-line notes: requirements.in vs the generated lock, Alembic, the SSE contract in `chat_pipeline.py`, `user_id` scoping, prompt layout |
 
 Scripts live in `.claude/hooks/`; review or disable them with `/hooks`. The guard is a seatbelt
 against accidents, not a security boundary.
@@ -133,7 +136,7 @@ against accidents, not a security boundary.
 | `~/.claude/CLAUDE.md` | Global personal preferences |
 | `docs/improvements.md` | Evidence and direction for every item ID |
 | `docs/improvement-tracker.md` | Status of every item (you update it) |
-| `docs/timeline.md` | 51-day build plan — what `/run-day` reads (edit here, regenerate the docx) |
+| `docs/timeline.md` | 61-day build plan — what `/run-day` reads (edit here, regenerate the docx) |
 | `docs/briefs/dayNN.md` | Per-day brief and Outcome — your study notes |
 | `docs/posts/` | LinkedIn series: 9 post outlines; `/run-day` appends each day's material log (mapping in `README.md`) |
 | `docs/briefs/<ID>.md` | Per-item brief and Outcome (from `/run-item`) |
@@ -141,5 +144,6 @@ against accidents, not a security boundary.
 | `.claude/skills/run-day/SKILL.md` | `/run-day` workflow |
 | `.claude/skills/run-item/SKILL.md` | `/run-item` workflow |
 | `.claude/skills/pre-commit/SKILL.md` | `/pre-commit` checks |
+| `.claude/skills/ship/SKILL.md` | `/ship` commit + PR + merge |
 | `.claude/settings.json` | Hook registration |
 | `.claude/hooks/*.py` | Hook scripts |

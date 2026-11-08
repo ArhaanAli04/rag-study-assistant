@@ -153,6 +153,8 @@ class FakeGenaiClient:
     """Drop-in for google.genai.Client; every instance shares one FakeGemini script."""
 
     gemini: FakeGemini = FakeGemini()
+    instances: int = 0  # constructions so far; each real one costs ~3 s, so the app builds one
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
+        FakeGenaiClient.instances += 1
         self.models = _FakeModels(FakeGenaiClient.gemini)

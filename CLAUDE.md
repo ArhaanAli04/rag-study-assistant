@@ -31,31 +31,39 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  4cd0d14 day 08 - test_docx_pdf_utils real assertions + B5 strict xfail, on
-              feature/day08-refactor-modules → PR #10 (draft) into develop; Checkpoint 6 docs
-              (Day 8 outcome, post 9 line, B5 known issue, this block) still to commit. Before it:
-              014be69 lazy OCR/table imports, 27067b6 pure moves (42 renames)
+Last commit:  51f4a43 day 09 - one router per area under api/routes, on
+              feature/day09-routers-di → PR #11 (draft) into develop, CI green on all 5 commits
+              (c533056 Gemini client, 67c3eb2 B2, f499a76 ChatPipeline, 00e9bea auth move R100,
+              51f4a43 routers). Checkpoints 5 + 6 (factory + lifespan, docs, this block) still
+              to commit
 Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. v0.1.0 = Days 0–3;
               v0.1.1 = unused frontend imports removed (Vercel builds with CI=true, which fails
-              on ESLint warnings). develop has Days 4–7 (PR #8) and the /ship skill (PR #9).
-              Days 4–8 reach master with the Day 10 release (v0.2.0) — the
+              on ESLint warnings). develop has Days 4–8 (PRs #8, #10) and the /ship skill (PR #9).
+              Days 4–9 reach master with the Day 10 release (v0.2.0) — the
               first PR-based release (PR develop → master, merge commit, then tag)
-Uncommitted:  Checkpoint 6 docs: CLAUDE.md, docs/briefs/day08.md, docs/posts/09-launch-recap.md
-Untracked:    none (planning docx/pdf files, the Tesseract installer — now alone in the old
-              root tests/samples/ — and post screenshots in docs/posts/assets/ are gitignored)
-Day 8:        backend/app/ regrouped into db/ ingestion/ (parsers/ ocr/ tables/) retrieval/
-              (web/) generation/ services/ (caches/) schemas/ — pure moves, all 42 recorded as
-              renames; main.py's 9 request models now in schemas/. Still flat: main.py and
-              routes/ (Day 9), eval + one-off scripts and dead code (Day 10). 4 known layering
-              exceptions listed in docs/architecture/layout.md. img2table, camelot, pytesseract
-              and cv2 imported lazily. test_docx_pdf_utils now opens its samples and asserts
-              real content; it found B5 (deskew rotates scans 90°, strict xfail until Day 10).
-              Suite 134 passed + 2 xfailed (B3, B5) on host, container and CI. app.main import
-              still ~24 s (23–25 s measured): each google.genai.Client costs ~3 s to build and
-              main.py builds several — Day 9 tackles it. Notes in docs/briefs/day08.md
-Next:         merge PR #10 into develop, then Day 9 (/run-day 9): routers + app factory with
-              lifespan and Depends, one ChatPipeline (delete POST /chat — confirm), B2, one
-              keyword safety list, one shared Gemini client and no startup embedding call
+Uncommitted:  Checkpoints 5 + 6: backend/app/main.py, backend/tests/{conftest,fakes,
+              test_app_factory}.py, CLAUDE.md, docs/{timeline,improvements,improvement-tracker}.md,
+              docs/architecture/layout.md, docs/briefs/day09.md, docs/posts/09-launch-recap.md,
+              .claude/hooks/edit_reminders.py
+Untracked:    backend/tests/test_app_factory.py (planning docx/pdf files, the Tesseract installer
+              and post screenshots in docs/posts/assets/ are gitignored)
+Day 9:        main.py 1353 → 66 lines: create_app() + lifespan builds every long-lived object once
+              (services/container.py → app.state.services, reached via api/deps.py Depends); 9
+              routers in api/routes/ (auth moved as its own R100 commit). One shared Gemini client
+              (was 5 at import + 2 on the first concept map), no startup embedding call
+              (EMBEDDING_DIM = 3072, confirmed live). One ChatPipeline behind /chat/stream; POST
+              /chat deleted. B2 fixed (cap 30 not 0.3, thresholds in retrieval/confidence.py).
+              One UNSAFE_KEYWORDS list ("die"/"nuke" false positives dropped). Concept maps share
+              the app's retrieval service (R5 half done). Suite 157 passed + 2 xfailed (B3, B5) on
+              host and container; test_api_smoke.py unchanged. app.main import 9.5–10.4 s (was
+              23.8–25.8 s; the rest is library imports — genai SDK 2.75 s, parsers 2.44 s); host
+              server start 14.1 s (was ~24 s). 17/17 live API checks. Eval scripts now fail at
+              import (owner: leave for Days 10–12). Notes in docs/briefs/day09.md
+Next:         commit Checkpoints 5 + 6 (/ship commit), owner's browser check (zero frontend
+              edits), /ship merge PR #11. Then Day 10 (/run-day 10) — release day: dead code + deps
+              (T3), B3, B5, eval scripts → backend/eval/, then develop → master as v0.2.0. Release
+              notes must list the 3 user-visible changes from Day 9: POST /chat removed, B2 cap
+              30, merged safety list (docs/briefs/day09.md#outcome)
 Blockers:     none. Local runtime state was moved by hand to backend/{data,uploads,logs}; a
               checkout from before Day 7 must do the same (Move-Item src\data, src\uploads,
               src\logs backend\) or the app starts with an empty database
@@ -69,16 +77,16 @@ Blockers:     none. Local runtime state was moved by hand to backend/{data,uploa
 rag-study-assistant/
 ├── backend/                  ← the Python project; run the app from here (CWD = backend/)
 │   ├── app/                  ← the package, imported as `app.*` (Day 7), regrouped Day 8
-│   │   ├── main.py           ← FastAPI app: all routes, most chat logic, global singletons (split Day 9)
-│   │   ├── core/             ← config.py (Settings), logging.py, request_id.py, security.py, errors.py
+│   │   ├── main.py           ← create_app() + lifespan (Day 9); `app = create_app()` is what uvicorn serves
+│   │   ├── api/              ← deps.py (get_db, current user, services from app.state); routes/ — one router per area
+│   │   ├── core/             ← config.py (Settings), logging.py, request_id.py, security.py, errors.py, gemini.py
 │   │   ├── db/               ← database.py (Base, engine, ORM models, startup migrations), models/concept_map.py
 │   │   ├── ingestion/        ← pipeline, chunking, upload storage; parsers/, ocr/, tables/
 │   │   ├── retrieval/        ← embeddings, FAISS, BM25, retrieval service, rerank, decomposition, web/
 │   │   ├── generation/       ← llm_client.py, topic_classifier.py, concept_extractor.py
-│   │   ├── services/         ← documents, sessions, accounts, concept maps, chat guards, oauth; caches/
-│   │   ├── schemas/          ← Pydantic request/response models (concept_maps, chat, auth, …)
-│   │   ├── routes/auth_routes.py ← Google OAuth login/callback, /auth/logout (→ api/routes Day 9)
-│   │   └── *.py              ← still flat: eval scripts, one-off DB scripts, dead code (Day 10)
+│   │   ├── services/         ← container.py (composition root), chat_pipeline, quiz, documents, sessions, accounts, concept maps, chat guards, oauth; caches/
+│   │   ├── schemas/          ← Pydantic request/response models (concept_maps, auth, documents, …)
+│   │   └── *.py              ← still flat: eval scripts (broken since Day 9: they import removed `app.main` globals), one-off DB scripts, dead code (Day 10)
 │   ├── tests/                ← offline pytest suite (conftest fakes Gemini, Tavily, Redis) + samples/
 │   ├── data/                 ← app.db (SQLite), faiss_indexes/ — gitignored
 │   └── logs/, uploads/       ← runtime output — gitignored
@@ -105,17 +113,18 @@ and the known exceptions to the downward-only dependency rule, are in `docs/arch
 
 | Area | Modules | Notes |
 |---|---|---|
-| Core (Day 7) | `core/config.py`, `core/logging.py`, `core/request_id.py`, `core/security.py`, `core/errors.py` | `Settings`: every env var, read once at import. `request_id`: per-request ID (`X-Request-ID`) stamped on log lines by `RequestIdFilter`. `security`: JWT, password hashing, and (until Day 9's `api/deps.py`) `get_db` / `get_current_user*`. `logging`: rotating file + console handlers, G8 redaction |
-| App & data | `main.py`, `db/database.py`, `db/models/concept_map.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `db/database.py`: Base, SQLite engine, ORM models, startup column migrations. `ingestion/models.py`: `DocumentChunk` data model. `account_service.py`: `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1). `schemas/`: the request models formerly in `main.py` |
-| Auth | `core/security.py`, `routes/auth_routes.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
+| Core (Day 7) | `core/config.py`, `core/logging.py`, `core/request_id.py`, `core/security.py`, `core/errors.py`, `core/gemini.py` | `Settings`: every env var, read once at import. `request_id`: per-request ID (`X-Request-ID`) stamped on log lines by `RequestIdFilter`. `security`: JWT encode/decode and password hashing only — no DB access since Day 9. `gemini.py`: `build_gemini_client()`, the only place a `genai.Client` is built. `logging`: rotating file + console handlers, G8 redaction |
+| App & wiring (Day 9) | `main.py`, `services/container.py`, `api/deps.py`, `api/routes/{health,auth,users,documents,chat,sessions,feedback,quiz,concepts}.py` | `main.py`: `create_app()` (middleware, routers, handlers — no I/O) and the lifespan (`init_db()`, `build_services()` onto `app.state.services`, Redis closed on shutdown). `container.py`: the `Services` dataclass — one Gemini client, one FAISS + BM25, caches, `ChatPipeline`, `ConceptMapService`. `deps.py`: `get_db`, `get_current_user` (Bearer), `get_user_from_query_token` (SSE `?token=`), `get_services`. Routers are thin except the CRUD SQL in sessions / documents / users / feedback (Day 13) |
+| Data | `db/database.py`, `db/models/concept_map.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `db/database.py`: Base, SQLite engine, ORM models, startup column migrations (split into `db/session.py` + `db/models/` on Day 13). `ingestion/models.py`: `DocumentChunk` data model. `account_service.py`: `authenticate_user`, `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
+| Auth | `core/security.py`, `api/routes/auth.py`, `api/deps.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
 | Ingestion | `ingestion/{indexing_pipeline,chunk_builder,chunking,text_preprocessing,file_hash,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/document_service.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
 | OCR / tables | `ingestion/parsers/unified.py`, `ingestion/ocr/{ocr,image_preprocessing}.py`, `ingestion/tables/{pdf_tables,tables}.py` | not reachable from `/upload` (images are rejected) |
-| Indexes | `retrieval/{embeddings,index_builder,vector_store,keyword_index}.py` | in-memory FAISS + BM25 (see Known Issues) |
-| Retrieval | `retrieval/{retrieval_service,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `reranker.py` does no real reranking |
-| Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient` |
-| Sessions & caches | `services/session_service.py`, `services/chat_guards.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | |
+| Indexes | `retrieval/{embeddings,index_builder,vector_store,keyword_index}.py` | in-memory FAISS + BM25 (see Known Issues). `EMBEDDING_DIM = 3072` in `embeddings.py`, sent as `output_dimensionality`; FAISS is sized from it (no startup embedding call since Day 9) |
+| Retrieval | `retrieval/{retrieval_service,confidence,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `confidence.py`: the 0–100 scale and every threshold on it (B2) — compare only against these names. `reranker.py` does no real reranking. `RetrievalService` takes its Redis caches by injection (typed by `Protocol`s) |
+| Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient`; every class takes the shared `genai.Client` |
+| Chat & caches | `services/chat_pipeline.py`, `services/session_service.py`, `services/chat_guards.py`, `services/quiz_service.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | `ChatPipeline`: the one chat pipeline (behind `/chat/stream`). `chat_guards.py`: the injection phrases and the one unsafe-keyword list (G3 replaces both) |
 | Concept maps | `services/concept_map_service.py`, `retrieval/concept_map_retriever.py`, `generation/concept_extractor.py`, `schemas/concept_maps.py` | |
-| Eval / experiments | `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | non-functional or print-only; all import `main` |
+| Eval / experiments | `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | non-functional or print-only; they import globals `app.main` no longer has (Day 9), so they fail at import until Days 10–12 rewrite them on `build_services()` |
 | Ad-hoc scripts | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; the old `src/test_*.py` manual scripts now live in `scripts/manual/` (Day 5) | the `app/` scripts run as `python -m app.<name>` from `backend/`; the manual scripts call live services, still use pre-Day 7 paths (Day 10) and are never collected by pytest (`pytest.ini` → `backend/tests/` only) |
 | Dead code | `frontend.py` (Streamlit stub), `document_delete_service.py` (never called) | |
 
@@ -165,18 +174,20 @@ row is moved to the new per-user copy (the shared legacy file is left alone) →
 FAISS add + BM25 rebuild → `User.doc_version += 1`. An identical re-upload is still re-indexed
 (duplicate chunks, I6).
 
-**Chat** — the frontend only calls `GET /chat/stream` (`ChatWindow.js`); `POST /chat` is an
-older, divergent copy of the same pipeline.
-1. Auth from the `?token=` query param → keyword safety check → semantic cache lookup (a hit is replayed as SSE)
+**Chat** — `GET /chat/stream` (`api/routes/chat.py`) → `ChatPipeline.answer` (`services/chat_pipeline.py`);
+the only chat endpoint since Day 9 (`POST /chat`, a divergent copy, was deleted). Steps 1–6 run
+before the response starts, so a retrieval failure is a normal HTTP 500; generation runs while streaming.
+1. Auth from the `?token=` query param (`get_user_from_query_token`) → injection-phrase and unsafe-keyword checks (`chat_guards.py`) → semantic cache lookup (a hit is replayed as SSE)
 2. Get/create session → load the last 20 messages → log the user message → LLM topic tagging while the session topic is "General"
 3. `QueryDecomposer` (regex split) → for each sub-query, `hybrid_retrieve`: L1 in-process cache → FAISS + BM25 → min-max normalize → 0.6/0.4 fusion → confidence heuristic (0–100) → Tavily chunks (always: 3 if confidence < 60, else 2) → "rerank" (re-sort by existing score) → top 5 → parent-page expansion
 4. `SimpleContextCompressor`: top 6 chunks, 800 characters each
-5. Grounding level from confidence: strict ≥ 70, loose ≥ 30, else none (model knowledge allowed)
+5. Grounding level from confidence (`retrieval/confidence.py`): strict ≥ 70, loose ≥ 30, else none (model knowledge allowed)
 6. Gemini payload: system instruction (grounding + answer-mode rules) + prior turns as `contents` + a final user turn holding the retrieved context and the question
 7. SSE events: `metadata` → `token`… → `message_id` → `[DONE]`; then the answer is stored in the semantic cache. Queries with confidence < 30 are logged to `failed_queries`.
 
 **Concept map** — `POST /api/concepts/generate` → `ConceptMapService` → `ConceptMapRetriever`
-(web by default; the documents path is broken, see Known Issues) → `ConceptExtractor` (Gemini,
+(web by default; since Day 9 it shares the app's `RetrievalService`, but the UI hard-codes
+`useDocuments = false` — R5, Day 17) → `ConceptExtractor` (Gemini,
 JSON parsed by hand) → saved as `ConceptMap` / `ConceptMapNode` → React Flow + dagre layout.
 
 **Quiz** — `POST /quiz`: a single Gemini prompt built from the topic alone (general knowledge,
@@ -202,7 +213,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
 - Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
-- Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called at the top of both chat endpoints; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); keyword safety lists differ between endpoints (G3)
+- Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called first in `ChatPipeline`; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); the unsafe-topic check is one 6-keyword substring list in `chat_guards.py` since Day 9 ("bomb" still matches "bombardment") — G3 replaces it
 - RAGAS eval is non-functional (E1); word-overlap metrics (E2); hardcoded sample eval data and no retrieval metrics (E4)
 - Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
 - Alembic is configured but effectively unused (see Known Issues)
@@ -254,7 +265,7 @@ Found while writing this file; evidence and direction live under each ID.
 | Re-uploading an identical file duplicates its chunks | I6 | P1 |
 | Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
 | Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
-| Confidence compared on the wrong scale (`/chat` thresholds, forced-web cap) | B2 | P1 |
+| Fixed Day 9: confidence compared on the wrong scale. `POST /chat`'s 0.7 / 0.3 grounding went with the endpoint; the forced-web cap is 30, not 0.3; every threshold is a named constant in `retrieval/confidence.py`. Thresholds still unvalidated (E4, Day 11) | B2 | Done |
 | Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` and are never collected | T1 | Done |
 | Image and PPTX-slide table extraction silently returns nothing: three OpenCV wheels share `cv2` and a non-contrib build wins (confirmed in the backend image too); `test_table_extraction_on_image` is a strict xfail until the Day 10 fix | B3 | P1 |
 | Image deskew (`preprocess_image`) counts the white background as text, OpenCV 4.5+ reports 90°, so scans are rotated sideways and the unified parser's OCR returns `''`. Not reachable today (`/upload` rejects images; PPTX OCR uses another function); `test_unified_parser_image` is a strict xfail until the Day 10 fix | B5 | P2 |
@@ -271,10 +282,11 @@ Found while writing this file; evidence and direction live under each ID.
 - **Configuration comes only from `app.core.config.settings`** (Day 7). No `os.getenv` or `load_dotenv` in `backend/app/`; a new variable is a `Settings` field plus an `.env.example` entry. Secrets are `SecretStr`: read them with `.get_secret_value()` at the call site and never log `settings`. `settings` is built once at import, so tests override fields with `monkeypatch.setattr(settings, ...)`; a later `setenv` doesn't reach it.
 - **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
-- **`/chat` and `/chat/stream` duplicate the pipeline.** Mirror any change in both until they are consolidated (see Open Decisions). The frontend uses only `/chat/stream`.
+- **One chat pipeline, one SSE contract.** All chat logic lives in `services/chat_pipeline.py`; the frame order (`metadata` → `token`… → `message_id` → `[DONE]`; refusals without `message_id`) is a contract with `ChatWindow.js`, checked by `test_api_smoke.py`. Change both sides the same day or not at all.
+- **Long-lived objects are built only in `services/container.py`** (called from the lifespan) and reached through `Depends(get_services)`. No module-level clients or singletons, and no class builds its own `genai.Client` or Redis client — take it as a constructor argument. Importing `app.main` must stay free of network calls (`test_app_factory.py`).
 - **Retrieved text is untrusted** (uploaded documents and web pages). Never put it in the system instruction; keep it delimited in the final user turn (G5).
 - **Keep the prompt prefix stable.** Don't add new per-turn variation to the system instruction or the start of history; variable content belongs in the final user turn (CO4).
-- **Eval and experiment code must not `import main`.** Importing `main` builds the whole app (a Gemini embedding call, Redis and LLM clients). Construct `IndexBuilder` / `RetrievalService` directly.
+- **Eval and experiment code must not `import main`.** It gets its objects from `build_services()` (`services/container.py`) or constructs `IndexBuilder` / `RetrievalService` directly — `app.main` no longer exposes any of them.
 - **Measure retrieval and prompt changes** with the eval harness once E4 exists, and record before/after numbers in the tracker's Notes column.
 - **`requirements.txt` is UTF-16LE with CRLF.** Preserve the encoding when editing. Docker installs the root file; `src/requirements.txt` is a different, older local pin set (it adds `torch` and `transformers` and lacks `Authlib` and `bcrypt`), so don't treat it as a mirror (T3).
 - **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID).
@@ -293,7 +305,7 @@ Found while writing this file; evidence and direction live under each ID.
 There is no Makefile.
 
 ```powershell
-# Backend — GEMINI_API_KEY must be set: IndexBuilder makes an embedding call at startup
+# Backend — GEMINI_API_KEY must be set (settings validation); startup makes no Gemini call since Day 9
 .\venv\Scripts\Activate.ps1
 cd backend; uvicorn app.main:app --reload  # http://localhost:8000  (Swagger UI at /docs)
 
@@ -410,7 +422,7 @@ Auth       POST /register · POST /login · POST /change-password · GET /me
            GET /auth/google/login · GET /auth/google/callback · POST /auth/logout
 User       GET /user/profile · PUT /user/profile · GET /user/stats · DELETE /user/delete
 Documents  POST /upload · GET /documents · DELETE /documents/{doc_id} · POST /search
-Chat       GET /chat/stream (SSE, ?token=) · POST /chat · POST /messages/{message_id}/feedback
+Chat       GET /chat/stream (SSE, ?token=) · POST /messages/{message_id}/feedback
            GET /analytics/failed-queries
 Sessions   GET /sessions · GET /sessions/{session_id}/messages · DELETE /sessions/{session_id}
            PATCH /sessions/{session_id}/rename
@@ -456,7 +468,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 ## Open Decisions (ask the owner before acting)
 
 - **Migrations:** make Alembic the real path (fix the URL, import all models in `env.py`) vs. keep the `db/database.py` startup migrations. Either way, retire the one-off scripts.
-- **Chat endpoints:** delete `POST /chat` (the frontend only streams) vs. extract a shared pipeline that both call.
+- **Chat endpoints — decided 2026-11-08 (Day 9):** `POST /chat` deleted; one `ChatPipeline` behind `/chat/stream`. A JSON endpoint, if one is ever needed, must call the same pipeline.
 - **Index persistence — decided 2026-11-04:** pgvector + Postgres full-text on Supabase (Days 13–16), uploaded files in Supabase Storage (Day 15). Render's filesystem is ephemeral, so nothing durable stays on it; `qdrant-client` can go with the Day 10 dependency cleanup.
 - **Dependencies:** remove unused packages vs. keep those tied to planned items (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); reconcile or delete `src/requirements.txt`, which has drifted from the root file.
 - **Dead code and repo hygiene:** delete `MessageBubble.js`, `backend/app/frontend.py`, and `document_delete_service.py` (or wire it in). The Tesseract installer is untracked now but still in git history; purging it would need a history rewrite and force-push.

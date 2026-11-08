@@ -25,9 +25,10 @@ REMINDER_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
         "models. Review this revision for drop_table and don't run it without the user.",
     ),
     (
-        re.compile(r"^backend/app/main\.py$"),
-        "POST /chat and GET /chat/stream duplicate the chat pipeline. If this edit changed "
-        "pipeline logic, mirror it in the other endpoint; ignore this if it didn't.",
+        re.compile(r"^backend/app/services/chat_pipeline\.py$"),
+        "The SSE frame order (metadata → token… → message_id → [DONE]; refusals without "
+        "message_id) is a contract with frontend ChatWindow.js — keep it, or change both the "
+        "same day; test_api_smoke.py checks it.",
     ),
     (
         # (.+/)? keeps matching after Day 8 moves these into retrieval/ and services/caches/.

@@ -1,9 +1,10 @@
 # Backend package layout
 
-Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07).** Days 7–10 (Phase 3) move
-the backend from 62 flat modules in `src/` into the package below. This file is the map for those
-moves: each module has one target path and one day. After Day 8, only the Day 9 / Day 10 rows are
-still flat in `backend/app/`.
+Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07); Day 9 applied (2026-11-08).**
+Days 7–10 (Phase 3) move the backend from 62 flat modules in `src/` into the package below. This
+file is the map for those moves: each module has one target path and one day. After Day 9, only the
+Day 10 rows (eval and one-off scripts, dead code) are still flat in `backend/app/`; Day 9 deferred
+two rows to Days 13 and 15 (marked below).
 
 ## Target tree
 
@@ -53,10 +54,11 @@ Each has an owner day that removes it. Add new ones here, never silently.
 
 | Edge | Why it exists | Removed on |
 |---|---|---|
-| `retrieval/retrieval_service.py` → `services/caches/{query_cache,web_cache}` (upward) | `RetrievalService` calls the Redis cache helpers directly | Day 9, proposed (decide when wiring DI): caches injected into `RetrievalService` from the lifespan |
-| `ingestion/indexing_pipeline.py` → `retrieval/{index_builder,keyword_index}` (sideways) | the pipeline writes chunks into the indexes itself | Day 9, proposed (decide when wiring DI): indexing orchestration moves into a `services/` use case |
+| ~~`retrieval/retrieval_service.py` → `services/caches/{query_cache,web_cache}` (upward)~~ | `RetrievalService` called the Redis cache helpers directly | **Removed Day 9:** `QueryCache` / `WebCache` are injected from `services/container.py`; `RetrievalService` types them with `Protocol`s of its own |
+| `ingestion/indexing_pipeline.py` → `retrieval/{index_builder,keyword_index}` (sideways) | the pipeline writes chunks into the indexes itself | **Day 15** (deferred on Day 9): indexing orchestration moves into a `services/` use case when the indexes are rewritten for pgvector |
 | `retrieval/{vector_store,index_builder}.py` → `ingestion/models.py` (`DocumentChunk`, sideways) | the chunk dataclass is shared by both layers | Day 13: the pgvector chunk model replaces `DocumentChunk` |
-| `core/security.py` → `db/database.py` (upward from `core`) | `get_db` and `get_current_user*` still live in `security` | Day 9: they move to `api/deps.py` |
+| ~~`core/security.py` → `db/database.py` (upward from `core`)~~ | `get_db` and `get_current_user*` lived in `security` | **Removed Day 9:** they are in `api/deps.py`; `authenticate_user` is in `services/account_service.py` |
+| `api/routes/{sessions,documents,users,feedback}.py` hold CRUD SQL (rule 3) | Day 9 moved handlers body-for-body; only chat and quiz got service layers | **Day 13:** `db/repositories/`, written for Postgres |
 
 ## Module map
 
@@ -70,13 +72,14 @@ where each module ends up, and "Day" is when it gets there. A module whose targe
 | `config/oauth_config.py` | `core/config.py` (one `Settings` for every env var) | 7 |
 | `logger.py` | `core/logging.py` (+ request-ID filter) | 7 |
 | — | `core/request_id.py` (new: contextvar + ASGI middleware) | 7 |
-| `auth.py` | `core/security.py`; `get_db`, `get_current_user*` move to `api/deps.py` | 7 / 9 |
+| `auth.py` | `core/security.py`; `get_db`, `get_current_user` moved to `api/deps.py` (Day 9; the unused `get_current_user_optional` was deleted) | 7 / 9 |
+| — | `core/gemini.py` (new: `build_gemini_client()`, the only `genai.Client` construction) | 9 |
 | `error_handler.py` | `core/errors.py` | 7 |
 
 ### db
 | Current | Target | Day |
 |---|---|---|
-| `db.py` | `db/database.py` (pure move). The split into `db/session.py` (engine, `SessionLocal`, startup migrations) and `db/models/` (user, session, message, document, failed_query) comes on Day 9 with `api/deps.py` | 8 / 9 |
+| `db.py` | `db/database.py` (pure move). The split into `db/session.py` (engine, `SessionLocal`, startup migrations) and `db/models/` (user, session, message, document, failed_query) was planned for Day 9 and deferred: Postgres rewrites the engine on Day 13, so it is split once, then | 8 / 13 |
 | `concept_models.py` | `db/models/concept_map.py` | 8 |
 | — | `db/repositories/` | created when first needed (Postgres, Day 13+); no empty package before |
 
@@ -129,9 +132,10 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 ### services
 | Current | Target | Day |
 |---|---|---|
-| chat logic in `main.py` (`/chat/stream`, `/chat`) | `services/chat_pipeline.py`; `POST /chat` deleted (decision confirmed on Day 9) | 9 |
-| `chat_guards.py` | `services/chat_guards.py`; Day 9 merges the two keyword safety lists into it | 8 / 9 |
+| chat logic in `main.py` (`/chat/stream`, `/chat`) | `services/chat_pipeline.py` (`ChatPipeline`); `POST /chat` deleted (owner confirmed Day 9) | 9 |
+| `chat_guards.py` | `services/chat_guards.py`; Day 9 merged the two keyword safety lists into `UNSAFE_KEYWORDS` | 8 / 9 |
 | quiz logic in `main.py` | `services/quiz_service.py` | 9 |
+| singletons in `main.py`, `topic_classifier.py`, `concept_map_service.py` | `services/container.py`: `Services` + `build_services()`, called by the lifespan | 9 |
 | `document_service.py` | `services/document_service.py` | 8 |
 | `session_service.py` | `services/session_service.py` | 8 |
 | `account_service.py` | `services/account_service.py` | 8 |
@@ -150,9 +154,10 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 ### api
 | Current | Target | Day |
 |---|---|---|
-| `routes/auth_routes.py` | `api/routes/auth.py` (Google OAuth + `/auth/logout`, joined by `/register`, `/login`, `/change-password`, `/me`) | 9 |
-| routes in `main.py` | `api/routes/{users,documents,chat,sessions,quiz,concepts,health}.py` | 9 |
-| `main.py` | `app/main.py`: app factory; lifespan builds the LLM client, embedding service, retrieval service and Redis clients on `app.state` | 9 |
+| `routes/auth_routes.py` | `api/routes/auth.py` (Google OAuth + `/auth/logout`, joined by `/register`, `/login`, `/change-password`, `/me`); moved as its own commit (R100) | 9 |
+| routes in `main.py` | `api/routes/{users,documents,chat,sessions,feedback,quiz,concepts,health}.py` — `feedback` (feedback + failed-queries) was not in the Day 7 list | 9 |
+| — | `api/deps.py`: `get_db`, `get_current_user`, `get_user_from_query_token`, `get_services` | 9 |
+| `main.py` | `app/main.py`: `create_app()` + lifespan (`init_db()`, `build_services()` on `app.state.services`, Redis closed on shutdown) | 9 |
 
 ### eval, scripts, dead code
 | Current | Target | Day |

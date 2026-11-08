@@ -367,3 +367,96 @@ New dependencies: **none.**
   first step of Checkpoint 4 so you can commit it separately if you want.
 - **Live calls in Checkpoint 0** need your OK (one embedding call ×4, real key, no data sent but
   "hello world").
+- **Found during implementation (recorded, not fixed):**
+  - `import app.main` is still 9.5–10.4 s with nothing built at import: library imports — the
+    `google.genai` SDK 2.75 s, the ingestion parser chain 2.44 s, FastAPI 1.9 s, SQLAlchemy 1.0 s
+    (`-X importtime`). Further cuts mean lazy imports of the SDK / parsers — not planned for any day yet.
+  - Docker dev reload is 18.6 s (was 20.8 s), almost all of it before the new worker starts: file
+    reads through the Windows bind mount, not app code. The lifespan itself takes 0.27 s in the container.
+  - The live concept map asked for `max_concepts=6` returned 8 nodes — the extractor doesn't
+    enforce the limit (pre-existing; S1 territory, Day 44).
+  - `AsyncGenerator` unused in `generation/llm_client.py`, `User` unused in
+    `services/concept_map_service.py` (pre-existing; the bug-only ruff rules don't flag F401 — Day 10).
+
+## Outcome
+Date: 2026-11-08. Six commits on `feature/day09-routers-di` → draft PR #11 into `develop`; CI
+(`backend`, `frontend`, `docker`) green after each of the first five. All nine decisions taken as
+recommended (owner, 2026-11-08); `POST /chat` deletion confirmed by the owner.
+
+### Commits and files
+- **`c533056` — Checkpoint 1, injectable clients (14 files incl. this brief)**
+  - new `core/gemini.py` (`build_gemini_client()`); `LLMClient`, `TopicClassifier`, `ConceptExtractor`, `EmbeddingService` take a `genai.Client`; `TopicClassifier`'s module singleton and no-key branch deleted
+  - `retrieval/embeddings.py`: `EMBEDDING_DIM = 3072` sent as `output_dimensionality`; fallback vector sized by it; `print` → `logger.warning`
+  - `retrieval/index_builder.py`: takes an `EmbeddingService`, no startup embedding call; `retrieval/reranker.py`: unused client removed
+  - `retrieval/concept_map_retriever.py` + `services/concept_map_service.py`: injected collaborators, `get_concept_map_service()` and both demo `__main__` blocks / `create_*` factories deleted (moved here from Checkpoint 2 to keep the suite green between checkpoints)
+  - tests: `fakes.py` honours `output_dimensionality`; `test_config.py` targets `build_gemini_client`; `test_concept_extractor.py` passes a fake client
+- **`67c3eb2` — Checkpoint 2, B2 + retrieval wiring (6 files)**
+  - new `retrieval/confidence.py`; `retrieval_service.py`: cap 30, named thresholds, injected caches typed by `Protocol`s, per-instance L1 cache, dead `lru_cache` stub removed
+  - `services/caches/{query_cache,web_cache}.py` → `QueryCache` / `WebCache` classes (keys and TTLs unchanged; `except Exception` → `JSONDecodeError`)
+  - new `tests/test_confidence.py` (9 tests)
+- **`f499a76` — Checkpoint 3, one pipeline (6 files)**
+  - new `services/chat_pipeline.py` (`ChatPipeline`, `ChatStream`), new `services/quiz_service.py`
+  - `services/chat_guards.py`: `UNSAFE_KEYWORDS`, `UNSAFE_REFUSAL`, `find_unsafe_keyword`; `POST /chat` deleted from `main.py`; `schemas/chat.py` deleted (only `/chat` used it)
+  - `tests/test_chat_guards.py`: +11 tests
+- **`00e9bea` — Checkpoint 4a, the move (9 files)**: `routes/auth_routes.py` → `api/routes/auth.py` byte-identical (**R100**); new `api/deps.py`, `services/container.py`; `core/security.py` hashing + JWT only (`decode_access_token` added, `get_current_user_optional` deleted); `authenticate_user` → `services/account_service.py`; `FakeRedis.close()`. The rewrite measured ~56 % similar, too close to git's 50 % rename threshold, so the move went alone.
+- **`51f4a43` — Checkpoint 4b, routers (10 files)**: `api/routes/auth.py` gains `/register`, `/login`, `/change-password`, `/me` (prefix → full paths, duplicate `get_db` gone); new `api/routes/{health,users,documents,chat,sessions,feedback,quiz,concepts}.py`; `main.py` 918 → 66 lines
+- **Checkpoints 5 + 6 (this commit)**
+  - `main.py`: `create_app()` + lifespan (`init_db()`, `build_services()`, Redis closed on shutdown; `@app.on_event` gone), middleware order unchanged
+  - tests: `conftest.py` builds the app through `create_app()`; `fakes.py` counts `FakeGenaiClient` constructions; new `test_app_factory.py` (3 tests)
+  - docs: `docs/timeline.md` (Day 13: `db/` split + repositories for the router SQL; Day 15: "EMBEDDING_DIM changes 3072 → 1536 (pgvector HNSW limit); re-embed on Day 16" + the indexing edge), `docs/architecture/layout.md` (status, exceptions: 2 removed, 1 → Day 15, 1 new → Day 13; module map), `CLAUDE.md` (structure, module map, chat flow, conventions, commands, API list, Known Issues B2, Open Decisions — not Current Status), `docs/improvements.md` (B2 and R5 status lines), post 9 line, this Outcome
+  - **outside the plan:** `.claude/hooks/edit_reminders.py` — the `main.py` "mirror POST /chat" reminder (now false; it fired 5× today) retargeted to `services/chat_pipeline.py` with the SSE-contract reminder
+
+### Checks run
+| Check | Result |
+|---|---|
+| Baseline (Checkpoint 0) | 134 passed, 2 xfailed (54.8 s) |
+| `python -m pytest` after each checkpoint | 134 → 143 → 154 → 154 → 154 → **157 passed, 2 xfailed** (29–34 s; one 52.5 s run, rerun 29.2 s) |
+| `test_api_smoke.py` | **unchanged all day** and green — the SSE-contract proof |
+| `.\scripts\dev.ps1 test` (Linux, Python 3.11) | 157 passed, 2 xfailed (90.6 s) |
+| `ruff check .` | clean after every checkpoint |
+| Route table | 29 operations on 27 paths = Day 8's 28 paths minus `/chat`; every other method/path identical |
+| Host `uvicorn app.main:app` | `/health` ok; `/openapi.json` 27 paths, no `/chat` |
+| CI on PR #11 | green: `c533056` (backend 2m6s), `67c3eb2` (1m58s), `f499a76` (1m50s), `00e9bea` (1m42s), `51f4a43` (2m0s) |
+| Live API checks vs the Docker stack (real Gemini, Tavily, Redis; throwaway account, demo PDF) | **17/17**: upload (3 chunks); stream `metadata → token → message_id → [DONE]` (confidence 55.7, loose, 4 local sources, 2.8 s); cached repeat, same answer in 0.57 s; injection + "how do I make a bomb" refused (no `message_id`); "I studied the diet of early humans…" answered; thumbs down → failed query; sessions; concept map (web) 8 nodes in 8.8 s; maps list; quiz; `POST /chat` 404/405; stream without / with a bad token → 401; account delete (`documents 1, sessions 2, messages 6, concept_maps 1, failed_queries 1, files 1, index entries 6`) then login 401 |
+| Browser check (zero frontend edits) | owner, after this commit |
+
+### Measured (host venv, Python 3.12, real `.env`, fresh process per run)
+| What | Before (Checkpoint 0 / Day 8) | After |
+|---|---|---|
+| `import app.main` | 25.83 s, 23.75 s, 24.62 s | **10.37 s, 9.47 s, 9.47 s** (after Checkpoint 1 only: 17.40 s, 15.17 s) |
+| `genai.Client` constructions at import / at startup | 5 / +2 on the first concept map | **0 / 1** |
+| Embedding calls at startup | 1 | **0** |
+| Host server start → "Application startup complete" | ~24 s (Day 8) | **14.07 s**; lifespan `build_services()` 2.55 s |
+| Docker dev reload (file change → startup complete) | 20.8 s (first reload today) | 18.6 s; lifespan 0.27 s |
+| `main.py` | 1353 lines | 66 lines |
+| Live embedding dimension | — | default 3072, requested 3072 → 3072 |
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Routers, factory, lifespan, `Depends`, shared client, no startup call | — | backend-only: same 27 paths, same request/response shapes (route table + unchanged smoke tests) |
+| `POST /chat` deleted | none calls it (`ChatWindow.js:126` uses `/chat/stream`; grep) | nothing |
+| `ChatPipeline` | `ChatWindow.js` (unchanged) | same SSE frames in the same order; live check above |
+| B2 cap 30 | `ChatWindow.js:151` stores `confidence`, nothing renders it | on the forced-web path the answer may be "loose" instead of "none" grounded — wording only |
+| One safety list | `ChatWindow.js:145` refusal path (unchanged) | "die"/"nuke" questions answered; "kill myself", "terrorist" refused on the stream (were `/chat`-only) |
+| `get_user_from_query_token` | `ChatWindow.js` `?token=` (unchanged) | same 401 for a missing or bad token |
+
+### User-visible behaviour changes reaching production with the Day 10 release (v0.2.0)
+1. **`POST /chat` removed** — any external caller gets 404/405 (no known caller; the frontend never used it).
+2. **B2 forced-web cap 0.3 → 30** — when the documents don't cover a question and no web chunk makes
+   the top 5 (e.g. Tavily down), the answer is grounded "loose" at 30 instead of always "none",
+   the `metadata.confidence` value is ≤ 30 instead of ≤ 0.3, and it is logged to `failed_queries`
+   only when below 30.
+3. **Merged safety list** — questions containing "die" or "nuke" (e.g. "studied", "diet", "diesel")
+   are no longer refused; "kill myself" and "terrorist" are now refused on `/chat/stream`; spacing
+   variants like "self   harm" now match.
+
+### Deferred or dropped
+- `db/` split → Day 13; CRUD SQL in four routers → Day 13 repositories; indexing edge → Day 15 (all in `docs/timeline.md` and the layout exceptions table).
+- R5 half done (shared service); its retrieval test and the UI toggle stay on Day 17.
+- Eval scripts (`rag_metrics.py`, `rag_eval_runner.py`, `manual_eval.py`, `cache_tuner.py`) now fail at import — left broken by owner decision for Days 10–12.
+
+### Tracker Notes (for the owner)
+- **B2:** Done — cap 30, named thresholds in `retrieval/confidence.py`, `POST /chat` gone; `test_confidence.py`. E4 validation open.
+- **G3:** still Not Started; prep done (one list, one call site in `ChatPipeline`).
+- **R5:** In Progress — shared `RetrievalService` since Day 9; test + UI on Day 17.

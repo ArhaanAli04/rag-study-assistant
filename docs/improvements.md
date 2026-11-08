@@ -70,6 +70,10 @@ extra `IndexBuilder` also costs a Gemini embedding call when the service is firs
 **Direction:** pass `main.py`'s shared `retrieval_service` into `ConceptMapRetriever`
 (through `get_concept_map_service`), and add a test that a document indexed through the
 pipeline is returned by the concept-map retriever.
+**Status (Day 9, 2026-11-08):** half done. `ConceptMapRetriever` now requires the app's shared
+`RetrievalService` (`services/container.py`), so the private empty index is gone
+(`test_app_factory.py` asserts the sharing). Still open for Day 17: the retrieval test above, and
+the UI — `CreateMapForm.js` hard-codes `useDocuments = false`, so users can't pick documents yet.
 
 ---
 
@@ -534,6 +538,11 @@ and the forced-fallback path ends in "none" grounding whenever no web chunk make
 same grounding thresholds everywhere (or consolidate the endpoints — open decision in
 `CLAUDE.md`), and set the cap to its intended value on the 0–100 scale. Validate the
 thresholds against retrieval eval results (E4).
+**Status (Day 9, 2026-11-08):** fixed. `POST /chat` was deleted (one `ChatPipeline` behind
+`/chat/stream`); the cap is `FORCED_WEB_CAP = 30.0`; the scale and every threshold are named in
+`backend/app/retrieval/confidence.py` (`grounding_level()` is the only grounding decision).
+`backend/tests/test_confidence.py` pins the forced-web path at 30 (was 0.3) and the threshold
+boundaries. Validation against E4 is still open (Day 11).
 
 ### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
 Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`

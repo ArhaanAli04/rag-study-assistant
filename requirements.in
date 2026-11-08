@@ -1,0 +1,67 @@
+# Direct dependencies: what the code in backend/ imports or needs at run time, one reason each.
+# This is the file to edit. requirements.txt is the generated lock (every transitive package
+# pinned); its header has the command that regenerates it. Never hand-edit the lock.
+# Pins are exact so a regeneration changes nothing unless a line here changes.
+
+# --- Web app ---------------------------------------------------------------------------------
+fastapi==0.122.0
+starlette==0.50.0              # imported directly (SessionMiddleware, ASGI types); fastapi pins the range
+uvicorn==0.38.0
+httptools==0.7.1               # uvicorn's fast HTTP parser (picked up automatically when installed)
+watchfiles==1.1.1              # uvicorn --reload watcher (docker-compose.override.yml)
+python-multipart==0.0.20       # FastAPI form/file uploads (POST /upload)
+itsdangerous==2.2.0            # starlette SessionMiddleware (Google OAuth state)
+pydantic==2.12.4
+pydantic-settings==2.12.0      # app.core.config.Settings
+email-validator==2.3.0         # pydantic EmailStr in schemas/auth.py
+
+# --- Auth ------------------------------------------------------------------------------------
+python-jose==3.5.0             # JWT (core/security.py)
+passlib==1.7.4                 # pbkdf2_sha256 password hashing
+Authlib==1.6.6                 # Google OAuth (services/oauth_service.py)
+
+# --- Data ------------------------------------------------------------------------------------
+SQLAlchemy==2.0.44
+alembic==1.17.2                # alembic/ (T2: made the real migration path on Day 13)
+redis==7.1.0                   # query, web and semantic caches
+
+# --- LLM, embeddings, retrieval --------------------------------------------------------------
+google-genai==1.52.0           # Gemini generation + embeddings (core/gemini.py)
+faiss-cpu==1.13.0              # vector index (retrieval/vector_store.py)
+rank-bm25==0.2.2               # keyword index (retrieval/keyword_index.py)
+numpy==2.2.6
+tqdm==4.67.1                   # progress bar in retrieval/index_builder.py
+tavily-python==0.7.13          # web search (retrieval/web/search_client.py)
+requests==2.32.5               # page fetches (retrieval/web/scraper.py)
+beautifulsoup4==4.14.2         # HTML parsing (retrieval/web/scraper.py)
+httpx==0.28.1                  # TestClient and test_request_id.py; also google-genai's transport
+
+# --- Document parsing, OCR, tables -----------------------------------------------------------
+PyMuPDF==1.26.6                # PDF text (fitz)
+pdfplumber==0.11.8             # PDF tables
+camelot-py==1.0.9              # PDF tables
+python-pptx==1.0.2
+python-docx==1.2.0
+pillow==12.0.0
+pytesseract==0.3.13            # needs the tesseract binary (Dockerfile apt layer, TESSERACT_PATH)
+pandas==2.3.3
+img2table==1.4.2               # tables in images / PPTX slide images
+# B3: camelot requires opencv-python-headless and img2table requires opencv-contrib-python-headless;
+# both install into the same cv2/ package. The Dockerfile and CI force-reinstall the contrib build
+# after this file so cv2.ximgproc (img2table) is complete. Keep the two versions equal.
+opencv-python-headless==4.12.0.88
+opencv-contrib-python-headless==4.12.0.88
+
+# --- Kept for planned work (not imported by the app today) -----------------------------------
+ragas==0.4.0                   # eval/rag_metrics.py; RAGAS vs a Gemini judge is decided on Day 12 (E1)
+datasets==4.4.1                # eval/rag_metrics.py
+instructor==1.13.0             # S1 structured extraction (also required by ragas)
+langgraph==1.0.3               # A1 agentic pipeline (Day 33)
+langsmith==0.4.47              # O1 tracing candidate (also required by langchain-core)
+tiktoken==0.12.0               # C1 token budgets (Day 31); also required by tavily-python
+
+# --- Tests (the image runs the suite: scripts/dev.ps1 test) ----------------------------------
+pytest==9.0.1
+
+# --- Packaging -------------------------------------------------------------------------------
+setuptools==80.9.0             # pinned in the old lock; pip freeze omits it, so it is kept explicit

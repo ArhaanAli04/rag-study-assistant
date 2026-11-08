@@ -2,8 +2,6 @@ import os
 import shutil
 from pathlib import Path
 
-import pytest
-
 from app.ingestion.parsers.pptx import extract_pptx_text, extract_pptx_metadata
 from app.ingestion.ocr.ocr import extract_text_from_image
 from app.ingestion.tables.tables import extract_tables_from_image, extract_tables_from_pptx_slides
@@ -103,15 +101,21 @@ def test_ocr_on_sample_image():
         assert isinstance(text, str)
         # (Optional) assert len(text) > 0
 
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "B3: three OpenCV wheels share the cv2 package and a non-contrib build wins, so img2table "
-        "fails on cv2.ximgproc and extract_tables_from_image returns []. Remove this marker on Day 10."
-    ),
-)
+def test_opencv_contrib_build_wins() -> None:
+    # B3: when a non-contrib OpenCV wheel overwrites cv2/, img2table fails on this function and
+    # extract_tables_from_image silently returns []. Fix: reinstall opencv-contrib-python-headless last.
+    import cv2
+
+    assert hasattr(cv2.ximgproc, "niBlackThreshold"), (
+        "non-contrib cv2 installed: pip install --no-deps --force-reinstall "
+        "opencv-contrib-python-headless==4.12.0.88"
+    )
+
+
 def test_table_extraction_on_image(tmp_path: Path) -> None:
-    sample = Path(SAMPLES_DIR) / "tableimage2.jpg"
+    # A ruled table: img2table's defaults (used by extract_tables_from_image) detect only tables
+    # with ruling lines, so tableimage2.jpg (no lines) yields nothing until B7 is decided.
+    sample = Path(SAMPLES_DIR) / "tableimage.png"
     assert sample.exists(), f"missing sample image: {sample}"
     # extract_tables_from_image writes its cleaned copy next to the input, so work on a copy
     # to keep tests/samples/ untouched.

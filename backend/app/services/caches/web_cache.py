@@ -1,29 +1,25 @@
 import json
-import redis
 from typing import Any, Dict, List, Optional
 
-from app.core.config import settings
+import redis
 
 WEB_CACHE_TTL_SECONDS = 3600  # 1 hour
 
 
-def _get_client():
-    return redis.from_url(settings.redis_url)
+class WebCache:
+    """Tavily chunks without embeddings (they are re-embedded on a hit), shared by all users."""
 
+    def __init__(self, redis_client: redis.Redis) -> None:
+        self.redis = redis_client
 
-def get_cached_web_results(query: str) -> Optional[List[Dict[str, Any]]]:
-    r = _get_client()
-    key = f"websearch:{query}"
-    val = r.get(key)
-    if not val:
-        return None
-    try:
-        return json.loads(val)
-    except Exception:
-        return None
+    def get(self, query: str) -> Optional[List[Dict[str, Any]]]:
+        val = self.redis.get(f"websearch:{query}")
+        if not val:
+            return None
+        try:
+            return json.loads(val)
+        except json.JSONDecodeError:
+            return None  # a corrupt entry is a miss; the fresh result overwrites it
 
-
-def set_cached_web_results(query: str, results: List[Dict[str, Any]]):
-    r = _get_client()
-    key = f"websearch:{query}"
-    r.setex(key, WEB_CACHE_TTL_SECONDS, json.dumps(results))
+    def set(self, query: str, results: List[Dict[str, Any]]) -> None:
+        self.redis.setex(f"websearch:{query}", WEB_CACHE_TTL_SECONDS, json.dumps(results))

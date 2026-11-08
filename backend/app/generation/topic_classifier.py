@@ -5,28 +5,14 @@ Uses the same Google GenAI SDK as llm_client.py
 import logging
 from typing import Dict
 from google import genai
-from app.core.config import settings
 
 logger = logging.getLogger("rag_assistant")
 
 class TopicClassifier:
-    def __init__(self):
-        """Initialize with Gemini API (matching llm_client.py style)"""
-        api_key = settings.GEMINI_API_KEY.get_secret_value()
-        
-        if not api_key:
-            logger.warning("GEMINI_API_KEY not found - topic classification disabled")
-            self.client = None
-            return
-        
-        try:
-            self.client = genai.Client(api_key=api_key)
-            self.model_name = "gemini-2.5-flash-lite"  # Fast and cheap for classification
-            logger.info(" LLM-based topic classifier initialized")
-        except Exception as e:
-            logger.error(f"Failed to initialize topic classifier: {e}")
-            self.client = None
-    
+    def __init__(self, client: genai.Client, model_name: str = "gemini-2.5-flash-lite") -> None:
+        self.client = client
+        self.model_name = model_name  # fast and cheap enough to run on a session's first messages
+
     def classify_topic(self, text: str) -> Dict:
         """
         Extract the primary academic subject/topic from user query
@@ -37,14 +23,6 @@ class TopicClassifier:
         Returns:
             dict with 'topic', 'confidence', and 'method' keys
         """
-        
-        # Fallback if client not initialized
-        if not self.client:
-            return {
-                'topic': 'General',
-                'confidence': 0.0,
-                'method': 'fallback'
-            }
         
         prompt = f"""Extract the primary academic subject from this student query.
 
@@ -118,6 +96,3 @@ Topic:"""
                 'confidence': 0.0,
                 'method': 'error_fallback'
             }
-
-# Singleton instance
-topic_classifier = TopicClassifier()

@@ -3,12 +3,10 @@ Hybrid Retrieval System for Concept Map Generation
 Wraps existing RetrievalService to provide concept-map-specific retrieval
 """
 
-from typing import List, Dict, Optional
+from typing import List, Dict
 import logging
 
 from app.retrieval.retrieval_service import RetrievalService
-from app.retrieval.index_builder import IndexBuilder
-from app.retrieval.keyword_index import BM25KeywordIndex
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,41 +18,11 @@ class ConceptMapRetriever:
     Specialized retriever for concept map generation
     Uses existing RetrievalService with concept-map-optimized settings
     """
-    
-    def __init__(self, retrieval_service: Optional[RetrievalService] = None):
-        """
-        Initialize the concept map retriever
-        
-        Args:
-            retrieval_service: Optional existing RetrievalService instance
-        """
-        if retrieval_service:
-            self.retrieval_service = retrieval_service
-        else:
-            # Create new instance
-            logger.info("Creating new RetrievalService instance...")
-            try:
-                # Initialize index builder and BM25
-                index_builder = IndexBuilder()
-                
-                # Try to load BM25 index if available
-                bm25_index = None
-                try:
-                    bm25_index = BM25KeywordIndex()
-                    logger.info("✅ BM25 index loaded")
-                except Exception as e:
-                    logger.warning(f"⚠️ BM25 index not available: {e}")
-                
-                self.retrieval_service = RetrievalService(
-                    index_builder=index_builder,
-                    bm25_index=bm25_index
-                )
-                logger.info("✅ RetrievalService initialized")
-                
-            except Exception as e:
-                logger.error(f"❌ Failed to initialize RetrievalService: {e}")
-                raise
-    
+
+    def __init__(self, retrieval_service: RetrievalService) -> None:
+        # The app's shared service: a private one searched an index /upload never wrote to (R5).
+        self.retrieval_service = retrieval_service
+
     
     def retrieve_for_concept_map(
         self,
@@ -260,49 +228,3 @@ class ConceptMapRetriever:
                 context_parts.append(result.get('text', ''))
         
         return "\n".join(context_parts)
-
-
-# Convenience function
-def create_concept_retriever(retrieval_service: Optional[RetrievalService] = None) -> ConceptMapRetriever:
-    """Create and return a ConceptMapRetriever instance"""
-    return ConceptMapRetriever(retrieval_service=retrieval_service)
-
-
-if __name__ == "__main__":
-    # Quick test
-    print("=" * 70)
-    print("  Testing ConceptMapRetriever")
-    print("=" * 70)
-    
-    try:
-        retriever = create_concept_retriever()
-        
-        test_topic = "Machine Learning"
-        test_user_id = "test_user"
-        
-        result = retriever.retrieve_for_concept_map(
-            topic=test_topic,
-            user_id=test_user_id,
-            use_documents=False,
-            use_web=True
-        )
-        
-        print(f"\n📊 Results for '{test_topic}':")
-        print(f"   Total: {result['sources']['total']}")
-        print(f"   Documents: {result['sources']['documents']}")
-        print(f"   Web: {result['sources']['web']}")
-        print(f"   Confidence: {result['confidence']:.1f}%")
-        
-        if result['combined_results']:
-            print(f"\n📝 Top 3 results:")
-            for i, r in enumerate(result['combined_results'][:3], 1):
-                source_type = r.get('metadata', {}).get('source_type', 'local')
-                print(f"\n{i}. [{source_type.upper()}]")
-                print(f"   Text: {r.get('text', '')[:150]}...")
-        
-        print("\n" + "=" * 70)
-        
-    except Exception as e:
-        print(f"\n❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()

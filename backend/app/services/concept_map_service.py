@@ -24,16 +24,10 @@ class ConceptMapService:
     Orchestrates retrieval, extraction, and database operations
     """
     
-    def __init__(self):
-        """Initialize the service with retriever and extractor"""
-        try:
-            self.retriever = ConceptMapRetriever()
-            self.extractor = ConceptExtractor()
-            logger.info(" ConceptMapService initialized")
-        except Exception as e:
-            logger.error(f" Failed to initialize ConceptMapService: {e}")
-            raise
-    
+    def __init__(self, retriever: ConceptMapRetriever, extractor: ConceptExtractor) -> None:
+        self.retriever = retriever
+        self.extractor = extractor
+
     
     def generate_concept_map(
         self,
@@ -449,15 +443,3 @@ class ConceptMapService:
         except Exception as e:
             logger.error(f" Failed to get statistics: {e}")
             raise
-
-
-# Singleton instance
-_concept_map_service: Optional[ConceptMapService] = None
-
-
-def get_concept_map_service() -> ConceptMapService:
-    """Get or create the ConceptMapService singleton"""
-    global _concept_map_service
-    if _concept_map_service is None:
-        _concept_map_service = ConceptMapService()
-    return _concept_map_service

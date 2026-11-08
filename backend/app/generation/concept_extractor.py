@@ -7,7 +7,6 @@ import json
 from typing import Dict, Optional
 import logging
 from google import genai  # [web:91][web:94]
-from app.core.config import settings
 
 
 # Configure logging
@@ -21,23 +20,9 @@ class ConceptExtractor:
     Generates concept maps with proper source attribution
     """
     
-    def __init__(self, model_name: str = "gemini-2.5-flash-lite"):
-        """
-        Initialize the concept extractor
-        
-        Args:
-            api_key: Gemini API key (uses env var if not provided)
-            model_name: Gemini model to use
-        """
-        api_key = settings.GEMINI_API_KEY.get_secret_value()
-        
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not found. Set it in .env file.")
-        
-        # Configure Gemini
-        self.client = genai.Client(api_key=api_key)
-        # Initialize model
-        self.model_name=model_name
+    def __init__(self, client: genai.Client, model_name: str = "gemini-2.5-flash-lite") -> None:
+        self.client = client
+        self.model_name = model_name
         
         # Generation config for structured output
         self.generation_config = {
@@ -515,49 +500,3 @@ Now extract the concept map:"""
         lines.append("\n" + "=" * 70)
         
         return "\n".join(lines)
-
-
-# Convenience function
-def create_concept_extractor() -> ConceptExtractor:
-    """Create and return a ConceptExtractor instance"""
-    return ConceptExtractor()
-
-
-if __name__ == "__main__":
-    # Quick test
-    print("=" * 70)
-    print("  Testing ConceptExtractor")
-    print("=" * 70)
-    
-    try:
-        extractor = create_concept_extractor()
-        
-        # Test with sample context
-        test_topic = "Neural Networks"
-        test_context = """
-        Neural networks are computing systems inspired by biological neural networks.
-        They consist of interconnected nodes (neurons) organized in layers.
-        
-        Deep learning uses neural networks with multiple layers (deep neural networks).
-        Backpropagation is the algorithm used to train neural networks by calculating gradients.
-        
-        Activation functions introduce non-linearity into neural networks.
-        Common activation functions include ReLU, sigmoid, and tanh.
-        """
-        
-        concept_map = extractor.extract_concepts_from_context(
-            topic=test_topic,
-            context=test_context,
-            max_concepts=8,
-            max_edges=10
-        )
-        
-        if concept_map:
-            print("\n" + extractor.format_concept_map_summary(concept_map))
-        else:
-            print("\n❌ Failed to extract concepts")
-        
-    except Exception as e:
-        print(f"\n❌ Test failed: {e}")
-        import traceback
-        traceback.print_exc()

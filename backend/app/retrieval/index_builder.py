@@ -8,13 +8,9 @@ from app.retrieval.vector_store import FaissVectorStore
 
 
 class IndexBuilder:
-    def __init__(self, embedding_model_name: str = "gemini-embedding-001"):
-        # Initialize embedding service
-        self.embedding_service = EmbeddingService(embedding_model_name)
-
-        # Infer embedding dimension from a dummy call
-        dummy_emb = self.embedding_service.embed_texts(["hello world"])
-        self.vector_store = FaissVectorStore(embedding_dim=dummy_emb.shape[1])
+    def __init__(self, embedding_service: EmbeddingService) -> None:
+        self.embedding_service = embedding_service
+        self.vector_store = FaissVectorStore(embedding_dim=embedding_service.dimension)
 
      # NEW: generic embedding helper for web chunks etc.
     def embed_texts(self, texts: List[str]):

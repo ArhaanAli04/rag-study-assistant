@@ -1,21 +1,25 @@
-from google import genai
-import numpy as np
+import logging
 from typing import List
-from app.core.config import settings
+
+import numpy as np
+from google import genai
+from google.genai import types as genai_types
+
+logger = logging.getLogger("rag_assistant.embeddings")
+
+EMBEDDING_MODEL = "gemini-embedding-001"
+# Requested on every call so the FAISS index can be sized without a startup probe call.
+# gemini-embedding-001's default is 3072 (confirmed live, Day 9); changing it invalidates
+# every stored vector.
+EMBEDDING_DIM = 3072
 
 
 class EmbeddingService:
-    def __init__(self, model_name: str = "gemini-embedding-001"):
-        """
-        Use Gemini API for embeddings instead of local sentence-transformers.
-        Falls back to text-embedding-004 if gemini-embedding-004 not available.
-        """
-        api_key = settings.GEMINI_API_KEY.get_secret_value()
-        if not api_key:
-            raise RuntimeError("GEMINI_API_KEY not set")
-        
-        self.client = genai.Client(api_key=api_key)
+    def __init__(self, client: genai.Client, model_name: str = EMBEDDING_MODEL) -> None:
+        self.client = client
         self.model_name = model_name
+        self.dimension = EMBEDDING_DIM
+        self._config = genai_types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM)
 
     def embed_texts(self, texts: List[str]) -> np.ndarray:
         """
@@ -24,30 +28,30 @@ class EmbeddingService:
         """
         if not texts:
             return np.array([])
-        
+
         # Gemini embeddings API
         embeddings_list = []
-        
+
         for text in texts:
             try:
                 result = self.client.models.embed_content(
                     model=self.model_name,
-                    contents=text
+                    contents=text,
+                    config=self._config,
                 )
                 # Extract embedding values
                 embedding = result.embeddings[0].values
                 embeddings_list.append(embedding)
             except Exception as e:
-                print(f"Error embedding text: {e}")
-                # Fallback: zero vector with typical Gemini embedding dimension
-                embeddings_list.append([0.0] * 768)
-        
+                logger.warning(f"Error embedding text: {e}")
+                embeddings_list.append([0.0] * EMBEDDING_DIM)
+
         # Convert to numpy array
         embeddings = np.array(embeddings_list, dtype=np.float32)
-        
+
         # L2-normalize for cosine similarity
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         norms = np.where(norms == 0, 1, norms)  # Avoid division by zero
         embeddings = embeddings / norms
-        
+
         return embeddings

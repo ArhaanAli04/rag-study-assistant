@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 import pytest
 
 from app.generation.concept_extractor import ConceptExtractor
+from tests.fakes import FakeGenaiClient
 
 WEB = ["https://en.wikipedia.org/wiki/Photosynthesis", "https://biology.stackexchange.com/q/1"]
 DOCS = ["biology_notes.pdf", "chapter2.docx"]
@@ -19,7 +20,7 @@ def _node(source_type: str, sources: List[str]) -> Dict[str, Any]:
 
 @pytest.fixture
 def extractor() -> ConceptExtractor:
-    return ConceptExtractor()  # the conftest swaps in the fake Gemini client
+    return ConceptExtractor(FakeGenaiClient())
 
 
 @pytest.mark.parametrize(("source_type", "expected"), [("web", WEB[0]), ("document", DOCS[0])])

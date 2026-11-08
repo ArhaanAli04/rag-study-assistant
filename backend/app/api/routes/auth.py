@@ -1,25 +1,91 @@
-from fastapi import APIRouter, Request, HTTPException, Depends
+from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from typing import Any, Dict
+from app.api.deps import get_current_user, get_db
+from app.schemas.auth import PasswordChange, UserCreate
+from app.services.account_service import authenticate_user
 from app.services.oauth_service import get_google_oauth_client
-from app.core.security import create_access_token
-from app.db.database import SessionLocal, User
+from app.core.security import create_access_token, get_password_hash, verify_password
+from app.db.database import User
 from app.core.config import settings
 from datetime import timedelta
 import logging
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/auth", tags=["OAuth Authentication"])
+router = APIRouter(tags=["Authentication"])
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+@router.post("/register")
+async def register(user: UserCreate, db: Session = Depends(get_db)) -> Dict[str, Any]:
+    existing = db.query(User).filter(User.email == user.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
 
-@router.get("/google/login")
+    new_user = User(email=user.email, hashed_password=get_password_hash(user.password))
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+
+    return {"id": new_user.id, "email": new_user.email}
+
+
+@router.post("/login")
+async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> Dict[str, str]:
+    user = authenticate_user(db, form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    token = create_access_token({"sub": user.email})
+    return {"access_token": token, "token_type": "bearer"}
+
+
+@router.post("/change-password")
+async def change_password(
+    password_data: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+) -> Dict[str, str]:
+    """
+    Change user password after verifying current password
+    """
+     # Check if user is OAuth user (no password)
+    if not current_user.hashed_password or current_user.oauth_provider:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot change password for OAuth users. Manage your password through Google."
+        )
+
+    # Verify current password
+    if not verify_password(password_data.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect"
+        )
+
+    # Check if new password is same as current
+    if verify_password(password_data.new_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from current password"
+        )
+
+    # Hash and update new password
+    current_user.hashed_password = get_password_hash(password_data.new_password)
+    db.commit()
+
+    return {
+        "message": "Password changed successfully",
+        "email": current_user.email
+    }
+
+
+@router.get("/me")
+async def read_me(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
+    return {"id": current_user.id, "email": current_user.email}
+
+
+@router.get("/auth/google/login")
 async def google_login(request: Request):
     """
     Initiates Google OAuth flow.
@@ -39,7 +105,7 @@ async def google_login(request: Request):
         raise HTTPException(status_code=500, detail=f"OAuth initiation failed: {str(e)}")
 
 
-@router.get("/google/callback")
+@router.get("/auth/google/callback")
 async def google_callback(request: Request, db: Session = Depends(get_db)):
     """
     Handles Google OAuth callback.
@@ -115,7 +181,7 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         return RedirectResponse(url=f"{frontend_url}/login?error=oauth_failed")
 
 
-@router.post("/logout")
+@router.post("/auth/logout")
 async def logout():
     """Logout endpoint (frontend clears token)"""
     return {"message": "Logged out successfully"}

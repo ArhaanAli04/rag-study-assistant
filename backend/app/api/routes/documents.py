@@ -1,0 +1,168 @@
+import logging
+import os
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from sqlalchemy import desc
+from sqlalchemy.orm import Session
+
+from app.api.deps import get_current_user, get_db, get_services
+from app.db.database import Document, User
+from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
+from app.schemas.documents import SearchRequest
+from app.services.container import Services
+from app.services.document_service import register_upload
+
+logger = logging.getLogger("rag_assistant.api.documents")
+router = APIRouter(tags=["Documents"])
+
+ALLOWED_EXTENSIONS = {".pdf", ".pptx", ".docx"}
+MAX_FILE_SIZE_MB = 50
+
+
+async def validate_upload(file: UploadFile) -> None:
+    # Extension check
+    filename = file.filename or ""
+    ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
+    ext = f".{ext}"
+    if ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
+        )
+
+    # Size check: read stream into memory once for size (ok for <= 50MB)
+    content = await file.read()
+    size_mb = len(content) / (1024 * 1024)
+    if size_mb > MAX_FILE_SIZE_MB:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large ({size_mb:.1f} MB). Max {MAX_FILE_SIZE_MB} MB."
+        )
+
+    # Reset file for later processing
+    file.file.seek(0)
+
+
+@router.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    services: Services = Depends(get_services),
+) -> Dict[str, Any]:
+    await validate_upload(file)
+    original_name = display_name(file.filename)
+    try:
+        stored_path = new_upload_path(UPLOAD_ROOT, current_user.id, file_extension(original_name))
+    except UnsafeUploadPath:
+        logger.error(f"Refused upload path for user {current_user.id}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Could not store the file.")
+    file_location = str(stored_path)
+    content = await file.read()
+    with open(file_location, "wb") as f:
+        f.write(content)
+
+    logger.info(f"Uploaded file saved: {original_name} as {file_location} by user {current_user.id}")
+
+    doc = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT)
+
+    num_chunks = services.indexing_pipeline.index_document(
+        doc.file_path,
+        user_id=str(current_user.id),
+        subject_tags=None,
+        document_id=doc.id,
+        file_name=original_name,
+    )
+
+    current_user.doc_version += 1
+    db.commit()
+    return {
+        "filename": original_name,
+        "document_id": doc.id,
+        "chunks_indexed": num_chunks,
+        "doc_version": current_user.doc_version
+    }
+
+
+@router.delete("/documents/{doc_id}")
+async def delete_document(
+    doc_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    doc = db.query(Document).filter(
+        Document.id == doc_id,
+        Document.user_id == str(current_user.id)
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # remove from DB
+    db.delete(doc)
+    db.commit()
+
+    # bump doc_version for this user to invalidate caches
+    current_user.doc_version += 1
+    db.commit()
+
+    return {"status": "deleted", "document_id": doc_id, "doc_version": current_user.doc_version}
+
+
+@router.get("/documents")
+async def get_documents(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[Dict[str, Any]]:
+    """Get all documents for current user"""
+
+    documents = (
+        db.query(Document)
+        .filter(
+            Document.user_id == str(current_user.id),  # Convert to string
+            Document.is_active == True  # Only active documents
+        )
+        .order_by(desc(Document.id))  # Order by ID since no created_at
+        .all()
+    )
+
+    result = []
+    for doc in documents:
+        # Get file size if file exists
+        file_size = None
+        if doc.file_path and os.path.exists(doc.file_path):
+            file_size = os.path.getsize(doc.file_path)
+
+        result.append({
+            "id": doc.id,
+            "filename": doc.file_name,
+            "path": doc.file_path,
+            "created_at": None,  # No timestamp field in your model
+            "file_size": file_size,
+            "version": doc.version,
+        })
+
+    return result
+
+
+@router.post("/search")
+async def semantic_search(
+    body: SearchRequest,
+    current_user: User = Depends(get_current_user),
+    services: Services = Depends(get_services),
+) -> Dict[str, Any]:
+    # Build filters from request metadata
+    filters: Dict[str, Any] = {"user_id": str(current_user.id)}
+    if body.subject:
+        filters["subject_tags"] = body.subject
+    if body.file_type:
+        filters["doc_type"] = body.file_type
+    # For now, we ignore start_doc_id/end_doc_id or handle them at DB level later.
+
+    results = services.retrieval_service.semantic_search(
+        query=body.query,
+        user_id=str(current_user.id),
+        top_k=body.top_k,
+        filters=filters
+    )
+    return {"results": results}

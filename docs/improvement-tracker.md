@@ -23,7 +23,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | R1 | Implement a real reranker (cross-encoder or LLM-based) | Not Started | |
 | I4 | Persist and reload FAISS + BM25 indexes so restarts don't wipe search | Not Started | |
 | I5 | Remove a deleted document's chunks from FAISS + BM25 (and its file) | Not Started | |
-| R5 | Pass the shared `RetrievalService` into `ConceptMapRetriever` so maps can use documents | Not Started | |
+| R5 | Pass the shared `RetrievalService` into `ConceptMapRetriever` so maps can use documents | In Progress | Day 9: `ConceptMapRetriever` requires the app's shared `RetrievalService` (built once in `services/container.py`); the private empty index and its 2 extra Gemini clients are gone; `test_app_factory.py` asserts the sharing. Open for Day 17: retrieval test + UI toggle (`CreateMapForm.js` hard-codes `useDocuments = false`) |
 | B1 | Fix `DELETE /user/delete` crash and delete all of a user's data | Done | Day 3. `account_service.delete_user_account`: 7 tables in one transaction, then files, FAISS + BM25 tombstones, semantic + L1 cache. Live UI deletes: 200 in 57–198 ms, `index_entries_removed` 6/10/6, 0 rows left. SQLite reused freed id 3 for a new account — the purge is what keeps it clean. Test accounts 3–7 deleted |
 
 ## P1 — High-value, moderate effort
@@ -31,7 +31,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | ID | Improvement | Status | Notes |
 |----|---|---|---|
 | G2 | Call `verify_answer()` for low/loose-grounding responses | Not Started | |
-| G3 | Replace 6-keyword safety blocklist with real moderation, unify `/chat` + `/chat/stream` | Not Started | |
+| G3 | Replace 6-keyword safety blocklist with real moderation, unify `/chat` + `/chat/stream` | Not Started | Day 9 prep: endpoints unified (`POST /chat` deleted), one `UNSAFE_KEYWORDS` list in `services/chat_guards.py` called once in `ChatPipeline`; "die"/"nuke" false positives dropped; "bomb" still matches "bombardment". Moderation itself: Day 35 |
 | G5 | Indirect prompt-injection defenses (chunk scanning, spotlighting, canary, markdown `img` override, red-team set) | Not Started | |
 | E2 | Replace word-overlap "manual metrics" with LLM-as-judge (or retire once E1 fixed) | Not Started | |
 | S1 | Schema-validated structured output (`instructor` or Gemini JSON mode) for concept maps/quiz | Not Started | |
@@ -46,7 +46,7 @@ Status values: `Not Started` / `In Progress` / `Done` / `Skipped`
 | CO4 | Cache-friendly prompt layout (constant system instruction) + log token/cached-token usage | Not Started | |
 | CO5 | Conversation-aware semantic cache with per-entry TTLs and a threshold tuned on labelled pairs | Not Started | |
 | I6 | Skip re-indexing unchanged re-uploads; remove old versions' chunks | Not Started | |
-| B2 | Fix confidence-scale mismatches (`/chat` grounding thresholds, forced-web cap) | Not Started | |
+| B2 | Fix confidence-scale mismatches (`/chat` grounding thresholds, forced-web cap) | Done | Day 9: `POST /chat` (0.7 / 0.3 grounding) deleted; forced-web cap 0.3 → 30 (`FORCED_WEB_CAP`); the 0–100 scale and every threshold named in `retrieval/confidence.py`, `grounding_level()` the only grounding decision. `test_confidence.py`: forced-web path ends at 30.0 (was 0.3). Threshold validation against E4 still open (Day 11) |
 | B4 | Concept-map generation 500s when a node has empty sources | Done | Day 5: found by the API smoke test; `concept_extractor._add_source_attribution` now assigns the first source, not the whole list. Unit tests for both fallbacks in `tests/test_concept_extractor.py` |
 | B3 | Fix the OpenCV wheel clash that silently disables image/PPTX table extraction | Not Started | Found Day 5; scheduled Day 10. `test_table_extraction_on_image` is `xfail(strict=True)` until then |
 | T1 | Fix `pytest.ini` header so `testpaths` / `pythonpath` apply | Done | Day 5: `[pytest]` header; 11 `src/test_*.py` → `scripts/manual/`; bare `pytest` collects only `tests/` (112 items). Suite 84 → 111 tests (+1 strict xfail), 42.6 s → 23.3 s on the host with no keys or network; container 77.7 s (Day 8 lazy loading). |

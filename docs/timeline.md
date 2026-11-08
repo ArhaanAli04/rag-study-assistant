@@ -251,6 +251,8 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Keep-alive: free projects pause after ~7 days without activity — .github/workflows/supabase-keepalive.yml on a schedule (every 3 days) runs one cheap read against each project, with the URL/key as GitHub secrets (same pattern as the F1 project). Note: GitHub disables scheduled workflows after 60 days without repo activity
 - DATABASE_URL in Settings; Postgres driver psycopg (new dependency — confirm); keep the sync Session for now
 - Alembic: URL from Settings, import every model (including ConceptMap, ConceptMapNode) in env.py, baseline revision of the current schema; delete db.py's startup migrate_database()
+- Split db/database.py into db/session.py (engine, SessionLocal) and db/models/ (user, session, message, document, failed_query) — deferred from Day 9 so the engine is rewritten for Postgres only once
+- db/repositories/: move the CRUD SQL still inside the sessions, documents, users and feedback routers (a known layering exception since Day 9) into repositories the routers call
 - Verify: alembic upgrade head on an empty database creates every table and autogenerate reports no diff
 
 ### Day 14 — Migrate the data off SQLite
@@ -267,7 +269,8 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Alembic revision: document_chunks
   - id, user_id FK, document_id FK ON DELETE CASCADE, document_version, page, chunk_index, text, content_hash, embedding, tsv (generated tsvector), metadata jsonb
   - Indexes: HNSW on embedding (cosine), GIN on tsv, btree on (user_id, document_id)
-- Note: gemini-embedding-001 returns 3072 dimensions by default and pgvector's HNSW on vector supports up to 2000 — use output_dimensionality=1536 (or halfvec) and confirm with E4
+- Note: EMBEDDING_DIM changes 3072 → 1536 (pgvector HNSW limit); re-embed on Day 16. gemini-embedding-001 returns 3072 by default (confirmed Day 9) and pgvector's HNSW on vector supports up to 2000; the constant lives in retrieval/embeddings.py and is sent as output_dimensionality on every call. Confirm the quality cost with E4
+- Indexing orchestration moves out of ingestion/indexing_pipeline.py (which writes into retrieval's indexes, a known sideways layering exception since Day 8) into a services/ use case — deferred from Day 9 because the indexes are rewritten for pgvector today
 - PgVectorStore + PgKeywordIndex behind the existing vector/keyword interfaces; the user filter is in the WHERE clause, so no over-fetch and post-filter (I1)
 - Postgres full-text (ts_rank_cd) replaces BM25Okapi — measure the difference on E4 before deleting rank-bm25
 - Uploaded files move to Supabase Storage (private bucket, object key uploads/{user_id}/{uuid}{ext} as on Day 3): upload writes to Storage, indexing reads from it, Document.file_path holds the object key; a one-off script copies existing local files up. Render's disk is ephemeral, so without this every restart loses the files that reindexing (Day 16), the viewer (Day 50) and connectors depend on

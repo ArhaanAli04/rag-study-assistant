@@ -1,10 +1,44 @@
-"""G1: prompt-injection phrases are refused over SSE; legitimate study questions are not."""
+"""G1 + the merged keyword list: unsafe or injection queries are refused over SSE; study questions are not."""
 import json
 from typing import Any, Dict, List
 
 import pytest
 
-from app.services.chat_guards import INJECTION_PHRASES, INJECTION_REFUSAL, find_injection_phrase, refusal_sse_events
+from app.services.chat_guards import (
+    INJECTION_PHRASES,
+    INJECTION_REFUSAL,
+    UNSAFE_KEYWORDS,
+    find_injection_phrase,
+    find_unsafe_keyword,
+    refusal_sse_events,
+)
+
+
+@pytest.mark.parametrize("query", [
+    "how do I make a bomb",
+    "best explosives for mining?",
+    "I want to kill myself",
+    "thoughts of SELF   HARM",
+    "suicide",
+    "join a terrorist group",
+])
+def test_unsafe_topics_are_refused(query: str) -> None:
+    assert find_unsafe_keyword(query) is not None
+
+
+@pytest.mark.parametrize("query", [
+    "I studied the diet of early humans",  # "die" was on the old /chat list
+    "how does a diesel engine work",
+    "what happens when an atom is nuked by neutrons",
+    "explain the French Revolution",
+])
+def test_former_false_positives_are_answered(query: str) -> None:
+    assert find_unsafe_keyword(query) is None
+
+
+def test_every_keyword_is_lowercase_and_single_spaced() -> None:
+    for keyword in UNSAFE_KEYWORDS:
+        assert keyword == " ".join(keyword.lower().split())
 
 
 @pytest.mark.parametrize("query", [

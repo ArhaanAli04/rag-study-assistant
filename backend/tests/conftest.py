@@ -1,9 +1,10 @@
 """Make the whole suite hermetic: no API keys, no network, no Redis, no files in the repo.
 
-Everything here is installed in pytest_configure, before any test module is collected, because
-the backend has import-time side effects: db.py creates data/ and binds a SQLite path relative to
-the CWD, cache.py builds a Redis client, and main.py makes a Gemini embedding call. Day 9 moves
-those into an app factory with Depends; until then the seam sits at the SDK constructors.
+Everything here is installed in pytest_configure, before any test module is collected: db.py
+still creates data/ and binds a SQLite path relative to the CWD at import. Since Day 9 the app's
+clients (Gemini, Redis) are built in the lifespan, which `with TestClient(app)` runs once per test,
+so each test gets fresh indexes; the fakes still sit at the SDK constructors, which covers the
+lifespan and the unit tests that build services directly alike.
 """
 import ipaddress
 import logging
@@ -171,9 +172,9 @@ def web_search(monkeypatch: pytest.MonkeyPatch) -> Iterator[type]:
 
 @pytest.fixture(scope="session")
 def app() -> Any:
-    from app import main  # first import builds the singletons — against the fakes installed above
+    from app.main import create_app
 
-    return main.app
+    return create_app()
 
 
 @pytest.fixture

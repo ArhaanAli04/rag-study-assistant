@@ -110,12 +110,12 @@ def test_empty_tavily_key_turns_web_search_off(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_empty_gemini_key_still_fails_when_a_client_is_built(monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.generation.llm_client import LLMClient
+    from app.core.gemini import build_gemini_client
 
     monkeypatch.setattr(config.settings, "GEMINI_API_KEY", SecretStr(""))
 
     with pytest.raises(RuntimeError, match="GEMINI_API_KEY not set"):
-        LLMClient()
+        build_gemini_client()
 
 
 def test_missing_required_variables_are_all_reported_at_once(monkeypatch: pytest.MonkeyPatch) -> None:

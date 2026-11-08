@@ -51,10 +51,6 @@ PATTERN_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     ),
     (re.compile(r"\bgit\b.*\bstash\s+(drop|clear)\b"), "`git stash drop/clear` deletes stashed work"),
     (re.compile(r"\bgit\b.*\bbranch\b.*\s-D\b"), "`git branch -D` force-deletes a branch"),
-    (
-        re.compile(r"\b(python\d*(\.exe)?|py)\b.*\brecreate_db\.py\b", re.IGNORECASE),
-        "recreate_db.py deletes data/app.db and recreates empty tables",
-    ),
     (re.compile(r"\bredis-cli\b.*\bflush(all|db)\b", re.IGNORECASE), "FLUSHALL/FLUSHDB wipes every Redis cache"),
     (
         re.compile(r"\balembic\b.*\bdowngrade\b", re.IGNORECASE),

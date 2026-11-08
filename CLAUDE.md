@@ -35,10 +35,13 @@ Last commit:  73afc0d day 10 - requirements.in + generated UTF-8 lock, on featur
               PR #12 (draft) into develop, CI green on all 3 commits (c79b092 dead code + eval
               package, baac824 B5, 73afc0d requirements + B3). Checkpoints 5 + 6 (ruff F401,
               docs, this block) still to commit
-Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. develop has Days 4–9
-              (PRs #8–#11). Days 4–10 reach master with the v0.2.0 release — the first PR-based
-              release (PR develop → master, merge commit, then tag); notes drafted in
+Pushed:       v0.2.0 → released (60fbce2, PR #13 develop → master, merge commit, tagged) — Days 4–10;
+              the first PR-based release. Earlier tags v0.1.0, v0.1.1 (60f52bf). Notes in
               docs/briefs/day10.md#release-notes-draft-v020
+Day 11:       in progress on feature/day11-e4-retrieval-eval — brief docs/briefs/day11.md
+              (decisions 1A–6A approved). Checkpoint 1 done: RetrievalService switches (web search,
+              L1 cache, fusion weights; production defaults unchanged) + app/retrieval/context_assembly.py
+              shared by chat and eval. Found B8: FAISS L2 distances fused as if higher = better
 Uncommitted:  Checkpoints 5 + 6: ruff.toml + 12 files losing unused imports, CLAUDE.md,
               docs/{timeline,improvements,improvement-tracker,claude-cheatsheet}.md,
               docs/architecture/layout.md, docs/briefs/day10.md, docs/posts/09-launch-recap.md,

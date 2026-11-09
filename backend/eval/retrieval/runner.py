@@ -281,12 +281,14 @@ def _git_state() -> Dict[str, Any]:
         commit = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, check=True
         ).stdout.strip()
+        # eval/ too: Day 12's runs used an uncommitted judge prompt while app/ was clean, so their
+        # headers named a commit that didn't hold the code that produced them.
         dirty = bool(subprocess.run(
-            ["git", "status", "--porcelain", "--", "app"], capture_output=True, text=True, check=True
+            ["git", "status", "--porcelain", "--", "app", "eval"], capture_output=True, text=True, check=True
         ).stdout.strip())
     except (OSError, subprocess.CalledProcessError):
-        return {"commit": "unknown", "app_dirty": None}
-    return {"commit": commit, "app_dirty": dirty}
+        return {"commit": "unknown", "dirty": None}
+    return {"commit": commit, "dirty": dirty}
 
 
 @dataclass
@@ -353,7 +355,7 @@ def render_markdown(result: RunResult) -> str:
         "",
         f"{result.config.description}. Dataset `{m['dataset']['path']}` ({m['dataset']['questions']} questions, "
         f"sha256 `{m['dataset']['sha256'][:12]}`), commit `{m['git']['commit']}`"
-        f"{' (app/ had uncommitted changes)' if m['git']['app_dirty'] else ''}. "
+        f"{' (app/ or eval/ had uncommitted changes)' if m['git']['dirty'] else ''}. "
         f"Served pass top_k={m['served_top_k']}, deep pass top_k={m['deep_top_k']}. "
         f"Embedding cache: {m.get('embedding_cache', {}).get('hits', 0)} hits, "
         f"{m.get('embedding_cache', {}).get('api_calls', 0)} API calls.",

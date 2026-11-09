@@ -5,6 +5,7 @@ Run from backend/ with GEMINI_API_KEY set to the eval project's key (the run ref
 production key). No Redis, no database. The corpus is re-indexed from the Day 11 embedding cache.
 """
 import argparse
+import datetime
 import logging
 from pathlib import Path
 from typing import List
@@ -15,7 +16,15 @@ from google.genai import errors as genai_errors
 from app.core.gemini import build_gemini_client
 from eval.generation.answer_cache import ResultCache
 from eval.generation.judge import DEFAULT_JUDGE_MODEL
-from eval.generation.runner import DEFAULT_MODE, build_context, run, write_results
+from eval.generation.runner import (
+    DEFAULT_MODE,
+    ResultsExist,
+    build_context,
+    refuse_existing,
+    result_paths,
+    run,
+    write_results,
+)
 from eval.retrieval.corpus import index_corpus, sha256_of
 from eval.retrieval.dataset import EvalQuestion, load_questions, problems_against_corpus
 from eval.retrieval.embedding_cache import CachedEmbeddingService
@@ -63,8 +72,16 @@ def main() -> None:
     parser.add_argument("--label", help="suffix for the result files")
     parser.add_argument("--results-dir", type=Path, default=RESULTS_DIR)
     parser.add_argument("--probe", metavar="MODEL", help="make one call to MODEL, report, and exit")
+    parser.add_argument("--force", action="store_true", help="overwrite an existing results file for this date/model/label")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    if not args.probe and not args.force:
+        # Checked before spending any quota, not only when writing.
+        try:
+            refuse_existing(*result_paths(args.results_dir, datetime.date.today().isoformat(), args.model, args.label))
+        except ResultsExist as exc:
+            raise SystemExit(str(exc)) from exc
 
     assert_eval_key()
     client = build_gemini_client()
@@ -87,7 +104,7 @@ def main() -> None:
         embeddings.close()
         cache.close()
 
-    for path in write_results(result, args.results_dir, args.label):
+    for path in write_results(result, args.results_dir, args.label, force=args.force):
         logger.info("wrote %s", path)
     if not result.complete:
         raise SystemExit(2)

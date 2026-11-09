@@ -512,3 +512,111 @@ Run budget on the eval project:
   OK?
 - **Lock regeneration** may move nothing but the removed packages; the diff is checked for anything
   else before commit.
+
+## Outcome
+
+Days 2026-11-09 → 2026-11-10. Decisions 1A–6A, with the owner's changes and rulings recorded under
+"Decisions" above.
+
+### Commits and files
+- `047b628` — Checkpoint 1 (the shared step and the B9 setting):
+  - new `services/answer_preparation.py` (`prepare_answer`);
+  - `services/chat_pipeline.py` calls it;
+  - `core/config.py` adds `GEMINI_GENERATION_MODEL`, which `services/container.py` passes to the
+    three generation classes;
+  - `llm_client.py`, `topic_classifier.py` and `concept_extractor.py` lose their default model.
+    `concept_extractor.py` also loses its dead `generation_config` and its hard-coded
+    `gemini-1.5-flash` metadata;
+  - `.env.example`;
+  - tests: `test_answer_preparation.py` (new), `test_config.py`, `test_app_factory.py`,
+    `test_concept_extractor.py`;
+  - the B9 quota wording fixed in 4 docs.
+- `8de3b1b` — Checkpoint 2 + 3 sampler (the harness):
+  - `eval/generation/{__init__,__main__,runner,judge,citations,metrics,answer_cache,calibrate}.py`;
+  - `tests/test_generation_eval.py`;
+  - the empty labels template;
+  - a `.gitignore` rule for the labelling sheet.
+- `3ba5278` — Checkpoint 3 scoring + Checkpoint 4:
+  - the filled labels (the h-09 ruling included);
+  - `faith-v2`, `calibrate compare`, the citation-parser fix and the judge's transport retry;
+  - the default model switched to `gemini-3.5-flash-lite`;
+  - 4 result summaries;
+  - the `improvements.md` B9 outcome.
+- Checkpoint 5 (uncommitted):
+  - deleted `eval/{rag_metrics,rag_eval_runner,sample_eval_data,manual_eval}.py`;
+  - `requirements.in` loses `ragas` and `datasets`, and `requirements.txt` was regenerated
+    (158 → 136 pins, 22 packages removed, nothing added or moved);
+  - the eval result headers now flag uncommitted changes under `eval/` as well as `app/`;
+  - the generation runner refuses to overwrite a results file without `--force`, with one test;
+  - docs: CLAUDE.md (repo structure, module map, Tech Stack LLM row, dependencies paragraph, B9
+    Known Issues row, Key Commands), `docs/architecture/layout.md`, `docs/improvements.md` (E1/E2
+    outcomes), this Outcome, posts 2 + 9, learning notes 7, 9 and 12.
+
+### Checks run
+| Check | Result |
+|---|---|
+| Offline suite, host (Python 3.12) | 222 → 239 → 243 → **244 passed** across checkpoints |
+| Offline suite, container (Linux / Python 3.11, regenerated lock) | **244 passed** (`.\scripts\dev.ps1 test`, image rebuilt with the new lock, B3 OpenCV assertion in the build) |
+| ruff 0.15.18 | clean at every checkpoint |
+| CI on PR #15 (backend, frontend, docker) | green on `047b628`, `8de3b1b`, `3ba5278` |
+| Live, eval key only | smoke (3 q), 2.5 probe (1 call → 404), calibration sample (18 answers), scoring (v1 + v2, 2 passes), full run (61 q, resumed once after a dropped connection), topic-tag + concept-map smoke on 3.5 |
+
+### Measured
+- **Calibration** (20 answers, reference labels: Claude (claude-opus-5-5), blind; disagreements
+  adjudicated by the owner):
+
+  | | faith-v1 | faith-v2 |
+  |---|---|---|
+  | Faithfulness agreement | 0.90 (κ 0.76) | 1.00 (κ 1.00) |
+  | Citations agreement | 0.90 (κ 0.75) | 1.00 (κ 1.00) |
+  | Relevance agreement | 1.00 | 1.00 |
+  | Judge vs judge | 0.95 | 1.00 |
+
+  Every faith-v1 disagreement was the judge being more lenient. faith-v2's numbers are
+  optimistic, because it was tuned on this set.
+- **Generation baseline** (retrieval_v1, 61 questions, `gemini-3.5-flash-lite`, `quick` mode, web
+  off; judge `faith-v2` / `rel-v1`; `backend/eval/results/2026-11-10-generation-gemini-3.5-flash-lite.md`):
+
+  | Metric | Value |
+  |---|---|
+  | Strict-band faithfulness | **0.956** [0.87–1.00], n = 27; ≈ 0.963 with the h-02 ruling |
+  | Faithfulness, answerable | 0.956, n = 55 |
+  | Contradicted claims | **0 of 186** |
+  | Full relevance, answerable | **0.982** |
+  | Citations valid | 151 of 151 |
+  | Cited claims the judge says the page supports | 0.954 |
+  | Retrieval hit → faithfulness / full relevance | 0.976 / 100%, n = 50 |
+  | Retrieval miss → faithfulness / full relevance | 0.760 / 80%, n = 5 |
+
+  The **absolute gate passes.** Next to the retrieval baseline (Hit@5 0.909, MRR@5 0.801), this is
+  the reference every later phase compares against.
+- **B9:** 2.5-flash-lite is not served to new projects (HTTP 404), so there is no paired comparison.
+  3.5 meets the bar. Production's free-tier chat budget goes from 20 to 500 requests a day with
+  the v0.2.1 release.
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| `prepare_answer` extraction | — | backend-only: an internal refactor. The prompt and SSE frames are unchanged (`test_api_smoke.py`) |
+| `GEMINI_GENERATION_MODEL`, default `gemini-3.5-flash-lite` | — | backend-only: no endpoint, field or state. After v0.2.1, answers come from 3.5 in the same chat UI, and the daily-quota errors (existing `error` frame) stop after 20 requests. Concept map `metadata.model` is corrected, but nothing in `frontend/src` reads it |
+| Generation eval, calibration | — | backend-only: an offline developer tool under `backend/eval/`, excluded from the image |
+
+### Deferred or dropped
+- **Paired 2.5 vs 3.5 comparison:** dropped. It is impossible because 2.5-flash-lite is unavailable
+  to new projects, and production's key was never used for it.
+- **Answer correctness against a reference** (the evidence quotes): left for E3 / Day 26, as
+  proposed in Scope.
+- **A `detailed`-mode run:** not done. One `--mode detailed` run is possible later.
+- **Known judge limitations,** recorded in the baseline report:
+  - same model as the generator;
+  - faith-v2 tuned on the calibration set;
+  - over-strict on comparisons between stated facts (h-02).
+
+### For the tracker's Notes column (owner updates Status)
+- **E1:** Day 12, Gemini judge in `backend/eval/generation/`, RAGAS dropped. Calibrated on 20 blind
+  reference labels: faith-v1 0.90 / κ 0.76 → faith-v2 1.00 (tuned). Baseline 3.5: strict
+  faithfulness 0.956, 0 / 186 contradicted, relevance 0.982, citations 151/151 valid.
+- **E2:** Day 12, word-overlap metrics and the 4 scripts deleted.
+- **B9:** Day 12, `GEMINI_GENERATION_MODEL`, default `gemini-3.5-flash-lite` (20 → 500 RPD), gate
+  passed. Not paired, because 2.5 gives a 404 for new projects. Ships in v0.2.1; rollback through
+  the env var.

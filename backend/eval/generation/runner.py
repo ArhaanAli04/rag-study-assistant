@@ -12,7 +12,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from statistics import fmean
-from typing import Any, Callable, Dict, List, Optional, Sequence
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from google import genai
 
@@ -357,7 +357,7 @@ def render_markdown(result: RunResult) -> str:
         "",
         f"Dataset `{m['dataset']['path']}` ({m['dataset']['questions']} questions, sha256 "
         f"`{m['dataset']['sha256'][:12]}`), commit `{m['git']['commit']}`"
-        f"{' (app/ had uncommitted changes)' if m['git']['app_dirty'] else ''}. "
+        f"{' (app/ or eval/ had uncommitted changes)' if m['git']['dirty'] else ''}. "
         f"Generator `{m['generator']['model']}`, mode `{m['generator']['mode']}`, temperature {m['generator']['temperature']}. "
         f"Judge `{m['judge']['model']}` (prompts {m['judge']['prompts']['faithfulness']}, "
         f"{m['judge']['prompts']['relevance']}), temperature {m['judge']['temperature']}. Retrieval: {m['retrieval']}. "
@@ -439,10 +439,32 @@ def render_markdown(result: RunResult) -> str:
     return "\n".join(lines)
 
 
-def write_results(result: RunResult, results_dir: Path = RESULTS_DIR, label: Optional[str] = None) -> List[Path]:
+class ResultsExist(FileExistsError):
+    """A results file for this date, model and label is already there."""
+
+
+def result_paths(results_dir: Path, date: str, model: str, label: Optional[str]) -> Tuple[Path, Path]:
+    stem = f"{date}-generation-{model}" + (f"-{label}" if label else "")
+    return results_dir / f"{stem}.json", results_dir / f"{stem}.md"
+
+
+def refuse_existing(*paths: Path) -> None:
+    existing = [p for p in paths if p.exists()]
+    if existing:
+        raise ResultsExist(
+            f"{', '.join(p.name for p in existing)} already exist; pass --label for a separate file or --force to overwrite"
+        )
+
+
+def write_results(
+    result: RunResult, results_dir: Path = RESULTS_DIR, label: Optional[str] = None, force: bool = False
+) -> List[Path]:
+    """Refuses to overwrite unless forced: a committed summary can carry hand-written sections (Day 12's
+    baseline has the owner's review of h-02) that a re-run would silently erase."""
     results_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{result.meta['date']}-generation-{result.meta['generator']['model']}" + (f"-{label}" if label else "")
-    json_path, md_path = results_dir / f"{stem}.json", results_dir / f"{stem}.md"
+    json_path, md_path = result_paths(results_dir, result.meta["date"], result.meta["generator"]["model"], label)
+    if not force:
+        refuse_existing(json_path, md_path)
     payload = {"meta": result.meta, "summary": result.summary, "questions": [asdict(q) for q in result.questions]}
     json_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     md_path.write_text(render_markdown(result), encoding="utf-8")

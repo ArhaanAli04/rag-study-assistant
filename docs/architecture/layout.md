@@ -162,7 +162,9 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 ### eval, scripts, dead code
 | Current | Target | Day |
 |---|---|---|
-| `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | `backend/eval/` (`python -m eval.<name>` from `backend/`), objects from `build_services()`, no `app.main` (rewritten on Days 11–12) | 10 ✓ |
+| `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py`, `cache_tuner.py` | `backend/eval/` (`python -m eval.<name>` from `backend/`), objects from `build_services()`, no `app.main` | 10 ✓ |
+| `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py`, `manual_eval.py` (RAGAS + word overlap, E1/E2) | deleted; replaced by `backend/eval/retrieval/` (E4, Day 11) and `backend/eval/generation/` (Gemini judge, Day 12). `cache_tuner.py` stays until CO5 (Day 32) | 12 ✓ |
+| ChatPipeline's grounding + prompt step | `services/answer_preparation.py`: `prepare_answer()`, shared by the chat and the generation eval | 12 ✓ |
 | `add_concept_tables.py`, `add_doc_version.py`, `run_migration.py`, `update_existing_sessions.py`; root `fix_db.py`, `recreate_db.py`, `migrate_user_model.py` | deleted (superseded by Alembic, Day 13) | 10 ✓ |
 | `scripts/manual/*` | deleted, not moved (Day 10 decision: 10 of 11 imported modules gone since Day 7–8; covered by the offline suite and `test_api_smoke.py`) | 10 ✓ |
 | `frontend.py`, `document_delete_service.py` | deleted | 10 ✓ |

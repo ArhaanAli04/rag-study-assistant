@@ -15,7 +15,16 @@ from eval.generation import judge as judge_module
 from eval.generation.answer_cache import ResultCache
 from eval.generation.citations import check_citations, parse_citations
 from eval.generation.judge import FaithfulnessVerdict, JudgedClaim, Judge, JudgeFailure
-from eval.generation.runner import EvalContext, QuestionResult, aggregate, evaluate_question, generate_answer
+from eval.generation.runner import (
+    EvalContext,
+    QuestionResult,
+    ResultsExist,
+    RunResult,
+    aggregate,
+    evaluate_question,
+    generate_answer,
+    write_results,
+)
 from eval.retrieval.dataset import EvalQuestion, RelevantPage
 from eval.retrieval.generate_questions import DailyQuotaExhausted
 from tests.fakes import FakeGenaiClient
@@ -325,6 +334,23 @@ def test_the_comparison_flags_a_new_prompt_that_overrules_an_adjudicated_support
 
     assert calibrate.flips_against_supported(new) == [("a", "faithfulness", "supported / not_in_context")]
     assert [row[0] for row in calibrate._changed(old, new)] == ["a", "b"]
+
+
+def test_results_are_not_overwritten_unless_forced(tmp_path: Path) -> None:
+    # Day 12's baseline summary carries a hand-written owner review that a re-run must not erase.
+    meta = {"date": "2026-11-10", "generator": {"model": "m", "mode": "quick", "temperature": "t"},
+            "judge": {"model": "m", "temperature": "t", "prompts": {"faithfulness": "f", "relevance": "r"}},
+            "dataset": {"path": "d", "sha256": "0" * 12, "questions": 0}, "git": {"commit": "c", "dirty": False},
+            "retrieval": "r", "complete": True}
+    result = RunResult(meta=meta, summary=aggregate([]), questions=[], complete=True)
+    _, md_path = write_results(result, tmp_path)
+    md_path.write_text("hand-written owner review", encoding="utf-8")
+
+    with pytest.raises(ResultsExist):
+        write_results(result, tmp_path)
+    assert md_path.read_text(encoding="utf-8") == "hand-written owner review"
+    write_results(result, tmp_path, force=True)
+    assert md_path.read_text(encoding="utf-8") != "hand-written owner review"
 
 
 class _FailingLLM:

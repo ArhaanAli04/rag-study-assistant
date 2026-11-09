@@ -126,6 +126,29 @@ scores — there is currently no reliable automated signal for retrieval/generat
 quality.
 **Direction:** either properly wrap `LLMClient` to satisfy RAGAS's LLM interface, or
 drop RAGAS and build a smaller custom eval harness using Gemini directly as a judge.
+**Outcome (Day 12):** RAGAS is dropped, and `backend/eval/generation/` is a Gemini judge.
+- **Judge:** `gemini-3.5-flash-lite` with schema-constrained JSON and no temperature (3.5 ignores
+  it). It grades claim-level faithfulness against the exact prompt text and the citation support
+  of each claim, plus answer relevance. Citation validity is checked in code.
+- **Answers:** generated through the chat's own `prepare_answer` and `stream_answer`. Answers and
+  verdicts are cached.
+- **Calibration:** 20 blind reference labels (Claude, adjudicated by the owner), each answer judged
+  twice.
+
+  | | faith-v1 | faith-v2 |
+  |---|---|---|
+  | Faithfulness agreement | 0.90 (κ 0.76) | 1.00 (κ 1.00) |
+  | Citations agreement | 0.90 (κ 0.75) | 1.00 (κ 1.00) |
+
+  Relevance agreement was 1.00 under both prompts. faith-v2 is optimistic, because it was tuned on
+  those 20.
+- **Baseline** (retrieval_v1, 61 questions, `gemini-3.5-flash-lite`, `quick` mode):
+  - strict-band faithfulness 0.956, ≈ 0.963 with the owner's h-02 ruling;
+  - 0 of 186 claims contradicted;
+  - full relevance 0.982 on answerable questions;
+  - 151 of 151 citations valid.
+- **Dependencies:** `ragas`, `datasets` and 20 transitive packages (langchain ×5 among them) left
+  the lock.
 
 ### E2 — "Manual" metrics are word-overlap heuristics (P1)
 `src/rag_metrics.py:manual_faithfulness`, `manual_relevancy` — faithfulness is
@@ -136,6 +159,9 @@ sense (e.g. an answer that paraphrases faithfully with different words scores lo
 answer that repeats context verbatim without answering the question scores high).
 **Direction:** replace with an LLM-as-judge faithfulness/relevancy check, or properly
 fix the RAGAS wiring (E1) and retire the manual fallback.
+**Outcome (Day 12):** retired. `manual_faithfulness` and `manual_relevancy` are deleted along
+with `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py` and `manual_eval.py`. The E1
+judge replaces them.
 
 ### E3 — No golden eval set or CI regression gate (P2)
 `sample_eval_data.py` exists but there's no persisted, versioned set of

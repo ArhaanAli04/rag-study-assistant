@@ -97,7 +97,7 @@ If Docker isn't running, mark this step as skipped with that reason.
 - Alembic migration checks (misconfigured until T2)
 - Live chat behavior (needs Gemini, Tavily, and Redis) — suggest a manual check if the change
   touches chat, retrieval, or caching
-- Retrieval quality (no eval harness until E4)
+- Retrieval quality: if retrieval, chunking or prompt-context code changed, run `python -m eval.retrieval --config baseline` (eval key set) and compare with the latest backend/eval/results summary
 
 ## Report
 

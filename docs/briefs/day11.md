@@ -386,3 +386,106 @@ shows, but it adds no field or state. The existing sources panel and confidence 
   frontend caller (`/search` isn't used in `frontend/src`); left as is, noted in B8.
 - **Question:** is any of these files *not* yours to put in a committed manifest by name
   (`B11-02 …` lab write-ups)? The manifest only holds names + hashes, never content.
+  Answered: the B11-02 files are the owner's; `B11_21_NLP_EXP9.pdf` was left out.
+
+## Outcome
+Date: 2026-11-09. Five commits on `feature/day11-e4-retrieval-eval` → draft PR #14 into `develop`.
+CI (`backend`, `frontend`, `docker`) green on the first four; the fifth is this commit. Owner
+decisions: 1A, 2A, 3A (without `B11_21_NLP_EXP9.pdf`, plus the owner's `HPC Lecture.pptx`), 4A, 5A,
+6A changed mid-day (see Deviations).
+
+### Commits and files
+- **`5bfdfe6` — Checkpoint 1 (6 files):** `retrieval/retrieval_service.py` (switches `web_search_enabled`,
+  `l1_cache_enabled`, `vector_weight`, `keyword_weight`; production defaults); new
+  `retrieval/context_assembly.py` (`assemble_context`, `AssembledContext`, `RERANK_TOP_K`,
+  `MAX_PARENT_BLOCKS`); `services/chat_pipeline.py` (`_retrieve` calls it); new
+  `tests/test_retrieval_switches.py` (6 tests); `CLAUDE.md` (v0.2.0 released); this brief
+- **`1389aad` — Checkpoints 2 + 3 (20 files):** new `backend/eval/retrieval/` — `__main__` (CLI),
+  `runner` (served / deep / context passes, aggregation, JSON + Markdown), `metrics` (Hit@k, Recall@k,
+  MRR, nDCG@k with page dedup, bootstrap CI, AUC), `dataset` (format, validation, `multi_part`,
+  `paired_with`, `problems_against_corpus`), `configs`, `corpus` (manifest, sha256, indexing through
+  `IndexingPipeline`), `embedding_cache` (sqlite, paced, resumable, blank text → zero vector),
+  `rate_limit`, `key_guard`, `generate_questions` (resumable, quota-aware), `mine_feedback`;
+  `eval/corpus/manifest.json`; `eval/datasets/retrieval_v1.jsonl`; new `tests/test_retrieval_eval.py`;
+  `.gitignore`; `docker-compose.override.yml` (mounts `eval/` read-only for the container tests);
+  `docs/{improvements,improvement-tracker,timeline}.md` (B8, B9, B10)
+- **`8c547b4` — Checkpoint 4 (3 files):** `eval/results/2026-11-09-{baseline,vector_only,keyword_only}-before-b8.md`
+- **`31b4a18` — Checkpoint 5 (7 files):** `retrieval/retrieval_service.py` (distance → cosine; the
+  unused 3-tuple branch removed); new `tests/test_vector_score_direction.py` (3 tests, a real
+  `FaissVectorStore`); three `*-after-b8.md` summaries; B8 in the tracker and `improvements.md`
+- **Checkpoint 6 (this commit):** `CLAUDE.md` (module map, flow step 3, Feature Status, Key Commands,
+  Known Issues B2/B8/B9/B10, Current Status); `docs/timeline.md` (Day 26 and Day 29 notes);
+  `docs/improvement-tracker.md` (E4); this Outcome; `docs/posts/02-measuring-retrieval.md` and
+  `09-launch-recap.md` material log; the three `*-after-b8.md` summaries re-stamped with commit
+  `31b4a18` (re-run, 0 API calls, numbers identical)
+
+### Checks run
+| Check | Result |
+|---|---|
+| Host `python -m pytest` | 166 at start → 172 (CP1) → 195 (CP2) → 214 (CP3) → **217** (CP5) |
+| Container `.\scripts\dev.ps1 test` | 172 → 195 → 214 → **217** |
+| `ruff check .` | clean after every checkpoint |
+| `docker compose config` | valid after the `eval/` mount |
+| CI on PR #14 | green on `5bfdfe6`, `1389aad` (delayed by a GitHub Actions incident, then passed), `8c547b4`, `31b4a18` |
+| Dataset vs corpus | 61 questions, every labelled page exists, all 43 evidence quotes on their pages |
+| Determinism | `after-b8` re-run on `31b4a18`: identical numbers; 0 API calls |
+
+### Measured (retrieval_v1, 55 answerable questions; production fusion = `baseline`)
+| Metric | Before B8 fix | After B8 fix |
+|---|---|---|
+| **Hit@5** | 0.782 [0.67–0.87] | **0.909** [0.84–0.98] |
+| **MRR@5** | 0.339 [0.26–0.43] | **0.801** [0.71–0.88] |
+| Recall@5 / Recall@10 | 0.736 / 0.779 | 0.897 / 0.964 |
+| MRR@10 / nDCG@10 | 0.193 / 0.317 | 0.851 / 0.872 |
+| Hit@5 generated / hard | 0.744 / 0.917 | 0.884 / 1.000 |
+| Hit@5 HPC Lecture.pptx (18 q) | 0.611 | 0.944 |
+| Evidence quote reaches the model (of 43) | 24 (3 truncated, 3 dropped) | 36 (1 truncated, 1 dropped) |
+| Confidence AUC (hit vs miss) | 0.638 | 0.332 (5 misses) |
+| Negatives (6) at strict grounding | 1 | 2 |
+| Local hybrid scores below the flat 0.5 web score | 52.5% | 67.9% |
+| vector_only Hit@5 / MRR@5 | 0.945 / 0.309 | 0.945 / **0.833** |
+| keyword_only Hit@5 / MRR@5 | 0.855 / 0.602 | 0.855 / 0.602 (unchanged) |
+
+Findings: before the fix, production fusion was worse than either half alone; after it, fusion
+(0.909 / 0.801) is still ≤ vector_only (0.945 / 0.833) — R4 (Day 29) must beat vector_only. The
+confidence score doesn't predict a hit before or after (bands ordered wrongly) — replace it on Day 26.
+The regex decomposer splits 12 of 61 questions, mostly single-intent ones containing "and"; before
+the fix, 5 of the 6 evidence losses were split questions (R2). Student wording didn't hurt: all 7
+hard/generated pairs hit at rank 1–2 after the fix.
+
+Quota on the eval project (2026-11-09): `gemini-3.5-flash-lite` 78 of 500; `gemini-embedding-001`
+478 of 1,000 (392 corpus texts + query and sub-query embeddings; every later run 0).
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| `RetrievalService` switches, `context_assembly.py` | — | backend-only: production defaults reproduce the old behaviour; no endpoint, field or flag |
+| Eval harness, dataset, results | — | backend-only developer tool, excluded from the image |
+| B8 fix | existing sources list and confidence badge in `ChatWindow.js` / `MessageList.js` (unchanged) | better-ranked sources and different confidence values; no new field or state |
+
+### Deviations from the plan
+- **Decision 6A → `gemini-3.5-flash-lite`.** The first generation run (`gemini-2.5-flash`) hit a 20
+  requests/day free-tier limit after 20 calls, and it ran on the production key (22/20) before the
+  eval project existed. `gemini-2.5-flash-lite` has the same 20/day limit; 3.5 Flash Lite allows 500.
+  78 requests made 52 drafts (26 rejected: 21 copied wording, 3 empty, 2 non-verbatim quotes); the
+  owner deleted 9.
+- **Added:** `key_guard.py` (the eval refuses `.env`'s production key), `rate_limit.py` (≤ 14 RPM for
+  generation; 90 RPM / 27K estimated TPM for embeddings), a resumable progress file for generation
+  and a per-vector-committed embedding cache (a stop keeps everything paid for).
+- **Labels pooled from FAISS + BM25, not the deep pass:** the deep pass is hybrid fusion with the B8
+  inversion, so its ranks were shown for information only.
+- **Headline metric:** Hit@5 (with MRR@5), at the owner's request; Recall@5 for two-part questions.
+  Added a two-part slice and a hard/generated pair comparison.
+- **Hard queries:** written by the owner (12 + 6 negatives); mining found 1 candidate
+  (`hello how are you`, used as n-01).
+- **Blank chunks:** the eval's embedding cache gives empty text a zero vector without an API call,
+  mirroring production (B10).
+- **Recorded, not fixed:** B9 (P1, Day 12), B10 (P2, Day 16).
+
+### Deferred
+- `--config web` (Tavily on; embeds every web chunk) → another day, with `--limit`.
+- Confidence replacement → Day 26 (timeline note). RRF vs vector_only → Day 29 (timeline note).
+- `semantic_search` / `POST /search` still return raw distances (no frontend caller) → Day 15 rewrite.
+
+### Tracker Notes (written today at the owner's request)
+- **E4:** Done (`web` run deferred). **B8:** Done with before/after. **B9** (P1), **B10** (P2): added.

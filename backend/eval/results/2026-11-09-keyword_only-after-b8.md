@@ -1,6 +1,6 @@
 # Retrieval eval — keyword_only — 2026-11-09
 
-BM25 half alone (0.0 / 1.0), web off. Dataset `retrieval_v1.jsonl` (61 questions, sha256 `77de5343a291`), commit `8c547b4` (app/ had uncommitted changes). Served pass top_k=5, deep pass top_k=10. Embedding cache: 619 hits, 0 API calls.
+BM25 half alone (0.0 / 1.0), web off. Dataset `retrieval_v1.jsonl` (61 questions, sha256 `77de5343a291`), commit `31b4a18`. Served pass top_k=5, deep pass top_k=10. Embedding cache: 619 hits, 0 API calls.
 
 **How to read this.** Means with 95% bootstrap intervals over questions.
 

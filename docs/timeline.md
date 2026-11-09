@@ -415,6 +415,7 @@ Focus: Golden set as a Langfuse dataset (E3), CI eval gate, confidence + cache t
 - 30–50 questions from real course material: question, expected answer points, expected document + page, answer mode; include multi-turn conversations
 - Upload as a Langfuse dataset; the runner executes the pipeline per item, links runs to the dataset, attaches the Day 12 judge scores and Day 11 retrieval metrics
 - Confidence calibration: confidence vs. Recall@5 on the golden set → re-derive the 70 / 30 grounding thresholds (closes B2)
+  - Day 11 E4: the confidence heuristic doesn't predict a hit (AUC 0.638 before B8, 0.332 after on only 5 misses; bands ordered wrongly; 2 of 6 negatives get strict). Replace the heuristic (e.g. calibrated on reranker/similarity scores), not just re-tune thresholds.
 - Verify: two runs on different configs are comparable side by side in Langfuse
 
 ### Day 27 — CI eval gate and semantic-cache threshold tuning (CO5, part 1)
@@ -445,6 +446,7 @@ Focus: Reranker (R1), RRF (R4), parallelism (CO2), rewriting (C2, R2, R3), token
 
 - Branch: feature/day29-r4-co2
 - RRF (k = 60) over the vector and keyword ranked lists; web chunks join by rank instead of a flat 0.5 score
+  - Day 11 after B8: fusion (0.909 / 0.801) ≤ vector_only (0.945 / 0.833); RRF must beat vector_only, not just the current blend.
 - Retrieve sub-queries concurrently with asyncio.gather (sync DB calls through asyncio.to_thread)
 - Verify: retrieval metrics vs. min-max fusion; latency of multi-part questions before/after
 

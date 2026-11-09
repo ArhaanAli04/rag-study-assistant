@@ -658,11 +658,15 @@ Every generation call in production uses `gemini-2.5-flash-lite`, hardcoded as t
 default in `generation/llm_client.py` (answers), `generation/topic_classifier.py` (session topic
 tags) and `generation/concept_extractor.py` (concept maps); `Settings` has no model field. Found on
 Day 11 from AI Studio's rate-limit page (owner, 2026-11-09): the production project's free-tier
-limit for `gemini-2.5-flash-lite` is **10 RPM / 20 RPD**, and its 28-day peak is **28 RPM / 20 RPD**
-— it has already hit the daily cap and gone over the per-minute one. A chat turn makes more than
+limit for `gemini-2.5-flash-lite` is **10 RPM / 20 RPD**, and its 28-day peak was **28 requests in one
+day** against that 20-per-day limit — it has already gone over the daily cap. A chat turn makes more than
 one call (the topic tag while the session topic is "General", plus the answer), so the app serves
 well under 20 chat turns a day before every call returns 429. The same free tier allows
 `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` 15 RPM / 500 RPD.
+Also (owner, AI Studio, 2026-11-09): Google's model page now limits 2.5 models to projects that have
+used them before (still served, not deprecated) and points new projects at 3.5 Flash-Lite or 3.8
+Flash. `gemini-3.5-flash-lite` is listed as Stable, at 15 RPM / 250K TPM / 500 RPD on the production
+project too. 2.5-flash-lite being legacy-only access is another reason to switch.
 Also recorded: Day 11's first question-generation run (`gemini-2.5-flash`) used the production key,
 before the separate eval project existed; it took that model to 22 of its 20 daily requests. Every
 live eval run since refuses to start unless `GEMINI_API_KEY` differs from `.env`'s

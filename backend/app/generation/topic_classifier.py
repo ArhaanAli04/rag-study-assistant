@@ -9,9 +9,9 @@ from google import genai
 logger = logging.getLogger("rag_assistant")
 
 class TopicClassifier:
-    def __init__(self, client: genai.Client, model_name: str = "gemini-2.5-flash-lite") -> None:
+    def __init__(self, client: genai.Client, model_name: str) -> None:
         self.client = client
-        self.model_name = model_name  # fast and cheap enough to run on a session's first messages
+        self.model_name = model_name
 
     def classify_topic(self, text: str) -> Dict:
         """

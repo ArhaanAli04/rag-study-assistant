@@ -10,6 +10,7 @@ from pydantic import SecretStr, ValidationError
 from app.core import config
 from app.core.config import (
     DEFAULT_ALLOWED_ORIGINS,
+    DEFAULT_GENERATION_MODEL,
     DEFAULT_REDIS_URL,
     DEFAULT_SEMANTIC_CACHE_REDIS_URL,
     Settings,
@@ -25,6 +26,7 @@ REQUIRED: Dict[str, str] = {
 OPTIONAL = (
     "TAVILY_API_KEY", "JWT_ALGORITHM", "JWT_EXPIRATION_MINUTES", "REDIS_URL",
     "SEMANTIC_CACHE_REDIS_URL", "BASE_URL", "FRONTEND_URL", "ALLOWED_ORIGINS", "TESSERACT_PATH",
+    "GEMINI_GENERATION_MODEL",
 )
 
 
@@ -52,6 +54,14 @@ def test_defaults_when_only_required_variables_are_set(monkeypatch: pytest.Monke
     ]
     assert s.ALLOWED_ORIGINS == DEFAULT_ALLOWED_ORIGINS
     assert s.TESSERACT_PATH is None
+    assert s.GEMINI_GENERATION_MODEL == DEFAULT_GENERATION_MODEL
+
+
+def test_generation_model_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    # B9: switching model (or back) is an env var on Render, not a code change.
+    assert load(monkeypatch, GEMINI_GENERATION_MODEL="gemini-3.5-flash-lite").GEMINI_GENERATION_MODEL == (
+        "gemini-3.5-flash-lite"
+    )
 
 
 # T3 (Day 4): the semantic cache gets its own Redis DB without moving deployments that set

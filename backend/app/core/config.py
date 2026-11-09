@@ -12,6 +12,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # and Docker (/app/backend). A missing file is skipped, which is what Docker and CI need.
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
+DEFAULT_GENERATION_MODEL = "gemini-2.5-flash-lite"
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 DEFAULT_SEMANTIC_CACHE_REDIS_URL = "redis://localhost:6379/1"
 DEFAULT_ALLOWED_ORIGINS = (
@@ -25,6 +26,9 @@ class Settings(BaseSettings):
     # SecretStr: repr(settings), tracebacks and log lines show ********** instead of the key;
     # reading the value takes an explicit, greppable .get_secret_value().
     GEMINI_API_KEY: SecretStr
+    # The answer, topic-tag and concept-map model (B9): one setting so a quota or quality change
+    # is an env var on Render, not a code change in three classes.
+    GEMINI_GENERATION_MODEL: str = DEFAULT_GENERATION_MODEL
     # Empty means web search is off: WebSearchClient refuses and retrieval skips web chunks.
     TAVILY_API_KEY: SecretStr = SecretStr("")
 

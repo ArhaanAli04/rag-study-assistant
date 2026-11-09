@@ -231,21 +231,18 @@ class RetrievalService:
 
         vector_results = []
         for item in raw_vector_results:
-            # handle both tuple and dict forms safely
             if isinstance(item, dict):
+                # Already a higher-is-better score.
                 vector_results.append(item)
-            else:
-                # assume tuple: (score, text, metadata) or (score, metadata)
-                if len(item) == 3:
-                    score, text, metadata = item
-                elif len(item) == 2:
-                    score, metadata = item
-                    text = metadata.get("text", "")
-                else:
-                    continue
-                vector_results.append(
-                    {"score": float(score), "text": text, "metadata": metadata}
-                )
+                continue
+            # FaissVectorStore returns (squared L2 distance, metadata): lower is closer. Fusion and
+            # confidence need higher = better, so convert to cosine similarity. For unit vectors
+            # (EmbeddingService L2-normalizes) d² = 2 − 2·cos, so cos = 1 − d²/2. Fusing the raw
+            # distance ranked the vector half backwards (B8).
+            distance, metadata = item
+            vector_results.append(
+                {"score": 1.0 - float(distance) / 2.0, "text": metadata.get("text", ""), "metadata": metadata}
+            )
 
 
         # 4. BM25 search

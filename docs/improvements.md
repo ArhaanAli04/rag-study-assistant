@@ -647,6 +647,11 @@ the least similar chunks the vector search returns, and confidence is computed f
 so cos = 1 − d²/2. Add a test that the nearest neighbour gets the highest vector score, and measure
 before/after on E4 (Day 11, Checkpoint 5). `semantic_search` / `POST /search` also return raw
 distances labelled as scores (no frontend caller).
+**Fixed (Day 11):** `hybrid_retrieve` converts each `(distance, metadata)` pair to cosine similarity
+(`1 − d²/2`) before normalization; `test_vector_score_direction.py` checks it against a real
+`FaissVectorStore`. E4 (retrieval_v1, 55 answerable questions), production fusion: Hit@5 0.782 →
+0.909, MRR@5 0.339 → 0.801, nDCG@10 0.317 → 0.872; evidence quotes reaching the model 24 → 36 of 43.
+`semantic_search` still returns raw distances (unused by the frontend; left for the Day 15 rewrite).
 
 ### B9 — The chat model's free-tier quota is 20 requests a day, and production already exceeds it (P1)
 Every generation call in production uses `gemini-2.5-flash-lite`, hardcoded as the constructor

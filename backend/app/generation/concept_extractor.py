@@ -20,18 +20,10 @@ class ConceptExtractor:
     Generates concept maps with proper source attribution
     """
     
-    def __init__(self, client: genai.Client, model_name: str = "gemini-2.5-flash-lite") -> None:
+    def __init__(self, client: genai.Client, model_name: str) -> None:
         self.client = client
         self.model_name = model_name
-        
-        # Generation config for structured output
-        self.generation_config = {
-            "temperature": 0.3,  # Lower for more consistent structured output
-            "top_p": 0.95,
-            "top_k": 40,
-            "max_output_tokens": 4096,
-        }
-        
+
         logger.info(f" ConceptExtractor initialized with {model_name}")
     
     
@@ -345,7 +337,7 @@ Now extract the concept map:"""
                 'node_count': len(concept_map.get('nodes', [])),
                 'edge_count': len(concept_map.get('edges', [])),
                 'context_length': len(context),
-                'model': 'gemini-1.5-flash'
+                'model': self.model_name
             }
             
             logger.info(f" Extraction complete: {concept_map['metadata']['node_count']} nodes, {concept_map['metadata']['edge_count']} edges")

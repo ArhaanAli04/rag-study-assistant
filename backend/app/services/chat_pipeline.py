@@ -21,11 +21,11 @@ from app.db.database import FailedQuery, Message, Session as ChatSession, User
 from app.core.errors import UserFriendlyError
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier
-from app.retrieval.confidence import LOW_CONFIDENCE_BELOW, grounding_level as grounding_for
-from app.retrieval.context_assembly import assemble_context
+from app.retrieval.confidence import LOW_CONFIDENCE_BELOW
 from app.retrieval.context_compressor import SimpleContextCompressor
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
+from app.services.answer_preparation import prepare_answer
 from app.services.caches.semantic_cache import SemanticCache
 from app.services.chat_guards import (
     INJECTION_REFUSAL,
@@ -106,21 +106,15 @@ class ChatPipeline:
         add_message(db, chat_session.id, user_id_int, role="user", content=query)
         self._tag_topic(db, chat_session, query, message_count)
 
-        compressed_context, final_confidence, any_fallback = self._retrieve(
-            query, str(user_id_int), doc_version, top_k
-        )
-        grounding_level = grounding_for(final_confidence)
-
-        prompt = self.llm_client.build_prompt(
-            question=query,
-            context_chunks=compressed_context,
-            recent_messages=recent_messages,
-            grounding_level=grounding_level,
-            mode=mode,
+        prepared = prepare_answer(
+            self.retrieval_service, self.query_decomposer, self.compressor, self.llm_client,
+            query=query, user_id=str(user_id_int), doc_version=doc_version, top_k=top_k,
+            mode=mode, recent_messages=recent_messages,
         )
         events = self._generate(
             db, user_id_int, query, chat_session.id, doc_version, mode,
-            prompt, compressed_context, final_confidence, any_fallback, grounding_level,
+            prepared.prompt, prepared.context.chunks, prepared.context.confidence,
+            prepared.context.fallback_used, prepared.grounding_level,
         )
         return ChatStream(events, {})
 
@@ -140,15 +134,6 @@ class ChatPipeline:
         # A topic tag is cosmetic: whatever goes wrong, the answer must still be sent.
         except Exception as e:
             logger.error(f"Topic classification error{' (cached)' if cached else ''}: {e}")
-
-    def _retrieve(
-        self, query: str, user_id: str, doc_version: int, top_k: int
-    ) -> tuple[List[Dict[str, Any]], float, bool]:
-        context = assemble_context(
-            self.retrieval_service, self.query_decomposer, self.compressor,
-            query=query, user_id=user_id, doc_version=doc_version, top_k=top_k,
-        )
-        return context.chunks, context.confidence, context.fallback_used
 
     def _replay_cached(
         self, db: Session, user_id_int: int, query: str, session_id: int, mode: str, cached: Dict[str, Any]

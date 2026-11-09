@@ -20,7 +20,7 @@ def _node(source_type: str, sources: List[str]) -> Dict[str, Any]:
 
 @pytest.fixture
 def extractor() -> ConceptExtractor:
-    return ConceptExtractor(FakeGenaiClient())
+    return ConceptExtractor(FakeGenaiClient(), "fake-model")
 
 
 @pytest.mark.parametrize(("source_type", "expected"), [("web", WEB[0]), ("document", DOCS[0])])

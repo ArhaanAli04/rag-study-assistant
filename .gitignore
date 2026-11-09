@@ -49,6 +49,9 @@ backend/eval/datasets/*.progress.jsonl
 # Generation drafts quote whole source chunks; only the frozen dataset (short quotes) is committed
 backend/eval/datasets/*.draft.jsonl
 backend/eval/datasets/*.review.md
+# Generation eval (Day 12): the blind labelling sheet quotes the private corpus and the answers;
+# only the labels file (ids + labels) is committed.
+backend/eval/datasets/*.sheet.md
 
 # Post screenshots: show demo account emails and would bloat history
 docs/posts/assets/

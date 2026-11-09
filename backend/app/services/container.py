@@ -61,7 +61,8 @@ def build_services() -> Services:
         query_cache=QueryCache(redis_client),
         web_cache=WebCache(redis_client),
     )
-    llm_client = LLMClient(gemini_client)
+    generation_model = settings.GEMINI_GENERATION_MODEL
+    llm_client = LLMClient(gemini_client, generation_model)
     semantic_cache = SemanticCache(index_builder=index_builder, redis_client=semantic_cache_redis_client)
 
     return Services(
@@ -77,12 +78,12 @@ def build_services() -> Services:
         chat_pipeline=ChatPipeline(
             retrieval_service=retrieval_service,
             llm_client=llm_client,
-            topic_classifier=TopicClassifier(gemini_client),
+            topic_classifier=TopicClassifier(gemini_client, generation_model),
             semantic_cache=semantic_cache,
             query_decomposer=QueryDecomposer(),
             compressor=SimpleContextCompressor(),
         ),
         concept_map_service=ConceptMapService(
-            ConceptMapRetriever(retrieval_service), ConceptExtractor(gemini_client)
+            ConceptMapRetriever(retrieval_service), ConceptExtractor(gemini_client, generation_model)
         ),
     )

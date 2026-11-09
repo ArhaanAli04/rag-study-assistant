@@ -1,6 +1,7 @@
 """Day 9: building the app costs nothing; starting it builds one Gemini client, shared by every service."""
 from fastapi.testclient import TestClient
 
+from app.core.config import settings
 from app.main import create_app
 from tests.fakes import FakeGenaiClient
 
@@ -26,6 +27,11 @@ def test_startup_builds_exactly_one_shared_gemini_client() -> None:
         assert services.index_builder.embedding_service.client is shared
         assert services.chat_pipeline.topic_classifier.client is shared
         assert services.concept_map_service.extractor.client is shared
+        # B9: the three generation roles all use the one Settings model.
+        model = settings.GEMINI_GENERATION_MODEL
+        assert services.llm_client.model_name == model
+        assert services.chat_pipeline.topic_classifier.model_name == model
+        assert services.concept_map_service.extractor.model_name == model
         # The concept-map retriever searches the index /upload writes to, not a private one (R5).
         assert services.concept_map_service.retriever.retrieval_service is services.retrieval_service
 

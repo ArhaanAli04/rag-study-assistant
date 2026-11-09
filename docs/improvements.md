@@ -126,6 +126,29 @@ scores — there is currently no reliable automated signal for retrieval/generat
 quality.
 **Direction:** either properly wrap `LLMClient` to satisfy RAGAS's LLM interface, or
 drop RAGAS and build a smaller custom eval harness using Gemini directly as a judge.
+**Outcome (Day 12):** RAGAS is dropped, and `backend/eval/generation/` is a Gemini judge.
+- **Judge:** `gemini-3.5-flash-lite` with schema-constrained JSON and no temperature (3.5 ignores
+  it). It grades claim-level faithfulness against the exact prompt text and the citation support
+  of each claim, plus answer relevance. Citation validity is checked in code.
+- **Answers:** generated through the chat's own `prepare_answer` and `stream_answer`. Answers and
+  verdicts are cached.
+- **Calibration:** 20 blind reference labels (Claude, adjudicated by the owner), each answer judged
+  twice.
+
+  | | faith-v1 | faith-v2 |
+  |---|---|---|
+  | Faithfulness agreement | 0.90 (κ 0.76) | 1.00 (κ 1.00) |
+  | Citations agreement | 0.90 (κ 0.75) | 1.00 (κ 1.00) |
+
+  Relevance agreement was 1.00 under both prompts. faith-v2 is optimistic, because it was tuned on
+  those 20.
+- **Baseline** (retrieval_v1, 61 questions, `gemini-3.5-flash-lite`, `quick` mode):
+  - strict-band faithfulness 0.956, ≈ 0.963 with the owner's h-02 ruling;
+  - 0 of 186 claims contradicted;
+  - full relevance 0.982 on answerable questions;
+  - 151 of 151 citations valid.
+- **Dependencies:** `ragas`, `datasets` and 20 transitive packages (langchain ×5 among them) left
+  the lock.
 
 ### E2 — "Manual" metrics are word-overlap heuristics (P1)
 `src/rag_metrics.py:manual_faithfulness`, `manual_relevancy` — faithfulness is
@@ -136,6 +159,9 @@ sense (e.g. an answer that paraphrases faithfully with different words scores lo
 answer that repeats context verbatim without answering the question scores high).
 **Direction:** replace with an LLM-as-judge faithfulness/relevancy check, or properly
 fix the RAGAS wiring (E1) and retire the manual fallback.
+**Outcome (Day 12):** retired. `manual_faithfulness` and `manual_relevancy` are deleted along
+with `rag_metrics.py`, `rag_eval_runner.py`, `sample_eval_data.py` and `manual_eval.py`. The E1
+judge replaces them.
 
 ### E3 — No golden eval set or CI regression gate (P2)
 `sample_eval_data.py` exists but there's no persisted, versioned set of
@@ -658,11 +684,15 @@ Every generation call in production uses `gemini-2.5-flash-lite`, hardcoded as t
 default in `generation/llm_client.py` (answers), `generation/topic_classifier.py` (session topic
 tags) and `generation/concept_extractor.py` (concept maps); `Settings` has no model field. Found on
 Day 11 from AI Studio's rate-limit page (owner, 2026-11-09): the production project's free-tier
-limit for `gemini-2.5-flash-lite` is **10 RPM / 20 RPD**, and its 28-day peak is **28 RPM / 20 RPD**
-— it has already hit the daily cap and gone over the per-minute one. A chat turn makes more than
+limit for `gemini-2.5-flash-lite` is **10 RPM / 20 RPD**, and its 28-day peak was **28 requests in one
+day** against that 20-per-day limit — it has already gone over the daily cap. A chat turn makes more than
 one call (the topic tag while the session topic is "General", plus the answer), so the app serves
 well under 20 chat turns a day before every call returns 429. The same free tier allows
 `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite` 15 RPM / 500 RPD.
+Also (owner, AI Studio, 2026-11-09): Google's model page now limits 2.5 models to projects that have
+used them before (still served, not deprecated) and points new projects at 3.5 Flash-Lite or 3.8
+Flash. `gemini-3.5-flash-lite` is listed as Stable, at 15 RPM / 250K TPM / 500 RPD on the production
+project too. 2.5-flash-lite being legacy-only access is another reason to switch.
 Also recorded: Day 11's first question-generation run (`gemini-2.5-flash`) used the production key,
 before the separate eval project existed; it took that model to 22 of its 20 daily requests. Every
 live eval run since refuses to start unless `GEMINI_API_KEY` differs from `.env`'s
@@ -675,6 +705,36 @@ passed into `LLMClient`, `TopicClassifier` and `ConceptExtractor` by `services/c
 either switch production to `gemini-3.5-flash-lite` (500 RPD), measured with the Day 12 judge before
 and after so answer quality is known not to drop, or enable billing — the owner decides. Scheduled
 Day 12.
+**Outcome (Day 12, 2026-11-09/10):**
+- **The model is a setting.** `GEMINI_GENERATION_MODEL` (`core/config.py`) is passed by
+  `services/container.py` to `LLMClient`, `TopicClassifier` and `ConceptExtractor`. The
+  constructors no longer have a default model.
+- **The default is now `gemini-3.5-flash-lite`** (owner's decision): 500 RPD, against 20 for
+  2.5-flash-lite on the free tier.
+- **Why there is no before/after comparison:** one probe call to `gemini-2.5-flash-lite` on the new
+  eval project returned **HTTP 404**: "This model models/gemini-2.5-flash-lite is no longer
+  available to new users". The paired comparison was impossible. Production's own key was never
+  used for it (key guard).
+- **3.5 instead passed an absolute gate,** on retrieval_v1 (61 questions, web off, `quick` mode),
+  judged by `gemini-3.5-flash-lite` with prompt `faith-v2`, calibrated on 20 blind reference
+  labels:
+
+  | Check | Value | Bar |
+  |---|---|---|
+  | Strict-band faithfulness | 0.956 [0.87–1.00], n = 27 | ≥ 0.90 |
+  | Contradicted claims | 0 of 186 | ≤ 5% |
+  | Full relevance on answerable questions | 0.982 | ≥ 0.80 |
+
+  The owner later ruled the judge's one strict-band call on h-02 a false positive; corrected,
+  strict faithfulness is ≈ 0.963.
+- **This shows 3.5 meets the bar, not that it beats the model production runs today.** It is not
+  a paired comparison, and the judge is the same model as the generator.
+- **Smoke-tested on 3.5 with the eval key:** one topic tag ("Deep Learning", 0.85) and one concept
+  map (12 nodes and 18 edges; it parsed and validated).
+- **Reversible:** set `GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite` on Render. Production's
+  project used that model before, so it keeps access.
+- **Ships with the v0.2.1 release** (B8 + B9). Until then production stays on 2.5-flash-lite and
+  its 20/day cap.
 
 ### B10 — The PPTX chunker emits empty chunks, which are indexed as zero vectors (P2)
 In the Day 11 corpus, `HPC Lecture.pptx` slides 52, 199 and 203 each produce an empty chunk at

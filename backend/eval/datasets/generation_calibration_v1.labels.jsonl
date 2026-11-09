@@ -1,0 +1,20 @@
+{"id": "g-002", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-008", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-015", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-017", "faithfulness": "not_in_context", "relevance": "partial", "citations": "some_wrong", "note": "borderline: Page 100 describes GRU; the answer presents GRU's gating as the general objective of RNN loops and never states the actual objective (carrying information across time steps)"}
+{"id": "g-020", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-024", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-028", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": "'reduces the workload per processor' is a mild inference from Page 130/133, counted as following directly"}
+{"id": "g-029", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-038", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": "'primary drawback' framing is the model's; the cost and waiting-time content is on Pages 151/152"}
+{"id": "g-040", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "g-041", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": "borderline: material says 'low runtime overhead', answer says 'very low'; minor intensifier, not counted"}
+{"id": "g-050", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": ""}
+{"id": "h-01", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": "borderline: the causal links (small gradients -> forgets old info; cell state -> vanishing gradient handled) join statements the material lists separately"}
+{"id": "h-03", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": "'right to left' for the backward pass is implied by Page 14's left-to-right forward pass and Page 24's 'backwards'"}
+{"id": "h-05", "faithfulness": "supported", "relevance": "full", "citations": "correct", "note": "borderline: 'handle payments securely' adds 'securely' to Page 62's 'automate verification and payments'"}
+{"id": "h-09", "faithfulness": "not_in_context", "relevance": "full", "citations": "some_wrong", "note": "Page 62 says Pascal invented the Pascaline, a mechanical calculator; it never says it was the first (allowed under loose). Owner ruling 2026-11-10: citations correct -> some_wrong; the cited Page 62 does not support the 'first' sentence, consistent with g-017"}
+{"id": "n-01", "faithfulness": "no_claims", "relevance": "full", "citations": "none", "note": "greeting; mentions topics from the material but asserts nothing checkable"}
+{"id": "n-02", "faithfulness": "no_claims", "relevance": "refusal", "citations": "none", "note": "correct refusal under strict"}
+{"id": "n-04", "faithfulness": "no_claims", "relevance": "refusal", "citations": "none", "note": "correct refusal under strict"}
+{"id": "n-06", "faithfulness": "not_in_context", "relevance": "full", "citations": "none", "note": "general-knowledge answer, allowed under none grounding"}

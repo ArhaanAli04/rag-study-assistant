@@ -235,7 +235,7 @@ Focus: Retrieval eval harness (E4), LLM-as-judge generation eval (E1, E2)
 - Calibrate on ~20 hand-labelled answers and record judge/human agreement
 - Retire the word-overlap manual metrics (E2)
 - End-to-end runner: question → real pipeline (web off) → judge scores
-- B9: make the chat/topic model a Settings field and switch production to gemini-3.5-flash-lite (500 RPD), measured with the Day 12 judge before/after; or enable billing — owner decides. Found Day 11: production's gemini-2.5-flash-lite free tier is 10 RPM / 20 RPD and its 28-day peak (28 / 20) already exceeds it; a chat turn makes more than one call (topic tag + answer). Also note: Day 11's first gemini-2.5-flash question-generation run used the production key (22/20), before the eval key existed
+- B9: make the chat/topic model a Settings field and switch production to gemini-3.5-flash-lite (500 RPD), measured with the Day 12 judge before/after; or enable billing — owner decides. Found Day 11: production's gemini-2.5-flash-lite free tier is 10 RPM / 20 RPD and its 28-day peak (28 requests in one day, against the 20-per-day limit) already exceeds it; a chat turn makes more than one call (topic tag + answer). Also note: Day 11's first gemini-2.5-flash question-generation run used the production key (22/20), before the eval key existed
 - Quota: the judge and the end-to-end runner run on the eval project's key (eval/retrieval/key_guard.py refuses .env's production key) and are paced under its free-tier limits
 - Verify: baseline generation scores recorded next to the retrieval baseline — every later phase compares against these
 

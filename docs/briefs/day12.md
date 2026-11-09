@@ -304,6 +304,15 @@ Then production:
 
   The comparison is written up as "not possible: 2.5 unavailable to new projects".
 
+**Probe result (Checkpoint 2, 2026-11-09): refused.** `python -m eval.generation --probe
+gemini-2.5-flash-lite` on the eval key returned HTTP 404 NOT_FOUND: "This model
+models/gemini-2.5-flash-lite is no longer available to new users. Please update your code to use
+models/gemini-3.5-flash-lite…". As a result:
+- The paired comparison is not possible: 2.5 is unavailable to new projects.
+- Calibration uses 20 answers from 3.5 only, each judged twice for self-consistency (owner's
+  addition).
+- Checkpoint 4 uses the absolute gate.
+
 **Other changes:**
 - `improvements.md` B9 notes that 2.5 is legacy-only access.
 - No hotfix: the owner releases v0.2.1 (B8 + B9) from develop after today merges. B9 is measured

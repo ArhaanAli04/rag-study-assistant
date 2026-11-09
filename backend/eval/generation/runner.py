@@ -84,7 +84,8 @@ class QuestionResult:
 
 
 def build_context(
-    client: genai.Client, corpus: IndexedCorpus, cache: ResultCache, model: str, judge_model: str, mode: str
+    client: genai.Client, corpus: IndexedCorpus, cache: ResultCache, model: str, judge_model: str, mode: str,
+    faithfulness_version: str = FAITHFULNESS_PROMPT_VERSION,
 ) -> EvalContext:
     # One limiter per model: when the generator and the judge are the same model they share its
     # per-minute quota.
@@ -94,7 +95,7 @@ def build_context(
     return EvalContext(
         retrieval_service=build_retrieval_service(CONFIGS["baseline"], corpus),
         llm_client=LLMClient(client, model),
-        judge=Judge(client, cache, limiters[judge_model], judge_model),
+        judge=Judge(client, cache, limiters[judge_model], judge_model, faithfulness_version=faithfulness_version),
         cache=cache,
         generation_limiter=limiters[model],
         mode=mode,
@@ -326,7 +327,7 @@ def run(ctx: EvalContext, questions: Sequence[EvalQuestion], meta: Dict[str, Any
         "generator": {"model": ctx.llm_client.model_name, "mode": ctx.mode, "temperature": ANSWER_TEMPERATURE},
         "judge": {
             "model": ctx.judge.model, "temperature": TEMPERATURE_SETTING,
-            "prompts": {"faithfulness": FAITHFULNESS_PROMPT_VERSION, "relevance": RELEVANCE_PROMPT_VERSION},
+            "prompts": {"faithfulness": ctx.judge.faithfulness_version, "relevance": RELEVANCE_PROMPT_VERSION},
         },
         "retrieval": f"baseline config (web off, L1 off), top_k={SERVED_TOP_K}",
         "complete": complete,

@@ -1,4 +1,4 @@
-"""Judge calibration against the owner's blind labels, plus judge self-consistency (Day 12).
+"""Judge calibration against blind reference labels, plus judge self-consistency (Day 12).
 
     python -m eval.generation.calibrate sample   # pick 20, answer them, write the blind labelling sheet
     python -m eval.generation.calibrate score    # judge each answer twice, compare with your labels
@@ -12,10 +12,10 @@ writes:
 
 `score` judges every answer twice (replica 0 is the verdict the full run reuses, replica 1 an
 independent second sample: 3.5 Flash-Lite runs at temperature 1.0), derives one label per
-dimension from each verdict, and reports judge-vs-judge and judge-vs-owner agreement. Generator
-and judge are the same model (2.5-flash-lite is not served to the new eval project), so the owner's
+dimension from each verdict, and reports judge-vs-judge and judge-vs-reference agreement. Generator
+and judge are the same model (2.5-flash-lite is not served to the new eval project), so the reference
 labels are the only check on self-preference: every disagreement is listed by direction — the
-judge more lenient than the owner, or stricter.
+judge more lenient than the reference labels, or stricter.
 """
 import argparse
 import datetime
@@ -33,6 +33,7 @@ from eval.generation.citations import check_citations
 from eval.generation.judge import (
     DEFAULT_JUDGE_MODEL,
     FAITHFULNESS_PROMPT_VERSION,
+    FAITHFULNESS_PROMPTS,
     RELEVANCE_PROMPT_VERSION,
     TEMPERATURE_SETTING,
     FaithfulnessVerdict,
@@ -55,6 +56,8 @@ LABELS_PATH = DATASETS_DIR / f"{NAME}.labels.jsonl"
 SHEET_PATH = DATASETS_DIR / f"{NAME}.sheet.md"
 GENERATOR_MODEL = "gemini-3.5-flash-lite"
 SEED = 12
+# The owner asked a different model family to label blind, then adjudicates every disagreement.
+DEFAULT_PROVENANCE = "Claude (claude-opus-5-5), blind; disagreements adjudicated by the owner"
 
 # (question type, grounding band, how many). 10 strict answers: the gate's headline is strict faithfulness.
 STRATA: Tuple[Tuple[str, str, int], ...] = (
@@ -72,17 +75,17 @@ LABELS: Dict[str, Tuple[str, ...]] = {
     "relevance": ("full", "partial", "off_topic", "refusal"),
     "citations": ("correct", "some_wrong", "none"),
 }
-# Least to most severe: the judge is "more lenient" when its label sits earlier than the owner's.
+# Least to most severe: the judge is "more lenient" when its label sits earlier than the reference label's.
 SEVERITY: Dict[str, Tuple[str, ...]] = {
     "faithfulness": ("supported", "not_in_context", "contradicted"),
     "relevance": ("full", "partial", "off_topic"),
     "citations": ("correct", "some_wrong"),
 }
 
-# A dimension is trusted only if the judge agrees with itself AND with the owner.
+# A dimension is trusted only if the judge agrees with itself AND with the reference labels.
 SELF_AGREEMENT_MIN = 0.80
-HUMAN_KAPPA_MIN = 0.40
-HUMAN_AGREEMENT_MIN_WHEN_NO_KAPPA = 0.80
+REFERENCE_KAPPA_MIN = 0.40
+REFERENCE_AGREEMENT_MIN_WHEN_NO_KAPPA = 0.80
 
 
 # ---------- labels from a verdict ----------
@@ -106,14 +109,14 @@ def citations_label(verdict: FaithfulnessVerdict) -> str:
     return "some_wrong" if any(c.citation_supports == "no" for c in cited) else "correct"
 
 
-def direction(dimension: str, human: str, judge: str) -> str:
-    """'agree', 'lenient' (the judge is kinder than the owner), 'stricter', or 'other'."""
-    if human == judge:
+def direction(dimension: str, reference: str, judge: str) -> str:
+    """'agree', 'lenient' (the judge is kinder than the reference label), 'stricter', or 'other'."""
+    if reference == judge:
         return "agree"
     order = SEVERITY[dimension]
-    if human not in order or judge not in order:
+    if reference not in order or judge not in order:
         return "other"
-    return "lenient" if order.index(judge) < order.index(human) else "stricter"
+    return "lenient" if order.index(judge) < order.index(reference) else "stricter"
 
 
 # ---------- sampling ----------
@@ -238,7 +241,7 @@ class ScoredItem:
     id: str
     type: str
     grounding: str
-    human: Dict[str, str]
+    reference: Dict[str, str]
     judge: Dict[str, str]
     judge_replica: Dict[str, str]
     code_fabricated_citations: int
@@ -259,25 +262,25 @@ def _agreement(a: Sequence[str], b: Sequence[str], dimension: str) -> Dict[str, 
 def summarize(items: Sequence[ScoredItem]) -> Dict[str, Dict[str, Any]]:
     summary: Dict[str, Dict[str, Any]] = {}
     for dimension in DIMENSIONS:
-        human = [i.human[dimension] for i in items]
+        reference = [i.reference[dimension] for i in items]
         judge = [i.judge[dimension] for i in items]
         replica = [i.judge_replica[dimension] for i in items]
         self_agreement = _agreement(judge, replica, dimension)
-        human_agreement = _agreement(human, judge, dimension)
-        kappa = human_agreement["kappa"]
-        human_ok = (kappa is not None and kappa >= HUMAN_KAPPA_MIN) or (
-            kappa is None and (human_agreement["agreement"] or 0) >= HUMAN_AGREEMENT_MIN_WHEN_NO_KAPPA
+        reference_agreement = _agreement(reference, judge, dimension)
+        kappa = reference_agreement["kappa"]
+        reference_ok = (kappa is not None and kappa >= REFERENCE_KAPPA_MIN) or (
+            kappa is None and (reference_agreement["agreement"] or 0) >= REFERENCE_AGREEMENT_MIN_WHEN_NO_KAPPA
         )
         directions: Dict[str, List[Tuple[str, str, str]]] = {"lenient": [], "stricter": [], "other": []}
         for item in items:
-            d = direction(dimension, item.human[dimension], item.judge[dimension])
+            d = direction(dimension, item.reference[dimension], item.judge[dimension])
             if d != "agree":
-                directions[d].append((item.id, item.human[dimension], item.judge[dimension]))
+                directions[d].append((item.id, item.reference[dimension], item.judge[dimension]))
         summary[dimension] = {
             "judge_vs_judge": self_agreement,
-            "judge_vs_owner": human_agreement,
-            "trusted": bool((self_agreement["agreement"] or 0) >= SELF_AGREEMENT_MIN and human_ok),
-            "owner_distribution": {label: human.count(label) for label in LABELS[dimension]},
+            "judge_vs_reference": reference_agreement,
+            "trusted": bool((self_agreement["agreement"] or 0) >= SELF_AGREEMENT_MIN and reference_ok),
+            "reference_distribution": {label: reference.count(label) for label in LABELS[dimension]},
             "judge_distribution": {label: judge.count(label) for label in LABELS[dimension]},
             "disagreements": directions,
         }
@@ -307,7 +310,7 @@ def score(ctx: EvalContext, questions: Sequence[EvalQuestion]) -> Tuple[List[Sco
             })
         items.append(ScoredItem(
             id=row.id, type=question.type, grounding=prepared.grounding_level,
-            human={d: str(getattr(row, d)) for d in DIMENSIONS}, judge=judged[0], judge_replica=judged[1],
+            reference={d: str(getattr(row, d)) for d in DIMENSIONS}, judge=judged[0], judge_replica=judged[1],
             code_fabricated_citations=check_citations(answer, prepared.context.chunks).fabricated,
         ))
         logger.info("[%d/%d] %s judged twice", number, len(rows), row.id)
@@ -322,35 +325,35 @@ def render(items: Sequence[ScoredItem], summary: Dict[str, Dict[str, Any]], meta
     lines = [
         f"# Judge calibration — {meta['judge']} — {meta['date']}",
         "",
-        f"{len(items)} answers from `{meta['generator']}` (mode `{meta['mode']}`), labelled blind by the owner "
-        f"(`{LABELS_PATH.name}`); each judged twice by `{meta['judge']}` (prompts {meta['prompts']}, temperature "
+        f"{len(items)} answers from `{meta['generator']}` (mode `{meta['mode']}`), labelled blind (`{LABELS_PATH.name}`). "
+        f"**Reference labels: {meta['provenance']}.** Each answer was judged twice by `{meta['judge']}` (prompts {meta['prompts']}, temperature "
         f"{meta['temperature']}). Commit `{meta['commit']}`. Generator and judge are the same model "
-        "(gemini-2.5-flash-lite is not served to new projects), so the owner's labels are the only check on "
-        "self-preference.",
+        "(gemini-2.5-flash-lite is not served to new projects), so the reference labels, from a different model "
+        "family, are the only check on self-preference.",
         "",
         f"A dimension is **trusted** only if the judge agrees with itself (≥ {SELF_AGREEMENT_MIN:.2f}) and with the "
-        f"owner (κ ≥ {HUMAN_KAPPA_MIN:.2f}, or agreement ≥ {HUMAN_AGREEMENT_MIN_WHEN_NO_KAPPA:.2f} when κ is "
+        f"reference labels (κ ≥ {REFERENCE_KAPPA_MIN:.2f}, or agreement ≥ {REFERENCE_AGREEMENT_MIN_WHEN_NO_KAPPA:.2f} when κ is "
         "undefined because one label covers everything). With 20 items κ's interval is wide: this separates "
         "usable from not, not 0.7 from 0.8.",
         "",
-        "| Dimension | Judge vs judge: agreement / κ | Judge vs owner: agreement / κ / weighted κ (n) | Trusted |",
+        "| Dimension | Judge vs judge: agreement / κ | Judge vs reference: agreement / κ / weighted κ (n) | Trusted |",
         "|---|---|---|---|",
     ]
     for dimension in DIMENSIONS:
         s = summary[dimension]
-        jj, jo = s["judge_vs_judge"], s["judge_vs_owner"]
+        jj, jo = s["judge_vs_judge"], s["judge_vs_reference"]
         lines.append(
             f"| {dimension} | {_fmt(jj['agreement'])} / {_fmt(jj['kappa'])} | "
             f"{_fmt(jo['agreement'])} / {_fmt(jo['kappa'])} / {_fmt(jo['weighted_kappa'])} ({jo['weighted_n']}) | "
             f"**{'yes' if s['trusted'] else 'no'}** |"
         )
-    lines += ["", "## Label distributions — owner vs judge", ""]
+    lines += ["", "## Label distributions — reference vs judge", ""]
     for dimension in DIMENSIONS:
         s = summary[dimension]
-        lines.append(f"- **{dimension}** — owner {s['owner_distribution']}; judge {s['judge_distribution']}")
+        lines.append(f"- **{dimension}** — reference {s['reference_distribution']}; judge {s['judge_distribution']}")
     for heading, key in (
-        ("Judge MORE LENIENT than the owner (the self-preference risk)", "lenient"),
-        ("Judge STRICTER than the owner", "stricter"),
+        ("Judge MORE LENIENT than the reference labels (the self-preference risk)", "lenient"),
+        ("Judge STRICTER than the reference labels", "stricter"),
         ("Other disagreements (no severity direction: no_claims / refusal / none involved)", "other"),
     ):
         lines += ["", f"## {heading}", ""]
@@ -358,30 +361,110 @@ def render(items: Sequence[ScoredItem], summary: Dict[str, Dict[str, Any]], meta
         if not rows:
             lines.append("None.")
             continue
-        lines += ["| Id | Dimension | Owner | Judge |", "|---|---|---|---|"]
-        lines += [f"| {qid} | {d} | {owner} | {judge} |" for d, (qid, owner, judge) in rows]
+        lines += ["| Id | Dimension | Reference | Judge |", "|---|---|---|---|"]
+        lines += [f"| {qid} | {d} | {reference} | {judge} |" for d, (qid, reference, judge) in rows]
     lines += [
         "",
         "## Per answer",
         "",
-        "| Id | Type | Band | Faithfulness owner / judge / replica | Relevance owner / judge / replica | "
-        "Citations owner / judge / replica | Fabricated (code) |",
+        "| Id | Type | Band | Faithfulness reference / judge / replica | Relevance reference / judge / replica | "
+        "Citations reference / judge / replica | Fabricated (code) |",
         "|---|---|---|---|---|---|---|",
     ]
     for i in items:
-        cells = [" / ".join((i.human[d], i.judge[d], i.judge_replica[d])) for d in DIMENSIONS]
+        cells = [" / ".join((i.reference[d], i.judge[d], i.judge_replica[d])) for d in DIMENSIONS]
         lines.append(f"| {i.id} | {i.type} | {i.grounding} | " + " | ".join(cells) + f" | {i.code_fabricated_citations} |")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _changed(old: Dict[str, Any], new: Dict[str, Any]) -> List[Tuple[str, str, str, str, str]]:
+    """(id, dimension, reference, old judge/replica, new judge/replica) wherever a version changed a label."""
+    old_items = {i["id"]: i for i in old["items"]}
+    rows = []
+    for item in new["items"]:
+        before = old_items[item["id"]]
+        for dimension in DIMENSIONS:
+            was = (before["judge"][dimension], before["judge_replica"][dimension])
+            now = (item["judge"][dimension], item["judge_replica"][dimension])
+            if was != now:
+                rows.append((item["id"], dimension, item["reference"][dimension], " / ".join(was), " / ".join(now)))
+    return rows
+
+
+def flips_against_supported(new: Dict[str, Any]) -> List[Tuple[str, str, str]]:
+    """Answers the reference labels (owner-adjudicated) call supported / correct, that either pass
+    of the new judge doesn't: these need the owner's eye before the new prompt becomes the baseline."""
+    rows = []
+    for item in new["items"]:
+        for dimension, good in (("faithfulness", "supported"), ("citations", "correct")):
+            if item["reference"][dimension] == good:
+                passes = (item["judge"][dimension], item["judge_replica"][dimension])
+                if any(p != good for p in passes):
+                    rows.append((item["id"], dimension, " / ".join(passes)))
+    return rows
+
+
+def render_comparison(old: Dict[str, Any], new: Dict[str, Any]) -> str:
+    old_v, new_v = old["meta"]["faithfulness_version"], new["meta"]["faithfulness_version"]
+    lines = [
+        f"# Judge calibration — {old_v} vs {new_v} — {new['meta']['date']}",
+        "",
+        f"Same {len(new['items'])} answers and reference labels ({new['meta']['provenance']}); relevance prompt unchanged. "
+        f"**{new_v}'s agreement is optimistic: its rules were written after reading this set's disagreements, so it "
+        "was tuned on the data it is scored on.** The full run is its first unseen test.",
+        "",
+        f"| Dimension | Judge vs judge {old_v} → {new_v} | Judge vs reference {old_v} → {new_v} (agreement / κ) | Trusted |",
+        "|---|---|---|---|",
+    ]
+    for dimension in DIMENSIONS:
+        a, b = old["summary"][dimension], new["summary"][dimension]
+        lines.append(
+            f"| {dimension} | {_fmt(a['judge_vs_judge']['agreement'])} → {_fmt(b['judge_vs_judge']['agreement'])} | "
+            f"{_fmt(a['judge_vs_reference']['agreement'])} / {_fmt(a['judge_vs_reference']['kappa'])} → "
+            f"{_fmt(b['judge_vs_reference']['agreement'])} / {_fmt(b['judge_vs_reference']['kappa'])} | "
+            f"{'yes' if a['trusted'] else 'no'} → {'yes' if b['trusted'] else 'no'} |"
+        )
+    changed = _changed(old, new)
+    lines += ["", f"## Labels {new_v} changed (judge / replica)", ""]
+    if changed:
+        lines += ["| Id | Dimension | Reference | " + old_v + " | " + new_v + " |", "|---|---|---|---|---|"]
+        lines += [f"| {qid} | {d} | {ref} | {was} | {now} |" for qid, d, ref, was, now in changed]
+    else:
+        lines.append("None.")
+    flips = flips_against_supported(new)
+    lines += ["", f"## {new_v} disagrees with an adjudicated supported / correct label", ""]
+    if flips:
+        lines += ["| Id | Dimension | Judge / replica |", "|---|---|---|"]
+        lines += [f"| {qid} | {d} | {passes} |" for qid, d, passes in flips]
+    else:
+        lines.append("None: no answer ruled supported (or correct) was marked otherwise by either pass.")
     lines.append("")
     return "\n".join(lines)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m eval.generation.calibrate")
-    parser.add_argument("step", choices=["sample", "score"])
+    parser.add_argument("step", choices=["sample", "score", "compare"])
+    parser.add_argument("files", nargs="*", type=Path, help="compare: the older and the newer score JSON")
     parser.add_argument("--judge-model", default=DEFAULT_JUDGE_MODEL)
+    parser.add_argument("--faith-version", default=FAITHFULNESS_PROMPT_VERSION, choices=sorted(FAITHFULNESS_PROMPTS))
     parser.add_argument("--mode", default=DEFAULT_MODE)
+    parser.add_argument("--provenance", default=DEFAULT_PROVENANCE, help="who made the reference labels, and how")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+
+    if args.step == "compare":
+        if len(args.files) != 2:
+            raise SystemExit("compare needs two score JSON files: older then newer")
+        old, new = (json.loads(p.read_text(encoding="utf-8")) for p in args.files)
+        out = RESULTS_DIR / (
+            f"{new['meta']['date']}-calibration-{new['meta']['judge']}-"
+            f"{old['meta']['faithfulness_version']}-vs-{new['meta']['faithfulness_version']}.md"
+        )
+        out.write_text(render_comparison(old, new), encoding="utf-8")
+        logger.info("wrote %s", out)
+        return
 
     assert_eval_key()
     client = build_gemini_client()
@@ -389,7 +472,9 @@ def main() -> None:
     embeddings = CachedEmbeddingService(client, limiter=RateLimiter(EMBEDDING_RPM, EMBEDDING_TPM))
     cache = ResultCache()
     try:
-        ctx = build_context(client, index_corpus(embeddings), cache, GENERATOR_MODEL, args.judge_model, args.mode)
+        ctx = build_context(
+            client, index_corpus(embeddings), cache, GENERATOR_MODEL, args.judge_model, args.mode, args.faith_version
+        )
         if args.step == "sample":
             sample(ctx, questions)
             return
@@ -403,12 +488,12 @@ def main() -> None:
     date = datetime.date.today().isoformat()
     meta = {
         "date": date, "generator": GENERATOR_MODEL, "mode": args.mode, "judge": args.judge_model,
-        "prompts": f"{FAITHFULNESS_PROMPT_VERSION}, {RELEVANCE_PROMPT_VERSION}", "temperature": TEMPERATURE_SETTING,
-        "commit": _git_state()["commit"],
+        "prompts": f"{args.faith_version}, {RELEVANCE_PROMPT_VERSION}", "faithfulness_version": args.faith_version,
+        "temperature": TEMPERATURE_SETTING, "commit": _git_state()["commit"], "provenance": args.provenance,
     }
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
     # Not Path.with_suffix: the ".5-flash-lite" in the model name would be taken for the extension.
-    stem = f"{date}-calibration-{args.judge_model}"
+    stem = f"{date}-calibration-{args.judge_model}-{args.faith_version}"
     (RESULTS_DIR / f"{stem}.json").write_text(json.dumps(
         {"meta": meta, "summary": summary, "items": [asdict(i) for i in items]}, indent=2, ensure_ascii=False
     ) + "\n", encoding="utf-8")

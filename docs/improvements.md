@@ -679,6 +679,36 @@ passed into `LLMClient`, `TopicClassifier` and `ConceptExtractor` by `services/c
 either switch production to `gemini-3.5-flash-lite` (500 RPD), measured with the Day 12 judge before
 and after so answer quality is known not to drop, or enable billing — the owner decides. Scheduled
 Day 12.
+**Outcome (Day 12, 2026-11-09/10):**
+- **The model is a setting.** `GEMINI_GENERATION_MODEL` (`core/config.py`) is passed by
+  `services/container.py` to `LLMClient`, `TopicClassifier` and `ConceptExtractor`. The
+  constructors no longer have a default model.
+- **The default is now `gemini-3.5-flash-lite`** (owner's decision): 500 RPD, against 20 for
+  2.5-flash-lite on the free tier.
+- **Why there is no before/after comparison:** one probe call to `gemini-2.5-flash-lite` on the new
+  eval project returned **HTTP 404**: "This model models/gemini-2.5-flash-lite is no longer
+  available to new users". The paired comparison was impossible. Production's own key was never
+  used for it (key guard).
+- **3.5 instead passed an absolute gate,** on retrieval_v1 (61 questions, web off, `quick` mode),
+  judged by `gemini-3.5-flash-lite` with prompt `faith-v2`, calibrated on 20 blind reference
+  labels:
+
+  | Check | Value | Bar |
+  |---|---|---|
+  | Strict-band faithfulness | 0.956 [0.87–1.00], n = 27 | ≥ 0.90 |
+  | Contradicted claims | 0 of 186 | ≤ 5% |
+  | Full relevance on answerable questions | 0.982 | ≥ 0.80 |
+
+  The owner later ruled the judge's one strict-band call on h-02 a false positive; corrected,
+  strict faithfulness is ≈ 0.963.
+- **This shows 3.5 meets the bar, not that it beats the model production runs today.** It is not
+  a paired comparison, and the judge is the same model as the generator.
+- **Smoke-tested on 3.5 with the eval key:** one topic tag ("Deep Learning", 0.85) and one concept
+  map (12 nodes and 18 edges; it parsed and validated).
+- **Reversible:** set `GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite` on Render. Production's
+  project used that model before, so it keeps access.
+- **Ships with the v0.2.1 release** (B8 + B9). Until then production stays on 2.5-flash-lite and
+  its 20/day cap.
 
 ### B10 — The PPTX chunker emits empty chunks, which are indexed as zero vectors (P2)
 In the Day 11 corpus, `HPC Lecture.pptx` slides 52, 199 and 203 each produce an empty chunk at

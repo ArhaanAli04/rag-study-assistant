@@ -15,6 +15,7 @@ CitationKind = Literal["local", "web"]
 BRACKET = re.compile(r"\[\s*(Source|Web)\s*:\s*([^\]]*)\]", re.IGNORECASE)
 PAGE_NUMBERS = re.compile(r"\bpages?\s*([0-9][0-9,\s\-–and&]*)", re.IGNORECASE)
 PAGE_RANGE = re.compile(r"([0-9]+)\s*[-–]\s*([0-9]+)")
+FILE_THEN_PAGE = re.compile(r"\s*(?P<file>[^,].*?)\s*,\s*pages?\b", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -80,12 +81,15 @@ def parse_citations(answer: str) -> Tuple[List[Citation], List[str]]:
         for segment in re.split(r";|\bSource\s*:", body, flags=re.IGNORECASE):
             if not segment.strip():
                 continue
-            file_part = segment.split(",")[0]
-            pages = _pages(segment)
-            if not file_part.strip() or not pages or "page" in file_part.lower():
+            # The file name ends at ", Page", not at the first comma: corpus names contain commas
+            # ("BCT mod2,3,6.pdf"), and splitting on the first one made valid citations look fabricated.
+            match = FILE_THEN_PAGE.match(segment)
+            pages = _pages(segment[match.end("file"):]) if match else []
+            if match is None or not pages:
                 malformed.append(raw)
                 continue
-            citations.extend(Citation("local", raw, file_name=file_part.strip(), page=p) for p in pages)
+            file_name = match.group("file").strip()
+            citations.extend(Citation("local", raw, file_name=file_name, page=p) for p in pages)
     return citations, malformed
 
 

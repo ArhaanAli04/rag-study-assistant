@@ -12,7 +12,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # and Docker (/app/backend). A missing file is skipped, which is what Docker and CI need.
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
 
-DEFAULT_GENERATION_MODEL = "gemini-2.5-flash-lite"
+# B9 (Day 12): 3.5 Flash-Lite allows 500 requests a day on the free tier (2.5 Flash-Lite: 20) and passed
+# the generation eval's absolute gate. Set GEMINI_GENERATION_MODEL to override (or roll back) without a deploy.
+DEFAULT_GENERATION_MODEL = "gemini-3.5-flash-lite"
 DEFAULT_REDIS_URL = "redis://localhost:6379/0"
 DEFAULT_SEMANTIC_CACHE_REDIS_URL = "redis://localhost:6379/1"
 DEFAULT_ALLOWED_ORIGINS = (

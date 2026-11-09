@@ -313,6 +313,47 @@ models/gemini-3.5-flash-lite…". As a result:
   addition).
 - Checkpoint 4 uses the absolute gate.
 
+**Calibration (Checkpoint 3, 2026-11-10).**
+- **Reference labels:** Claude (claude-opus-5-5), blind; disagreements adjudicated by the owner.
+  The labels were made at the owner's request, by a different model family from the judge.
+- **Sample:** 20 answers from `gemini-3.5-flash-lite`: 10 strict / 9 loose / 1 none, with 4 hard
+  questions and 4 negatives. Each answer was judged twice.
+- **Report:** `backend/eval/results/2026-11-10-calibration-gemini-3.5-flash-lite.md`.
+- **Parser bug found during adjudication:** the code citation check split citations at the first
+  comma, so `BCT mod2,3,6.pdf` became "BCT mod2" and 5 valid citations in g-015 and h-05 were
+  counted as fabricated. It now splits at ", Page", with a regression test, and the report was
+  re-rendered from the cache.
+
+**Owner rulings on the faith-v1 calibration (2026-11-10).**
+- **g-017 faithfulness:** `not_in_context` stands. Page 100 is about GRU, and the answer
+  generalises it to all RNN loops, a scope shift.
+- **g-017 citations:** `some_wrong` stands.
+- **h-09 faithfulness:** `not_in_context` stands. "first" is a factual claim the material doesn't
+  make; it is allowed under loose grounding.
+- **Spot-check (g-020, g-050, n-06):** correct as agreed.
+- **h-05 "securely" and g-041 "very low":** stay `supported`, as intensifiers rather than new facts.
+- **faith-v2 before the full run,** narrow, with two rules:
+  - (a) a superlative or "first" the material doesn't state is `not_in_context`;
+  - (b) a scope shift is `not_in_context`.
+
+  Intensifiers and causal links between stated facts stay `supported`.
+
+**faith-v2 result** (`2026-11-10-calibration-gemini-3.5-flash-lite-faith-v1-vs-faith-v2.md`):
+
+| | faith-v1 → faith-v2 |
+|---|---|
+| Faithfulness self-agreement | 0.95 → 1.00 |
+| Faithfulness agreement with the reference labels | 0.90 (κ 0.76) → 1.00 (κ 1.00) |
+| Citations agreement with the reference labels | 0.90 (κ 0.75) → 1.00 (κ 1.00) |
+
+faith-v2's agreement is optimistic: its rules were written from this set's disagreements. It changed
+no faithfulness label the owner ruled `supported`. It did change h-09's citations from `correct` to
+`some_wrong` in both passes, because the cited Page 62 doesn't support the "first" sentence.
+
+**Owner ruling (2026-11-10):** `some_wrong` is right. The original label was inconsistent with
+g-017, where the same situation was labelled `some_wrong`. The labels file now carries the ruling
+in h-09's note, and both reports were re-rendered from the cache against the corrected labels.
+
 **Other changes:**
 - `improvements.md` B9 notes that 2.5 is legacy-only access.
 - No hotfix: the owner releases v0.2.1 (B8 + B9) from develop after today merges. B9 is measured

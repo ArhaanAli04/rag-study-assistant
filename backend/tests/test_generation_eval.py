@@ -5,11 +5,13 @@ import types
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Union
 
+import httpx
 import pytest
 from google.genai import errors as genai_errors
 
 from app.generation.llm_client import LLMClient
 from eval.generation import calibrate, metrics
+from eval.generation import judge as judge_module
 from eval.generation.answer_cache import ResultCache
 from eval.generation.citations import check_citations, parse_citations
 from eval.generation.judge import FaithfulnessVerdict, JudgedClaim, Judge, JudgeFailure
@@ -47,6 +49,16 @@ def test_both_citation_formats_and_multi_page_forms_are_parsed() -> None:
     ]
     assert [c.url for c in citations if c.kind == "web"] == ["https://en.wikipedia.org/wiki/LSTM"]
     assert malformed == []
+
+
+def test_a_file_name_with_commas_is_kept_whole() -> None:
+    # Day 12 calibration: "BCT mod2,3,6.pdf" was cut at the first comma and valid citations
+    # counted as fabricated.
+    context = [_chunk(file_name="BCT mod2,3,6.pdf", page=23)]
+    report = check_citations("UTXO model [Source: BCT mod2,3,6.pdf, Page 23].", context)
+
+    assert [(c.file_name, c.page) for c in report.citations] == [("BCT mod2,3,6.pdf", 23)]
+    assert (report.valid, report.fabricated) == (1, 0)
 
 
 def test_a_citation_without_a_page_is_malformed_not_guessed() -> None:
@@ -162,6 +174,11 @@ def test_daily_quota_stops_the_judge_but_a_per_minute_limit_is_retried(tmp_path:
         _judge(tmp_path / "x", [_quota_error("GenerateRequestsPerDayPerProjectPerModel-FreeTier")]).relevance("q", "a")
 
 
+def test_a_dropped_connection_is_retried(tmp_path: Path) -> None:
+    dropped = httpx.RemoteProtocolError("Server disconnected without sending a response.")
+    assert _judge(tmp_path, [dropped, RELEVANCE_REPLY]).relevance("q", "a").label == "full"
+
+
 # ---------- the runner ----------
 
 class _StubRetrieval:
@@ -244,11 +261,11 @@ def test_an_answer_is_labelled_by_its_worst_claim_and_any_wrong_citation() -> No
 
 
 def test_disagreements_are_split_into_lenient_and_stricter() -> None:
-    assert calibrate.direction("faithfulness", human="contradicted", judge="supported") == "lenient"
-    assert calibrate.direction("faithfulness", human="supported", judge="not_in_context") == "stricter"
-    assert calibrate.direction("relevance", human="partial", judge="full") == "lenient"
-    assert calibrate.direction("relevance", human="refusal", judge="full") == "other"
-    assert calibrate.direction("citations", human="correct", judge="correct") == "agree"
+    assert calibrate.direction("faithfulness", reference="contradicted", judge="supported") == "lenient"
+    assert calibrate.direction("faithfulness", reference="supported", judge="not_in_context") == "stricter"
+    assert calibrate.direction("relevance", reference="partial", judge="full") == "lenient"
+    assert calibrate.direction("relevance", reference="refusal", judge="full") == "other"
+    assert calibrate.direction("citations", reference="correct", judge="correct") == "agree"
 
 
 def test_the_sample_is_stratified_and_reports_short_strata() -> None:
@@ -284,6 +301,30 @@ def test_a_dimension_is_trusted_only_if_the_judge_agrees_with_itself_and_the_own
         "a: relevance = None (allowed: full, partial, off_topic, refusal)",
         "a: citations = 'maybe' (allowed: correct, some_wrong, none)",
     ]
+
+
+def test_faith_v2_adds_only_the_two_adjudicated_rules_and_v1_is_unchanged() -> None:
+    v1, v2 = judge_module.FAITHFULNESS_PROMPTS["faith-v1"], judge_module.FAITHFULNESS_PROMPTS["faith-v2"]
+
+    # The .replace() that builds v2 must have matched: an unmatched replace would silently make v2 == v1.
+    assert v2 != v1 and v2.startswith(v1.split("Two kinds")[0][:200])
+    assert "scope shift" in v2 and '"first"' in v2 and "Intensifiers" in v2
+    assert "scope shift" not in v1  # v1 is reproducible from the cache only if its text never changes
+    with pytest.raises(ValueError, match="unknown faithfulness prompt"):
+        Judge(_ScriptedClient([]), ResultCache(Path(":memory:")), faithfulness_version="faith-v9")  # type: ignore[arg-type]
+
+
+def test_the_comparison_flags_a_new_prompt_that_overrules_an_adjudicated_supported_label() -> None:
+    def item(qid: str, reference: str, judge: str, replica: str) -> Dict[str, Any]:
+        rest = {"relevance": "full", "citations": "correct"}
+        return {"id": qid, "reference": {"faithfulness": reference, **rest},
+                "judge": {"faithfulness": judge, **rest}, "judge_replica": {"faithfulness": replica, **rest}}
+
+    old = {"items": [item("a", "supported", "supported", "supported"), item("b", "not_in_context", "supported", "supported")]}
+    new = {"items": [item("a", "supported", "supported", "not_in_context"), item("b", "not_in_context", "not_in_context", "not_in_context")]}
+
+    assert calibrate.flips_against_supported(new) == [("a", "faithfulness", "supported / not_in_context")]
+    assert [row[0] for row in calibrate._changed(old, new)] == ["a", "b"]
 
 
 class _FailingLLM:

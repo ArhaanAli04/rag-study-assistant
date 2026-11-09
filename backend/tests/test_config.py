@@ -54,13 +54,13 @@ def test_defaults_when_only_required_variables_are_set(monkeypatch: pytest.Monke
     ]
     assert s.ALLOWED_ORIGINS == DEFAULT_ALLOWED_ORIGINS
     assert s.TESSERACT_PATH is None
-    assert s.GEMINI_GENERATION_MODEL == DEFAULT_GENERATION_MODEL
+    assert s.GEMINI_GENERATION_MODEL == DEFAULT_GENERATION_MODEL == "gemini-3.5-flash-lite"
 
 
 def test_generation_model_comes_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> None:
-    # B9: switching model (or back) is an env var on Render, not a code change.
-    assert load(monkeypatch, GEMINI_GENERATION_MODEL="gemini-3.5-flash-lite").GEMINI_GENERATION_MODEL == (
-        "gemini-3.5-flash-lite"
+    # B9: rolling back (or switching again) is an env var on Render, not a code change.
+    assert load(monkeypatch, GEMINI_GENERATION_MODEL="gemini-2.5-flash-lite").GEMINI_GENERATION_MODEL == (
+        "gemini-2.5-flash-lite"
     )
 
 

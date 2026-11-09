@@ -15,8 +15,9 @@ result file, so old verdicts are never mixed with new ones.
 """
 import logging
 import time
-from typing import Callable, List, Literal, Optional, Type, TypeVar
+from typing import Callable, Dict, List, Literal, Optional, Type, TypeVar
 
+import httpx
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types as genai_types
@@ -30,7 +31,7 @@ logger = logging.getLogger("eval.generation")
 
 DEFAULT_JUDGE_MODEL = "gemini-3.5-flash-lite"
 TEMPERATURE_SETTING = "default (1.0; 3.5 Flash-Lite ignores custom values)"
-FAITHFULNESS_PROMPT_VERSION = "faith-v1"
+FAITHFULNESS_PROMPT_VERSION = "faith-v2"  # the default; faith-v1 stays selectable to reproduce Day 12's calibration
 RELEVANCE_PROMPT_VERSION = "rel-v1"
 MAX_CLAIMS = 25
 MAX_ATTEMPTS = 4
@@ -61,7 +62,7 @@ class JudgeFailure(RuntimeError):
     """The judge returned no valid verdict after every attempt; the answer is reported unjudged."""
 
 
-FAITHFULNESS_PROMPT = """You grade an AI study assistant's ANSWER for faithfulness to the material it was given.
+FAITHFULNESS_PROMPT_V1 = """You grade an AI study assistant's ANSWER for faithfulness to the material it was given.
 Judge against the GIVEN MATERIAL only, never your own knowledge: a claim that is true in general but
 absent from the material is not_in_context.
 
@@ -88,6 +89,25 @@ ANSWER:
 <<<
 {answer}
 >>>"""
+
+# v2 (Day 12 calibration): v1 marked as supported two kinds of claims the reference labels and the
+# owner ruled not_in_context — a "first" the material never states (h-09) and a statement about GRU
+# generalised to all RNNs (g-017). The rule is kept narrow on purpose: intensifiers and causal links
+# between stated facts were ruled supported, and a broader rule would start flagging them.
+FAITHFULNESS_PROMPT_V2 = FAITHFULNESS_PROMPT_V1.replace(
+    """     material states something incompatible; "not_in_context" otherwise.
+""",
+    """     material states something incompatible; "not_in_context" otherwise.
+     Two kinds of claim are "not_in_context" even when the material is close to them:
+     (a) a superlative or exclusivity the material does not itself state ("first", "best", "only",
+         "largest", "the main" …);
+     (b) a scope shift: something the material says about one specific thing (for example GRU)
+         presented as true of a broader class (for example all RNNs) or of a different thing.
+     Intensifiers that add no new fact ("very", "securely", "clearly") and causal links the answer
+     draws between statements the material does make stay "supported".
+""",
+)
+FAITHFULNESS_PROMPTS: Dict[str, str] = {"faith-v1": FAITHFULNESS_PROMPT_V1, "faith-v2": FAITHFULNESS_PROMPT_V2}
 
 RELEVANCE_PROMPT = """You grade whether an AI study assistant's ANSWER addresses the student's QUESTION.
 Do not judge whether the answer is correct, only whether it answers what was asked.
@@ -122,17 +142,22 @@ class Judge:
         limiter: Optional[RateLimiter] = None,
         model: str = DEFAULT_JUDGE_MODEL,
         sleep: Callable[[float], None] = time.sleep,
+        faithfulness_version: str = FAITHFULNESS_PROMPT_VERSION,
     ) -> None:
+        if faithfulness_version not in FAITHFULNESS_PROMPTS:
+            raise ValueError(f"unknown faithfulness prompt {faithfulness_version!r}; known: {sorted(FAITHFULNESS_PROMPTS)}")
         self.client = client
         self.cache = cache
         self.limiter = limiter
         self.model = model
         self._sleep = sleep
+        self.faithfulness_version = faithfulness_version
         self.api_calls = 0
 
     def faithfulness(self, material: str, answer: str, replica: int = 0) -> FaithfulnessVerdict:
-        prompt = FAITHFULNESS_PROMPT.format(max_claims=MAX_CLAIMS, material=material, answer=answer)
-        return self._judge(FaithfulnessVerdict, "faithfulness", FAITHFULNESS_PROMPT_VERSION, prompt, replica)
+        template = FAITHFULNESS_PROMPTS[self.faithfulness_version]
+        prompt = template.format(max_claims=MAX_CLAIMS, material=material, answer=answer)
+        return self._judge(FaithfulnessVerdict, "faithfulness", self.faithfulness_version, prompt, replica)
 
     def relevance(self, question: str, answer: str, replica: int = 0) -> RelevanceVerdict:
         prompt = RELEVANCE_PROMPT.format(question=question, answer=answer)
@@ -162,6 +187,13 @@ class Judge:
                 if exc.code not in (429, 500, 503):
                     raise JudgeFailure(f"{kind}: Gemini {exc.code}") from exc
                 last_problem = f"Gemini {exc.code}"
+                self._sleep(15 * attempt)
+                continue
+            except httpx.TransportError as exc:
+                # A dropped connection ("Server disconnected without sending a response") is not an
+                # APIError; it killed the first full run at question 51, and a retry is all it needs.
+                last_problem = f"transport error ({type(exc).__name__})"
+                logger.warning("judge %s: %s, attempt %d", kind, last_problem, attempt)
                 self._sleep(15 * attempt)
                 continue
             except ValidationError as exc:

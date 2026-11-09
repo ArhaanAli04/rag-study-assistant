@@ -41,15 +41,22 @@ class RetrievalService:
         bm25_index: Optional[BM25KeywordIndex],
         query_cache: QueryResultCache,
         web_cache: WebResultCache,
+        web_search_enabled: bool = True,
+        l1_cache_enabled: bool = True,
+        vector_weight: float = 0.6,
+        keyword_weight: float = 0.4,
     ) -> None:
         self.index_builder = index_builder
         self.bm25_index = bm25_index
         self.query_cache = query_cache
         self.web_cache = web_cache
         self.reranker = CrossEncoderReranker()
-        # weights for hybrid
-        self.vector_weight = 0.6
-        self.keyword_weight = 0.4
+        # The retrieval eval (E4) turns web search and the L1 cache off: web results have no relevance
+        # labels, and an L1 hit would replay another configuration's ranking.
+        self.web_search_enabled = web_search_enabled
+        self.l1_cache_enabled = l1_cache_enabled
+        self.vector_weight = vector_weight
+        self.keyword_weight = keyword_weight
         # web search client (lazy init)
         self.web_client: Optional[WebSearchClient] = None
         self.compressor = SimpleContextCompressor()
@@ -208,7 +215,7 @@ class RetrievalService:
         """
 
         # 1. L1 exact-match cache
-        cached = self.l1_cache_lookup(user_id, query,doc_version)
+        cached = self.l1_cache_lookup(user_id, query, doc_version) if self.l1_cache_enabled else None
         if cached is not None:
             return {**cached, "from_l1_cache": True}
 
@@ -224,21 +231,18 @@ class RetrievalService:
 
         vector_results = []
         for item in raw_vector_results:
-            # handle both tuple and dict forms safely
             if isinstance(item, dict):
+                # Already a higher-is-better score.
                 vector_results.append(item)
-            else:
-                # assume tuple: (score, text, metadata) or (score, metadata)
-                if len(item) == 3:
-                    score, text, metadata = item
-                elif len(item) == 2:
-                    score, metadata = item
-                    text = metadata.get("text", "")
-                else:
-                    continue
-                vector_results.append(
-                    {"score": float(score), "text": text, "metadata": metadata}
-                )
+                continue
+            # FaissVectorStore returns (squared L2 distance, metadata): lower is closer. Fusion and
+            # confidence need higher = better, so convert to cosine similarity. For unit vectors
+            # (EmbeddingService L2-normalizes) d² = 2 − 2·cos, so cos = 1 − d²/2. Fusing the raw
+            # distance ranked the vector half backwards (B8).
+            distance, metadata = item
+            vector_results.append(
+                {"score": 1.0 - float(distance) / 2.0, "text": metadata.get("text", ""), "metadata": metadata}
+            )
 
 
         # 4. BM25 search
@@ -387,14 +391,15 @@ class RetrievalService:
 
         # 9.5. Add web chunks (if fallback or always-on)
         web_chunks: List[Dict[str, Any]] = []
-        try:
-            if fallback_used:
-                web_chunks = self.get_web_chunks(query, max_results=3)
-            else:
-                # optional: still enrich with a couple of web chunks
-                web_chunks = self.get_web_chunks(query, max_results=2)
-        except Exception:
-            web_chunks = []
+        if self.web_search_enabled:
+            try:
+                if fallback_used:
+                    web_chunks = self.get_web_chunks(query, max_results=3)
+                else:
+                    # optional: still enrich with a couple of web chunks
+                    web_chunks = self.get_web_chunks(query, max_results=2)
+            except Exception:
+                web_chunks = []
 
         for wc in web_chunks:
             meta = wc["metadata"]
@@ -442,8 +447,8 @@ class RetrievalService:
             
         }
 
-        # Store in L1 cache and in Redis cache (if you like)
-        self.l1_cache_store(user_id, query, doc_version, result_payload)
+        if self.l1_cache_enabled:
+            self.l1_cache_store(user_id, query, doc_version, result_payload)
 
         return result_payload
     

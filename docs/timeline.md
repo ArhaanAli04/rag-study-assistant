@@ -235,6 +235,8 @@ Focus: Retrieval eval harness (E4), LLM-as-judge generation eval (E1, E2)
 - Calibrate on ~20 hand-labelled answers and record judge/human agreement
 - Retire the word-overlap manual metrics (E2)
 - End-to-end runner: question → real pipeline (web off) → judge scores
+- B9: make the chat/topic model a Settings field and switch production to gemini-3.5-flash-lite (500 RPD), measured with the Day 12 judge before/after; or enable billing — owner decides. Found Day 11: production's gemini-2.5-flash-lite free tier is 10 RPM / 20 RPD and its 28-day peak (28 / 20) already exceeds it; a chat turn makes more than one call (topic tag + answer). Also note: Day 11's first gemini-2.5-flash question-generation run used the production key (22/20), before the eval key existed
+- Quota: the judge and the end-to-end runner run on the eval project's key (eval/retrieval/key_guard.py refuses .env's production key) and are paced under its free-tier limits
 - Verify: baseline generation scores recorded next to the retrieval baseline — every later phase compares against these
 
 ---
@@ -413,6 +415,7 @@ Focus: Golden set as a Langfuse dataset (E3), CI eval gate, confidence + cache t
 - 30–50 questions from real course material: question, expected answer points, expected document + page, answer mode; include multi-turn conversations
 - Upload as a Langfuse dataset; the runner executes the pipeline per item, links runs to the dataset, attaches the Day 12 judge scores and Day 11 retrieval metrics
 - Confidence calibration: confidence vs. Recall@5 on the golden set → re-derive the 70 / 30 grounding thresholds (closes B2)
+  - Day 11 E4: the confidence heuristic doesn't predict a hit (AUC 0.638 before B8, 0.332 after on only 5 misses; bands ordered wrongly; 2 of 6 negatives get strict). Replace the heuristic (e.g. calibrated on reranker/similarity scores), not just re-tune thresholds.
 - Verify: two runs on different configs are comparable side by side in Langfuse
 
 ### Day 27 — CI eval gate and semantic-cache threshold tuning (CO5, part 1)
@@ -443,6 +446,7 @@ Focus: Reranker (R1), RRF (R4), parallelism (CO2), rewriting (C2, R2, R3), token
 
 - Branch: feature/day29-r4-co2
 - RRF (k = 60) over the vector and keyword ranked lists; web chunks join by rank instead of a flat 0.5 score
+  - Day 11 after B8: fusion (0.909 / 0.801) ≤ vector_only (0.945 / 0.833); RRF must beat vector_only, not just the current blend.
 - Retrieve sub-queries concurrently with asyncio.gather (sync DB calls through asyncio.to_thread)
 - Verify: retrieval metrics vs. min-max fusion; latency of multi-part questions before/after
 

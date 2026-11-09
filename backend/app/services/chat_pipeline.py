@@ -22,6 +22,7 @@ from app.core.errors import UserFriendlyError
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier
 from app.retrieval.confidence import LOW_CONFIDENCE_BELOW, grounding_level as grounding_for
+from app.retrieval.context_assembly import assemble_context
 from app.retrieval.context_compressor import SimpleContextCompressor
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
@@ -38,8 +39,6 @@ from app.services.session_service import add_message, get_or_create_session, get
 logger = logging.getLogger("rag_assistant.chat")
 
 TOPIC_MIN_CONFIDENCE = 0.3
-RERANK_TOP_K = 5
-MAX_PARENT_BLOCKS = 3
 
 NO_CACHE = {"Cache-Control": "no-cache"}
 
@@ -145,28 +144,11 @@ class ChatPipeline:
     def _retrieve(
         self, query: str, user_id: str, doc_version: int, top_k: int
     ) -> tuple[List[Dict[str, Any]], float, bool]:
-        all_context_chunks: List[Dict[str, Any]] = []
-        final_confidence = 0.0
-        any_fallback = False
-
-        for subq in self.query_decomposer.decompose(query):
-            retrieval_result = self.retrieval_service.hybrid_retrieve(
-                query=subq, user_id=user_id, doc_version=doc_version,
-                top_k=top_k, rerank_top_k=RERANK_TOP_K,
-            )
-            child_chunks = retrieval_result["results"]
-            all_candidates = retrieval_result.get("all_candidates", child_chunks)
-
-            parent_chunks = self.retrieval_service.expand_to_parent_context(
-                top_results=child_chunks,
-                all_results=all_candidates,
-                max_parents=MAX_PARENT_BLOCKS,
-            )
-            all_context_chunks.extend(child_chunks + parent_chunks)
-            final_confidence = max(final_confidence, retrieval_result["confidence"])
-            any_fallback = any_fallback or retrieval_result["fallback_used"]
-
-        return self.compressor.compress(all_context_chunks), final_confidence, any_fallback
+        context = assemble_context(
+            self.retrieval_service, self.query_decomposer, self.compressor,
+            query=query, user_id=user_id, doc_version=doc_version, top_k=top_k,
+        )
+        return context.chunks, context.confidence, context.fallback_used
 
     def _replay_cached(
         self, db: Session, user_id_int: int, query: str, session_id: int, mode: str, cached: Dict[str, Any]

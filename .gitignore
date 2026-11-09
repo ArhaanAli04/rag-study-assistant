@@ -37,6 +37,19 @@ logs/
 *.index
 *.log
 
+# Retrieval eval (Day 11): private course files, the embedding cache and raw result JSON stay local;
+# the corpus manifest (names + sha256) and the Markdown summaries are committed
+backend/eval/corpus/*
+!backend/eval/corpus/manifest.json
+backend/eval/.cache/
+backend/eval/results/*.json
+# Real users' questions mined from the database, and generation by-products
+backend/eval/datasets/hard_candidates.jsonl
+backend/eval/datasets/*.progress.jsonl
+# Generation drafts quote whole source chunks; only the frozen dataset (short quotes) is committed
+backend/eval/datasets/*.draft.jsonl
+backend/eval/datasets/*.review.md
+
 # Post screenshots: show demo account emails and would bloat history
 docs/posts/assets/
 

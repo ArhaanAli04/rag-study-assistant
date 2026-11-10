@@ -16,7 +16,6 @@ alembic==1.17.2
 annotated-doc==0.0.4
 annotated-types==0.7.0
 anyio==4.11.0
-appdirs==1.4.4
 attrs==25.4.0
 Authlib==1.6.6
 beautifulsoup4==4.14.2
@@ -29,9 +28,6 @@ chardet==5.2.0
 charset-normalizer==3.4.4
 click==8.3.1
 cryptography==46.0.3
-dataclasses-json==0.6.7
-datasets==4.4.1
-dill==0.4.0
 diskcache==5.6.3
 distlib==0.4.0
 distro==1.9.0
@@ -44,17 +40,13 @@ faiss-cpu==1.13.0
 fastapi==0.122.0
 filelock==3.20.0
 frozenlist==1.8.0
-fsspec==2025.10.0
 google-auth==2.43.0
 google-genai==1.52.0
 greenlet==3.2.4
 h11==0.16.0
-hf-xet==1.8.0
 httpcore==1.0.9
 httptools==0.7.1
 httpx==0.28.1
-httpx-sse==0.4.3
-huggingface-hub==0.36.0
 identify==2.6.15
 idna==3.11
 img2table==1.4.2
@@ -65,12 +57,7 @@ Jinja2==3.1.6
 jiter==0.11.1
 jsonpatch==1.33
 jsonpointer==3.0.0
-langchain==1.1.0
-langchain-classic==1.0.0
-langchain-community==0.4.1
 langchain-core==1.1.0
-langchain-openai==1.1.0
-langchain-text-splitters==1.0.0
 langgraph==1.0.3
 langgraph-checkpoint==3.0.1
 langgraph-prebuilt==1.0.5
@@ -81,13 +68,8 @@ lxml==6.0.2
 Mako==1.3.10
 markdown-it-py==4.0.0
 MarkupSafe==3.0.3
-marshmallow==3.26.1
 mdurl==0.1.2
 multidict==6.7.0
-multiprocess==0.70.18
-mypy_extensions==1.1.0
-nest-asyncio==1.6.0
-networkx==3.6
 nodeenv==1.9.1
 numba==0.62.1
 numpy==2.2.6
@@ -130,7 +112,6 @@ python-multipart==0.0.20
 python-pptx==1.0.2
 pytz==2025.2
 PyYAML==6.0.3
-ragas==0.4.0
 rank-bm25==0.2.2
 redis==7.1.0
 regex==2025.11.3
@@ -138,8 +119,6 @@ requests==2.32.5
 requests-toolbelt==1.0.0
 rich==14.2.0
 rsa==4.9.1
-scikit-network==0.33.5
-scipy==1.16.3
 setuptools==80.9.0
 shellingham==1.5.4
 six==1.17.0
@@ -154,7 +133,6 @@ tiktoken==0.12.0
 tqdm==4.67.1
 ty==0.0.1a31
 typer==0.20.0
-typing-inspect==0.9.0
 typing-inspection==0.4.2
 typing_extensions==4.15.0
 tzdata==2025.2

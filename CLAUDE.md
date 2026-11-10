@@ -31,35 +31,37 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  73afc0d day 10 - requirements.in + generated UTF-8 lock, on feature/day10-cleanup →
-              PR #12 (draft) into develop, CI green on all 3 commits (c79b092 dead code + eval
-              package, baac824 B5, 73afc0d requirements + B3). Checkpoints 5 + 6 (ruff F401,
-              docs, this block) still to commit
-Pushed:       master = v0.1.1 (60f52bf), tags v0.1.0 + v0.1.1, 2026-11-02. develop has Days 4–9
-              (PRs #8–#11). Days 4–10 reach master with the v0.2.0 release — the first PR-based
-              release (PR develop → master, merge commit, then tag); notes drafted in
-              docs/briefs/day10.md#release-notes-draft-v020
-Uncommitted:  Checkpoints 5 + 6: ruff.toml + 12 files losing unused imports, CLAUDE.md,
-              docs/{timeline,improvements,improvement-tracker,claude-cheatsheet}.md,
-              docs/architecture/layout.md, docs/briefs/day10.md, docs/posts/09-launch-recap.md,
-              .claude/hooks/edit_reminders.py, .claude/skills/pre-commit/SKILL.md
-Untracked:    none (planning docx/pdf files, the Tesseract installer and post screenshots in
-              docs/posts/assets/ are gitignored)
-Day 10:       Dead code, the 7 one-off DB scripts and scripts/manual/ deleted; eval scripts in
-              backend/eval/ (python -m eval.<name> from backend/, build_services(), no app.main).
-              requirements.in (direct deps, one reason each) + generated UTF-8 lock made in
-              python:3.11-slim: 191 → 157 packages, no surviving version moved; src/requirements.txt
-              deleted. B3 fixed (contrib OpenCV reinstalled last in Dockerfile + CI; ruled tables
-              extract); B5 fixed (deskew fits the ink, OpenCV 0–90 angle; scan OCR 0 → 29 words).
-              New: B6 (preprocess_image output name), B7 (borderless tables, Day 16). ruff gains
-              F401. Suite 166 passed, 0 xfailed on host and container. Image 3.05 → 2.55 GB.
-              Notes in docs/briefs/day10.md
-Next:         commit Checkpoints 5 + 6 (/ship commit), /ship merge PR #12, then the v0.2.0
-              release by hand (PR develop → master, merge commit, tag v0.2.0, Render health check
-              path /health, verify Render + Vercel). Then Day 11 (/run-day 11) — retrieval eval (E4)
-Blockers:     none. Local runtime state was moved by hand to backend/{data,uploads,logs}; a
-              checkout from before Day 7 must do the same (Move-Item src\data, src\uploads,
-              src\logs backend\) or the app starts with an empty database
+Last commit:  3ba5278 day 12 - B9 switch, on feature/day12-e1-e2-judge → PR #15 (draft) into develop;
+              CI green on all 3 commits (047b628 prepare_answer + model setting, 8de3b1b judge harness,
+              3ba5278 B9 switch + faith-v2 + calibration). Checkpoint 5 (old eval scripts + ragas out,
+              lock regenerated, docs, tracker, this block) is the last commit of the day
+Pushed:       master = v0.2.0 (60fbce2, PR #13, tagged) — Days 4–10. develop = Days 4–11 (PR #14,
+              3d02a96). Days 11–12 (B8 + B9) reach master with v0.2.1, released right after PR #15
+Uncommitted:  Checkpoint 5 (to commit with /ship commit, then /ship merge PR #15)
+Untracked:    none. Local only (gitignored): backend/eval/corpus/* except manifest.json, eval/.cache/
+              (embedding + generation caches), eval/results/*.json, eval/datasets/{*.draft.jsonl,
+              *.review.md,*.progress.jsonl,*.sheet.md,hard_candidates.jsonl}, docs/learning/
+Day 12:       E1/E2 done — generation eval (backend/eval/generation/, python -m eval.generation): the
+              chat's own prepare_answer (services/answer_preparation.py, shared with ChatPipeline) →
+              stream_answer → Gemini judge (gemini-3.5-flash-lite, schema JSON, claim-level faithfulness
+              faith-v2 + citation support, relevance rel-v1; citation validity in code), answers and
+              verdicts cached. Calibrated on 20 blind reference labels (Claude, owner-adjudicated):
+              faith-v1 0.90 / κ 0.76 → faith-v2 1.00 (tuned on the set). Baseline (retrieval_v1, 61 q,
+              quick mode): strict faithfulness 0.956 (≈ 0.963 with the h-02 ruling), 0 / 186
+              contradicted, relevance 0.982, citations 151/151 valid; retrieval hit → faithfulness 0.976,
+              miss → 0.760 (n=5). B9 done: GEMINI_GENERATION_MODEL, default gemini-3.5-flash-lite
+              (20 → 500 RPD); absolute gate passed, not paired (2.5-flash-lite → 404 for new projects).
+              RAGAS + datasets + 20 transitive packages removed (lock 158 → 136). Suite 244 on host and
+              container. Notes in docs/briefs/day12.md
+Next:         Commit Checkpoint 5 and /ship merge PR #15. Then release v0.2.1 (develop → master, B8 +
+              B9, tag v0.2.1) — before it, ask one question in the local app on gemini-3.5-flash-lite
+              through /chat/stream; after it, confirm Render answers on 3.5 (rollback:
+              GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite on Render). Then Day 13 (/run-day 13) —
+              Postgres + Alembic (T2). Deferred: the E4 `--config web` run, a `--mode detailed`
+              generation run
+Blockers:     none. Eval runs need $env:GEMINI_API_KEY set to the eval project's key (key guard).
+              Local runtime state lives in backend/{data,uploads,logs}; a checkout from before Day 7
+              must move src\data, src\uploads, src\logs there or the app starts with an empty database
 ```
 
 ---
@@ -79,7 +81,7 @@ rag-study-assistant/
 │   │   ├── generation/       ← llm_client.py, topic_classifier.py, concept_extractor.py
 │   │   ├── services/         ← container.py (composition root), chat_pipeline, quiz, documents, sessions, accounts, concept maps, chat guards, oauth; caches/
 │   │   └── schemas/          ← Pydantic request/response models (concept_maps, auth, documents, …)
-│   ├── eval/                 ← eval scripts (Day 10): python -m eval.<name> from backend/; rewritten Days 11–12; not in the image
+│   ├── eval/                 ← retrieval/ (E4, Day 11), generation/ (judge, E1/E2, Day 12), corpus/ (manifest only), datasets/, results/, cache_tuner.py; not in the image
 │   ├── tests/                ← offline pytest suite (conftest fakes Gemini, Tavily, Redis) + samples/
 │   ├── data/                 ← app.db (SQLite), faiss_indexes/ — gitignored
 │   └── logs/, uploads/       ← runtime output — gitignored
@@ -112,11 +114,13 @@ and the known exceptions to the downward-only dependency rule, are in `docs/arch
 | Ingestion | `ingestion/{indexing_pipeline,chunk_builder,chunking,text_preprocessing,file_hash,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/document_service.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
 | OCR / tables | `ingestion/parsers/unified.py`, `ingestion/ocr/{ocr,image_preprocessing}.py`, `ingestion/tables/{pdf_tables,tables}.py` | not reachable from `/upload` (images are rejected) |
 | Indexes | `retrieval/{embeddings,index_builder,vector_store,keyword_index}.py` | in-memory FAISS + BM25 (see Known Issues). `EMBEDDING_DIM = 3072` in `embeddings.py`, sent as `output_dimensionality`; FAISS is sized from it (no startup embedding call since Day 9) |
-| Retrieval | `retrieval/{retrieval_service,confidence,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `confidence.py`: the 0–100 scale and every threshold on it (B2) — compare only against these names. `reranker.py` does no real reranking. `RetrievalService` takes its Redis caches by injection (typed by `Protocol`s) |
-| Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient`; every class takes the shared `genai.Client` |
-| Chat & caches | `services/chat_pipeline.py`, `services/session_service.py`, `services/chat_guards.py`, `services/quiz_service.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | `ChatPipeline`: the one chat pipeline (behind `/chat/stream`). `chat_guards.py`: the injection phrases and the one unsafe-keyword list (G3 replaces both) |
+| Retrieval | `retrieval/{retrieval_service,context_assembly,confidence,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `context_assembly.py` (Day 11): `assemble_context()` — decompose → `hybrid_retrieve` per sub-query → parent expansion → compress; the chat and the retrieval eval both call it, so the eval measures what the chat sends. `confidence.py`: the 0–100 scale and every threshold on it (B2) — compare only against these names; E4 (Day 11) found the score doesn't predict a hit (AUC 0.332 after B8), so it is replaced, not re-tuned, on Day 26. `RetrievalService` takes its Redis caches by injection (typed by `Protocol`s) and has switches for web search, the L1 cache and the fusion weights (production defaults: on, on, 0.6 / 0.4). FAISS returns squared L2 distances; `hybrid_retrieve` converts them to cosine (`1 − d²/2`) before fusion (B8). `reranker.py` does no real reranking |
+| Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient`; every class takes the shared `genai.Client` and its model name from `services/container.py` (`settings.GEMINI_GENERATION_MODEL`, B9 — no class has a default model since Day 12) |
+| Chat & caches | `services/chat_pipeline.py`, `services/answer_preparation.py`, `services/session_service.py`, `services/chat_guards.py`, `services/quiz_service.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | `ChatPipeline`: the one chat pipeline (behind `/chat/stream`). `answer_preparation.py` (Day 12): `prepare_answer()` — `assemble_context` → grounding level → `LLMClient.build_prompt`; the chat and the generation eval both call it, so the judge grades the prompt the chat sends. `chat_guards.py`: the injection phrases and the one unsafe-keyword list (G3 replaces both) |
 | Concept maps | `services/concept_map_service.py`, `retrieval/concept_map_retriever.py`, `generation/concept_extractor.py`, `schemas/concept_maps.py` | |
-| Eval / experiments (outside `app/`) | `backend/eval/{rag_metrics,rag_eval_runner,sample_eval_data,manual_eval,cache_tuner}.py` | Day 10: moved out of `app/`, each `main()` builds its objects with `build_services()`; run as `python -m eval.<name>` from `backend/` (live Gemini + Redis). Still print-only, word-overlap or RAGAS-wired-wrong (E1, E2); the retrieval checks only see documents indexed in the same process (I4). Days 11–12 rewrite them; `.dockerignore` keeps them out of the image |
+| Retrieval eval (Day 11, E4) | `backend/eval/retrieval/{__main__,runner,metrics,dataset,configs,corpus,embedding_cache,rate_limit,key_guard,generate_questions,mine_feedback}.py`; `eval/corpus/manifest.json`, `eval/datasets/retrieval_v1.jsonl`, `eval/results/*.md` | `python -m eval.retrieval --config …` builds `RetrievalService` directly (no `app.main`, no Redis, no DB), web search + L1 off, indexes the corpus through the real `IndexingPipeline`, then per question a served pass (production `top_k` 5), a deep pass (10) and `assemble_context`. Metrics in plain Python (Hit@5 headline, MRR, Recall@k, nDCG@10, bootstrap CIs, confidence AUC). Labels are (document, page). Corpus files (gitignored) are pinned by sha256; the dataset is checked against them before every run. `key_guard.py` refuses `.env`'s production Gemini key; `embedding_cache.py` (sqlite, `eval/.cache/`, gitignored) paces embeddings under the eval project's free tier and resumes after a stop. Result JSON is gitignored, Markdown summaries are committed |
+| Generation eval (Day 12, E1/E2) | `backend/eval/generation/{__main__,runner,judge,citations,metrics,answer_cache,calibrate}.py`; `eval/datasets/generation_calibration_v1.labels.jsonl`, `eval/results/*-generation-*.md`, `*-calibration-*.md` | `python -m eval.generation` answers `retrieval_v1` through the chat's own `prepare_answer` + `LLMClient.stream_answer` (web off, `quick` mode), then an LLM judge (`gemini-3.5-flash-lite`, schema JSON, no temperature — 3.5 ignores it): faithfulness per claim (`faith-v2`: supported / not_in_context / contradicted, plus citation support) and relevance (`rel-v1`); citation validity is checked in code against the context labels. Answers and verdicts are cached in `eval/.cache/generation.sqlite` (key: model, prompt, mode, prompt version, replica), so re-runs are free and a daily-quota stop resumes. `calibrate sample/score/compare`: 20 blind reference labels (Claude, adjudicated by the owner), each answer judged twice. Refuses to overwrite a results file without `--force` (the baseline's Markdown carries a hand-written owner review). Reuses `eval/retrieval`'s corpus, embedding cache, key guard and pacing |
+| `eval/cache_tuner.py` (outside `app/`) | `backend/eval/cache_tuner.py` | Day 10: moved out of `app/`, `main()` builds its objects with `build_services()`; `python -m eval.cache_tuner` from `backend/` (live Gemini + Redis). Print-only lookup counts; CO5 (Day 32) replaces it. The RAGAS / word-overlap scripts were deleted on Day 12. `.dockerignore` keeps all of `eval/` out of the image (`docker-compose.override.yml` mounts it read-only for the container test run) |
 
 The one-off DB scripts, `scripts/manual/`, `frontend.py`, `document_delete_service.py` and
 `MessageBubble.js` were deleted on Day 10 (git history has them).
@@ -128,7 +132,7 @@ The one-off DB scripts, `scripts/manual/`, `frontend.py`, `document_delete_servi
 | Layer | Technology |
 |---|---|
 | Backend | FastAPI, SQLAlchemy (sync `Session`), Pydantic v2; Python 3.11 (Docker) / 3.12 (local `venv`); code needs ≥ 3.10 |
-| LLM | Gemini `gemini-2.5-flash-lite` via `google-genai` |
+| LLM | Gemini `gemini-3.5-flash-lite` via `google-genai` (Day 12, B9: `GEMINI_GENERATION_MODEL`, default; reaches production with v0.2.1 — until then production runs `gemini-2.5-flash-lite`) |
 | Embeddings | Gemini `gemini-embedding-001`, L2-normalized, one API call per text |
 | Vector search | FAISS `IndexFlatL2`, one global index, user filter applied after search |
 | Keyword search | `rank-bm25` (`BM25Okapi`), rebuilt over the full corpus on every add |
@@ -142,11 +146,13 @@ The one-off DB scripts, `scripts/manual/`, `frontend.py`, `document_delete_servi
 | CI | GitHub Actions (`.github/workflows/ci.yml`); ruff 0.15.18 pinned in the CI job only (not in `requirements.txt`), rules in `ruff.toml` |
 
 Kept but not imported by `backend/app/` (Day 10, each with its reason in `requirements.in`):
-`langgraph` (A1), `langsmith` (O1), `instructor` (S1), `tiktoken` (C1; also required by
-`tavily-python`); `ragas` + `datasets` are imported only by `backend/eval/rag_metrics.py`. `ragas`
-pulls in `langchain`, `langchain-community`, `langchain-openai` and `openai`, so those leave with it
-if Day 12 chooses the Gemini judge. Removed Day 10: `streamlit`, `qdrant-client`, `opencv-python`,
+`langgraph` (A1), `langsmith` (O1), `instructor` (S1; it also pulls in `openai`), `tiktoken` (C1; also
+required by `tavily-python`). Removed Day 10: `streamlit`, `qdrant-client`, `opencv-python`,
 `scikit-learn`, `sympy`, `safetensors`, `tokenizers`, `pdf2image`, `oauth`, `bcrypt` (+ orphans).
+Removed Day 12 (E1, Gemini judge chosen over RAGAS): `ragas`, `datasets` and the 20 packages only they
+needed — `langchain`, `langchain-classic`, `langchain-community`, `langchain-openai`,
+`langchain-text-splitters`, `huggingface-hub`, `scipy`, `networkx`, `scikit-network` among them (lock
+158 → 136 pins, no version moved).
 
 **README drift** — claimed in `README.md` but not true today: sentence-transformers MiniLM
 embeddings (now Gemini), cross-encoder / BM25 "reranking" (it is score fusion plus a no-op),
@@ -173,7 +179,7 @@ the only chat endpoint since Day 9 (`POST /chat`, a divergent copy, was deleted)
 before the response starts, so a retrieval failure is a normal HTTP 500; generation runs while streaming.
 1. Auth from the `?token=` query param (`get_user_from_query_token`) → injection-phrase and unsafe-keyword checks (`chat_guards.py`) → semantic cache lookup (a hit is replayed as SSE)
 2. Get/create session → load the last 20 messages → log the user message → LLM topic tagging while the session topic is "General"
-3. `QueryDecomposer` (regex split) → for each sub-query, `hybrid_retrieve`: L1 in-process cache → FAISS + BM25 → min-max normalize → 0.6/0.4 fusion → confidence heuristic (0–100) → Tavily chunks (always: 3 if confidence < 60, else 2) → "rerank" (re-sort by existing score) → top 5 → parent-page expansion
+3. `assemble_context` (`retrieval/context_assembly.py`): `QueryDecomposer` (regex split) → for each sub-query, `hybrid_retrieve`: L1 in-process cache → FAISS (L2 distance → cosine, B8) + BM25 → min-max normalize → 0.6/0.4 fusion → confidence heuristic (0–100) → Tavily chunks (always: 3 if confidence < 60, else 2) → "rerank" (re-sort by existing score) → top 5 → parent-page expansion
 4. `SimpleContextCompressor`: top 6 chunks, 800 characters each
 5. Grounding level from confidence (`retrieval/confidence.py`): strict ≥ 70, loose ≥ 30, else none (model knowledge allowed)
 6. Gemini payload: system instruction (grounding + answer-mode rules) + prior turns as `contents` + a final user turn holding the retrieved context and the question
@@ -208,7 +214,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
 - Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
 - Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called first in `ChatPipeline`; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); the unsafe-topic check is one 6-keyword substring list in `chat_guards.py` since Day 9 ("bomb" still matches "bombardment") — G3 replaces it
-- RAGAS eval is non-functional (E1); word-overlap metrics (E2); hardcoded sample eval data and no retrieval metrics (E4)
+- Evaluation: retrieval eval since Day 11 (E4; its `web` config hasn't been run yet) and generation eval with a calibrated Gemini judge since Day 12 (E1/E2 done; RAGAS and the word-overlap metrics were removed). Partial: the judge is the same model as the generator, `faith-v2` was tuned on its 20-answer calibration set, and there is no answer-correctness metric or CI gate yet (E3, Day 26)
 - Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
 - Alembic is configured but effectively unused (see Known Issues)
 
@@ -216,7 +222,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Persistent vector / keyword indexes; token counting and budgets (C1); token-usage logging (CO4)
 - History-aware query rewriting (C2); retrieval-based conversation memory (C3)
 - Indirect prompt-injection defenses (G5); request tracing (O1)
-- Retrieval eval harness (E4); golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
+- Golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
 - Query expansion / HyDE (R3); agentic tool use (A1); ANN or per-user indexes (I1); embedding cache (CO3)
 - Rate limiting, refresh tokens, PostgreSQL, quiz persistence
 - Frontend tests beyond 5 files / 11 tests: `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5). No tests for documents, concept maps, quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
@@ -259,13 +265,16 @@ Found while writing this file; evidence and direction live under each ID.
 | Re-uploading an identical file duplicates its chunks | I6 | P1 |
 | Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
 | Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
-| Fixed Day 9: confidence compared on the wrong scale. `POST /chat`'s 0.7 / 0.3 grounding went with the endpoint; the forced-web cap is 30, not 0.3; every threshold is a named constant in `retrieval/confidence.py`. Thresholds still unvalidated (E4, Day 11) | B2 | Done |
+| Fixed Day 9: confidence compared on the wrong scale. `POST /chat`'s 0.7 / 0.3 grounding went with the endpoint; the forced-web cap is 30, not 0.3; every threshold is a named constant in `retrieval/confidence.py`. Day 11 (E4): the score doesn't predict a hit (AUC 0.638 → 0.332 after B8; strict band hits less often than loose; 2 of 6 out-of-corpus questions get strict) — replace the heuristic on Day 26 | B2 | Done |
 | Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` (deleted Day 10) and are never collected | T1 | Done |
 | Fixed Day 10: the contrib OpenCV build is reinstalled last (Dockerfile, CI, venv setup), so `cv2.ximgproc` is complete and ruled tables in images / PPTX slide images extract again; the Docker build asserts it | B3 | Done |
 | Fixed Day 10: deskew fits the ink (inverted Otsu), not the paper, and folds OpenCV's (0, 90] angle; `scan_handwritten.png` OCR 0 → 29 words | B5 | Done |
 | `preprocess_image` names its output with `.replace('.png', …)`, so a `.jpeg` / `.tif` input is overwritten by its own preprocessed copy. Not reachable from any user path today | B6 | P2 |
 | img2table's defaults (used by `extract_tables_from_image`) miss tables without ruling lines (`tableimage2.jpg`: 0 → 1 table with `borderless_tables=True`); measure false positives on real slide decks first (Day 16) | B7 | P2 |
 | Fixed Day 5: concept-map generation returned 500 whenever a node had empty sources (`concept_extractor` wrapped the whole source list) | B4 | Done |
+| Fixed Day 11: FAISS's squared L2 distances were fused as if higher = better, ranking the vector half backwards. `hybrid_retrieve` converts to cosine (`1 − d²/2`). E4: Hit@5 0.782 → 0.909, MRR@5 0.339 → 0.801. Residual: `semantic_search` / `POST /search` still return raw distances (no frontend caller) | B8 | Done |
+| Fixed Day 12: the generation model is `GEMINI_GENERATION_MODEL` (passed to `LLMClient`, `TopicClassifier`, `ConceptExtractor`), default `gemini-3.5-flash-lite` (500 RPD; 2.5-flash-lite's free tier was 20 and production's peak 28 requests in one day). It passed the generation eval's absolute gate (strict faithfulness 0.956, 0 contradicted claims, relevance 0.982); not a paired comparison — 2.5-flash-lite is not served to new projects. Reaches production with v0.2.1; rollback: `GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite` on Render | B9 | Done |
+| The PPTX chunker emits empty chunks (`HPC Lecture.pptx` slides 52, 199, 203); Gemini rejects them (400) and they are indexed as zero vectors (before B8's fix, the top hybrid hit for some queries). Skip empty chunks at indexing time on Day 16 | B10 | P2 |
 | Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
 | Done Day 10 except the Tesseract installer still in git history (purge decided on Day 60) | T3 | P2 |
 
@@ -342,8 +351,29 @@ ruff check .
 gh pr checks <N>                          # the three required jobs: backend, frontend, docker
 gh run list --branch develop --limit 5    # recent runs; gh run view <id> --log-failed for a red one
 
-# Ad-hoc eval scripts (need live Gemini + Redis; rewritten Days 11–12)
-cd backend; python -m eval.rag_eval_runner   # also eval.manual_eval, eval.cache_tuner
+# Retrieval eval (E4, Day 11) — from backend/. Set $env:GEMINI_API_KEY to the EVAL project's key first
+# (a real env var overrides .env); the key guard refuses production's. No Redis, no database.
+$env:GEMINI_API_KEY = "<eval project key>"
+cd backend; python -m eval.retrieval --config baseline            # also vector_only, keyword_only
+python -m eval.retrieval --config baseline --label after-x        # results/{date}-{config}-{label}.{json,md}
+python -m eval.retrieval --config web --limit 10                  # Tavily on; embeds every web chunk — run last
+python -m eval.retrieval.corpus                                   # rewrite corpus/manifest.json after changing corpus files
+python -m eval.retrieval.generate_questions --plan                # quotas + request bound; drop --plan to generate (resumable)
+# Free tier on the eval project (AI Studio, 2026-11-09): gemini-embedding-001 100 RPM / 30K TPM / 1K RPD;
+# gemini-3.5-flash-lite 15 RPM / 500 RPD. A first run embeds the corpus (~392 calls); later runs hit eval/.cache/
+
+# Generation eval (E1/E2, Day 12) — from backend/, same eval key. Answers + verdicts are cached in
+# eval/.cache/generation.sqlite, so a re-run is free and a daily-quota stop resumes where it stopped.
+python -m eval.generation --model gemini-3.5-flash-lite --label after-x   # results/{date}-generation-{model}-{label}.{json,md}
+python -m eval.generation --ids g-001,h-01,n-01 --label smoke              # a few questions; --limit N also works
+python -m eval.generation --probe gemini-2.5-flash-lite                    # one call: is this model served to the key?
+# A results file that already exists is refused (the 2026-11-10 baseline holds a hand-written owner
+# review); use --label, or --force to overwrite. ~3 requests a question (answer + 2 judge calls).
+python -m eval.generation.calibrate score --faith-version faith-v2         # judge vs the 20 reference labels, 2 passes
+python -m eval.generation.calibrate compare <older>.json <newer>.json      # prompt version vs prompt version
+
+# Semantic cache lookups (needs live Gemini + Redis; CO5 replaces it on Day 32)
+cd backend; python -m eval.cache_tuner
 ```
 
 ---

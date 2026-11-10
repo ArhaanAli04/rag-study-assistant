@@ -53,9 +53,7 @@ opencv-python-headless==4.12.0.88
 opencv-contrib-python-headless==4.12.0.88
 
 # --- Kept for planned work (not imported by the app today) -----------------------------------
-ragas==0.4.0                   # eval/rag_metrics.py; RAGAS vs a Gemini judge is decided on Day 12 (E1)
-datasets==4.4.1                # eval/rag_metrics.py
-instructor==1.13.0             # S1 structured extraction (also required by ragas)
+instructor==1.13.0             # S1 structured extraction
 langgraph==1.0.3               # A1 agentic pipeline (Day 33)
 langsmith==0.4.47              # O1 tracing candidate (also required by langchain-core)
 tiktoken==0.12.0               # C1 token budgets (Day 31); also required by tavily-python

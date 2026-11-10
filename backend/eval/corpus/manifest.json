@@ -1,0 +1,34 @@
+{
+  "files": [
+    {
+      "document_id": 1,
+      "file_name": "B11-02 BDA Exp10.pdf",
+      "sha256": "04f252613623764e01084547573be9f7628a54f4dfb58d8c44877efa667f7294"
+    },
+    {
+      "document_id": 2,
+      "file_name": "B11-02-NLP Exp4.pdf",
+      "sha256": "3ee99b889bb3c0e695b15876a9c96012a7d3ea59c4edc154df237adf713f9f93"
+    },
+    {
+      "document_id": 3,
+      "file_name": "BCT mod2,3,6.pdf",
+      "sha256": "4e1a8b94e8eb8d1d12c8ac2a58a7f1d56b12d201688bc73bbe1c40777fc6132e"
+    },
+    {
+      "document_id": 4,
+      "file_name": "DL_Unit5_RNN.pdf",
+      "sha256": "f5c652ad2d862586992c44acb1bd131490dbd40e2ad2a8aa69ee571f72f1c32e"
+    },
+    {
+      "document_id": 5,
+      "file_name": "HPC Lecture.pptx",
+      "sha256": "62e5b7561e8f10b52d3504ca4721746e648f8d8847896b4a0f2c1805b0e0556d"
+    },
+    {
+      "document_id": 6,
+      "file_name": "test_doc1.pdf",
+      "sha256": "074a32950309ba9e17cafcd559dad1fde1e95a8e4700a51549642a98dfb4879e"
+    }
+  ]
+}

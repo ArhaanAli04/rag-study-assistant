@@ -10,7 +10,7 @@ class LLMClient:
     Uses native multi-turn conversation format for proper memory across turns.
     """
 
-    def __init__(self, client: genai.Client, model_name: str = "gemini-2.5-flash-lite") -> None:
+    def __init__(self, client: genai.Client, model_name: str) -> None:
         self.client = client
         self.model_name = model_name
         # circuit breaker state

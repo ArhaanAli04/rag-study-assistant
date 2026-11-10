@@ -52,6 +52,36 @@ services:
     networks:
       - rag-network
 
+  # ==================== Postgres Service (T2, Day 13) ====================
+  # Local stand-in for Supabase: same major version (17), pgvector, and the same rag schema /
+  # rag_app role / search_path (scripts/postgres/init-rag-schema.sh). The backend doesn't use it
+  # until Day 14 copies the SQLite data; today it is the target for `alembic upgrade head`.
+  postgres:
+    image: pgvector/pgvector:pg17
+    container_name: rag-postgres
+    ports:
+      # Host port 5433, not 5432, so this can run alongside another project's Postgres
+      - "5433:5432"
+    environment:
+      # Dev-only defaults; set the real values in .env. Compose reads .env for ${...} here.
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres-dev-only}
+      - POSTGRES_DB=rag
+      - RAG_APP_PASSWORD=${RAG_APP_PASSWORD:-rag-app-dev-only}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty volume only. Changing the script later needs `docker compose down`
+      # plus removing the pgdata volume.
+      - ./scripts/postgres/init-rag-schema.sh:/docker-entrypoint-initdb.d/10-rag-schema.sh:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d rag"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks:
+      - rag-network
+
   # ==================== Redis Service ====================
   redis:
     image: redis:7-alpine
@@ -72,6 +102,7 @@ services:
 
 # ==================== Volumes ====================
 volumes:
+  pgdata:
   redis-data:
   data:
   uploads:

@@ -5,12 +5,19 @@ Render and CI set real variables; locally the root .env fills in the rest.
 """
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Absolute, because the CWD differs between uvicorn (backend/), pytest (repo root or a temp dir)
 # and Docker (/app/backend). A missing file is skipped, which is what Docker and CI need.
 ENV_FILE = Path(__file__).resolve().parents[3] / ".env"
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+
+# T2 (Day 13): absolute for the same reason as ENV_FILE. The old CWD-relative sqlite:///data/app.db
+# made Alembic, run from the repo root, create and migrate a second, empty database.
+DEFAULT_DATABASE_URL = f"sqlite:///{(BACKEND_DIR / 'data' / 'app.db').as_posix()}"
+SQLITE_SCHEME = "sqlite"
+POSTGRES_SCHEME = "postgresql+psycopg"
 
 # B9 (Day 12): 3.5 Flash-Lite allows 500 requests a day on the free tier (2.5 Flash-Lite: 20) and passed
 # the generation eval's absolute gate. Set GEMINI_GENERATION_MODEL to override (or roll back) without a deploy.
@@ -55,6 +62,32 @@ class Settings(BaseSettings):
     # Windows installs tesseract outside PATH, so the host .env points at the .exe. Unset,
     # pytesseract finds `tesseract` on PATH; the Docker image sets /usr/bin/tesseract anyway.
     TESSERACT_PATH: str | None = None
+
+    # A Postgres URL carries the role's password, so it is a secret like the API keys.
+    DATABASE_URL: SecretStr = SecretStr(DEFAULT_DATABASE_URL)
+    # The schema the Postgres role's search_path must resolve to (rag, rag_staging). Models are
+    # schema-agnostic; this only lets Alembic and the app refuse a role whose search_path was lost,
+    # which would otherwise create every table in `public`.
+    DATABASE_SCHEMA: str | None = None
+
+    @model_validator(mode="after")
+    def _check_database_settings(self) -> "Settings":
+        # Messages never echo the URL: it may hold a password.
+        scheme = self.database_scheme
+        if scheme in ("postgres", "postgresql") or (scheme.startswith("postgresql+") and scheme != POSTGRES_SCHEME):
+            raise ValueError(
+                f"DATABASE_URL must start with {POSTGRES_SCHEME}:// (the installed psycopg 3 driver); "
+                f"got {scheme}://. Replace the prefix of the URL Supabase gives you."
+            )
+        if scheme not in (SQLITE_SCHEME, POSTGRES_SCHEME):
+            raise ValueError(f"DATABASE_URL must be sqlite:/// or {POSTGRES_SCHEME}://; got {scheme}://")
+        if scheme == POSTGRES_SCHEME and not self.DATABASE_SCHEMA:
+            raise ValueError("DATABASE_SCHEMA is required with a Postgres DATABASE_URL (e.g. rag)")
+        return self
+
+    @property
+    def database_scheme(self) -> str:
+        return self.DATABASE_URL.get_secret_value().split("://", 1)[0].lower()
 
     @property
     def redis_url(self) -> str:

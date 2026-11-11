@@ -1,0 +1,56 @@
+# Keep the Supabase project awake (T2, Day 13).
+#
+# Supabase's free plan pauses a project after about 7 days without database activity, and a paused
+# project is a full outage for production (schema `rag`). This runs one cheap read every 3 days,
+# well inside that window. The project also hosts another app, but that app's traffic is not
+# something this one should rely on.
+#
+# The read connects as rag_app (production's own role, through the Supavisor session pooler, which
+# is IPv4 like GitHub's runners) and asks for current_schema(). Anything but `rag` fails the run:
+# that catches a lost role-level search_path as well as a paused project or a stale password.
+#
+# Secret: SUPABASE_RAG_DB_URL, in psql form:
+#   postgresql://rag_app.<project-ref>:<password>@<pooler-host>:5432/postgres
+#
+# Caveats:
+# - Scheduled workflows run only from the default branch (master): this file does nothing until it
+#   is released there (v0.3.0, Day 17). Until then, run the same psql command by hand if needed.
+# - GitHub disables scheduled workflows after 60 days without repository activity; re-enable it
+#   under Actions if that happens.
+# - If the project paused anyway: Supabase dashboard -> the project -> Restore (no data is lost).
+name: Supabase keep-alive
+
+on:
+  schedule:
+    - cron: "0 6 */3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    name: ping
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Install the PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Read current_schema() as rag_app
+        env:
+          SUPABASE_RAG_DB_URL: ${{ secrets.SUPABASE_RAG_DB_URL }}
+          PGCONNECT_TIMEOUT: "20"
+        run: |
+          if [ -z "$SUPABASE_RAG_DB_URL" ]; then
+            echo "::error::Secret SUPABASE_RAG_DB_URL is not set (Settings -> Secrets and variables -> Actions)."
+            exit 1
+          fi
+          schema=$(psql "$SUPABASE_RAG_DB_URL" -v ON_ERROR_STOP=1 -tAc "select current_schema()")
+          if [ "$schema" != "rag" ]; then
+            echo "::error::rag_app resolved to schema '$schema', expected 'rag'. Check the role's search_path."
+            exit 1
+          fi
+          echo "Supabase is awake; rag_app resolves to schema rag."

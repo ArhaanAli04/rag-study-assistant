@@ -1,7 +1,8 @@
 """Make the whole suite hermetic: no API keys, no network, no Redis, no files in the repo.
 
-Everything here is installed in pytest_configure, before any test module is collected: db.py
-still creates data/ and binds a SQLite path relative to the CWD at import. Since Day 9 the app's
+Everything here is installed in pytest_configure, before any test module is collected: the
+engine is built from settings.DATABASE_URL at import, so the suite's own SQLite file must be set
+first. Since Day 9 the app's
 clients (Gemini, Redis) are built in the lifespan, which `with TestClient(app)` runs once per test,
 so each test gets fresh indexes; the fakes still sit at the SDK constructors, which covers the
 lifespan and the unit tests that build services directly alike.
@@ -87,9 +88,16 @@ def _guarded_getaddrinfo(original: Any) -> Any:
 
 
 def pytest_configure(config: pytest.Config) -> None:
-    for key, value in TEST_ENV.items():
+    # data/, uploads/ and logs/ are resolved against the CWD at import time; keep them out of the repo.
+    workdir = Path(tempfile.mkdtemp(prefix="rag-tests-"))
+    # Since Day 13 the default database is an absolute path (backend/data/app.db, the developer's
+    # real one), so the chdir below no longer isolates it: the suite gets its own SQLite file. Set
+    # here, before settings is imported, and it also wins over a DATABASE_URL in the real .env.
+    test_env = {**TEST_ENV, "DATABASE_URL": f"sqlite:///{(workdir / 'data' / 'app.db').as_posix()}"}
+    for key, value in test_env.items():
         _state.setdefault("env", {})[key] = os.environ.get(key)
         os.environ[key] = value
+    os.environ.pop("DATABASE_SCHEMA", None)
 
     import redis
     import tavily
@@ -114,11 +122,17 @@ def pytest_configure(config: pytest.Config) -> None:
     socket.socket.connect_ex = _guarded_connect(socket.socket.connect_ex)
     socket.getaddrinfo = _guarded_getaddrinfo(socket.getaddrinfo)
 
-    # data/, uploads/ and logs/ are resolved against the CWD at import time; keep them out of the repo.
-    workdir = Path(tempfile.mkdtemp(prefix="rag-tests-"))
     _state["cwd"] = os.getcwd()
     _state["workdir"] = workdir
     os.chdir(workdir)
+
+    # The lifespan refuses a database that isn't at Alembic head (T2, Day 13), so the suite's own
+    # SQLite file is migrated first, through the same scripts production runs.
+    from alembic import command
+
+    from app.db.migrations import alembic_config
+
+    command.upgrade(alembic_config(), "head")
 
 
 def pytest_unconfigure(config: pytest.Config) -> None:
@@ -126,7 +140,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
         return
     os.chdir(_state["cwd"])
     # Windows can't delete open files: release the SQLite file and the app's log handlers first.
-    db_module = sys.modules.get("app.db.database")
+    db_module = sys.modules.get("app.db.session")
     if db_module is not None:
         db_module.engine.dispose()
     workdir = str(_state["workdir"])

@@ -1,11 +1,11 @@
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Body, Depends, HTTPException
-from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.db.database import Message, Session as ChatSession, User
+from app.db.models import User
+from app.db.repositories import messages as messages_repo, sessions as sessions_repo
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
@@ -16,41 +16,16 @@ async def get_sessions(
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Get all chat sessions ordered by most recent message"""
-
-    # Subquery to get the latest message timestamp for each session
-    latest_message = (
-        db.query(
-            Message.session_id,
-            func.max(Message.timestamp).label('last_message_time')
-        )
-        .group_by(Message.session_id)
-        .subquery()
-    )
-
-    # Query sessions with their latest message time
-    sessions_with_time = (
-        db.query(
-            ChatSession,
-            latest_message.c.last_message_time
-        )
-        .outerjoin(latest_message, ChatSession.id == latest_message.c.session_id)
-        .filter(ChatSession.user_id == current_user.id)
-        .order_by(desc(latest_message.c.last_message_time).nulls_last())
-        .all()
-    )
-
-    # Build response
-    result = []
-    for session, last_msg_time in sessions_with_time:
-        result.append({
+    return [
+        {
             "id": session.id,
             "title": session.title,
             "topic": session.topic or "General",
             "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None,
             "last_message_time": last_msg_time.isoformat() + 'Z' if last_msg_time else None,
-        })
-
-    return result
+        }
+        for session, last_msg_time in sessions_repo.list_with_last_message(db, current_user.id)
+    ]
 
 
 @router.get("/{session_id}/messages")
@@ -60,20 +35,8 @@ async def get_session_messages(
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
     """Get all messages in a session."""
-    session = db.query(ChatSession).filter(
-        ChatSession.id == session_id,
-        ChatSession.user_id == current_user.id
-    ).first()
-
-    if not session:
+    if sessions_repo.get_owned(db, session_id, current_user.id) is None:
         raise HTTPException(status_code=404, detail="Session not found")
-
-    messages = (
-        db.query(Message)
-        .filter(Message.session_id == session_id)
-        .order_by(Message.timestamp.asc())
-        .all()
-    )
 
     return [
         {
@@ -83,7 +46,7 @@ async def get_session_messages(
             "sources":  m.sources.split(',') if m.sources else [],
             "created_at": m.timestamp.isoformat(),  # the column is `timestamp`; the API calls it created_at
         }
-        for m in messages
+        for m in messages_repo.list_for_session(db, session_id)
     ]
 
 
@@ -94,21 +57,11 @@ async def delete_session(
     current_user: User = Depends(get_current_user)
 ) -> Dict[str, str]:
     """Delete a chat session"""
-
-    # Find the session
-    session = db.query(ChatSession).filter(
-        ChatSession.id == session_id,
-        ChatSession.user_id == current_user.id
-    ).first()
-
+    session = sessions_repo.get_owned(db, session_id, current_user.id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Delete associated messages first (if not cascade deleted)
-    db.query(Message).filter(Message.session_id == session_id).delete()
-
-    # Delete the session
-    db.delete(session)
+    sessions_repo.delete_with_messages(db, session)
     db.commit()
 
     return {"message": "Session deleted successfully"}
@@ -130,16 +83,10 @@ async def rename_session(
     if len(new_title) > 100:
         raise HTTPException(status_code=400, detail="Title too long (max 100 characters)")
 
-    # Find the session
-    session = db.query(ChatSession).filter(
-        ChatSession.id == session_id,
-        ChatSession.user_id == current_user.id
-    ).first()
-
+    session = sessions_repo.get_owned(db, session_id, current_user.id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    # Update title
     session.title = new_title.strip()
     db.commit()
     db.refresh(session)

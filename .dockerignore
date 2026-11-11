@@ -38,7 +38,6 @@ backend/eval/
 backend/scripts/
 docs/
 scripts/
-alembic/
 .claude/
 *.exe
 *.docx

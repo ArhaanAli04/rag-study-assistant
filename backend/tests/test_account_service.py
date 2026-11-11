@@ -10,7 +10,8 @@ from sqlalchemy.pool import StaticPool
 
 from app.services.account_service import delete_user_account
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
-from app.db.database import Base, Document, FailedQuery, Message, Session as ChatSession, User
+from app.db.base import Base
+from app.db.models import Document, FailedQuery, Message, Session as ChatSession, User
 from app.retrieval.keyword_index import BM25KeywordIndex
 from app.ingestion.models import DocumentChunk
 from app.ingestion.upload_storage import new_upload_path

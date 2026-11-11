@@ -41,6 +41,10 @@ RUN useradd --create-home --uid 1000 app
 
 WORKDIR /app
 COPY backend/app/ ./backend/app/
+# T2 (Day 13): migrations run in the container before uvicorn (CMD below), and the app checks the
+# head revision at startup, so the scripts ship in the image.
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 
 # Only the runtime-state directories are writable by the app. They must exist and be owned by
 # `app` in the image: an empty named volume copies this ownership the first time it is mounted.
@@ -62,4 +66,6 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
 
 # sh -c expands Render's $PORT; exec replaces the shell so uvicorn is PID 1 and receives
 # SIGTERM directly (graceful shutdown instead of a 10 s kill on `docker stop`).
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Migrations first, once per container start: a failed migration means the new version never
+# starts (&&), instead of serving against a half-migrated schema. One Render instance, so no race.
+CMD ["sh", "-c", "alembic -c /app/alembic.ini upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

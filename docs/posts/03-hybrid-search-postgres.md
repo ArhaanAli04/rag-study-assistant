@@ -34,3 +34,21 @@ per-user filtering in one move.
 
 ## Material log
 <!-- /run-day appends one entry per day below, newest last. -->
+
+### Day 13 — 2026-11-11 — Postgres provisioning and Alembic as the real migration path
+- Takeaway: before moving search into Postgres, the database itself had to move — and the code that "worked" on SQLite had bugs that only Postgres's stricter rules expose.
+- Numbers:
+  - old ownership filter `Document.user_id == '1'` on Postgres → `operator does not exist: integer = character varying` (5 such filters + 3 string-id inserts fixed)
+  - a raw INSERT returned no row id on Postgres, so the chat's `message_id` would have been null (fixed)
+  - schema from code: an empty Postgres → `alembic upgrade head` → 7 tables, `alembic check` = no diff, on local, CI and Supabase staging
+  - tests 244 → 269; repository tests 11/11 on SQLite and Postgres
+  - a setup script sent through Supabase's SQL editor logged 2 of 2 test passwords in plain text (proved in a throwaway container) → 0 after switching to SCRAM verifiers
+- Capture now (only what depends on today's app state and can't be recreated later):
+  - [ ] nothing today (no user-visible change; everything below is recreatable)
+- Make when writing the post (recreatable any time from git, the brief or this log):
+  - [ ] Code card: the old `Document.user_id == str(current_user.id)` vs. the repository's `user_id: int`, with the Postgres error under it
+  - [ ] Diagram: one Supabase project → schemas `rag` / `rag_staging`, each owned by its own role, `search_path` on the role, API roles locked out
+  - [ ] Terminal card: `alembic upgrade head` + `alembic check` → "No new upgrade operations detected."
+  - [ ] Table card: SQLite vs. Postgres differences (brief, "Day 14 notes")
+- Lesson / quote: "My database layer had five tenant filters that compared a number with a string — SQLite shrugged, Postgres refused. The bug was invisible until the database got stricter than my code."
+- Concept source: docs/briefs/day13.md#the-concept

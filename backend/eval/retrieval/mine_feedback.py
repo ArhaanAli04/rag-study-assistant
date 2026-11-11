@@ -14,7 +14,8 @@ from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
 
-from app.db.database import FailedQuery, Message, SessionLocal
+from app.db.models import FailedQuery, Message
+from app.db.session import SessionLocal
 
 logger = logging.getLogger("eval.mine")
 

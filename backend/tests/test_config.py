@@ -26,7 +26,7 @@ REQUIRED: Dict[str, str] = {
 OPTIONAL = (
     "TAVILY_API_KEY", "JWT_ALGORITHM", "JWT_EXPIRATION_MINUTES", "REDIS_URL",
     "SEMANTIC_CACHE_REDIS_URL", "BASE_URL", "FRONTEND_URL", "ALLOWED_ORIGINS", "TESSERACT_PATH",
-    "GEMINI_GENERATION_MODEL",
+    "GEMINI_GENERATION_MODEL", "DATABASE_URL", "DATABASE_SCHEMA",
 )
 
 
@@ -157,6 +157,44 @@ def test_env_file_fills_gaps_and_real_environment_wins(monkeypatch: pytest.Monke
 
     assert s.BASE_URL == "http://from-env-file"
     assert s.FRONTEND_URL == "http://from-environment"
+
+
+# T2 (Day 13): one database URL, absolute by default, with the driver and schema made explicit.
+
+def test_default_database_is_the_backend_sqlite_file_whatever_the_cwd(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = load(monkeypatch)
+    backend_dir = Path(__file__).resolve().parents[1]
+
+    assert s.DATABASE_URL.get_secret_value() == f"sqlite:///{(backend_dir / 'data' / 'app.db').as_posix()}"
+    assert s.database_scheme == "sqlite"
+    assert s.DATABASE_SCHEMA is None
+
+
+@pytest.mark.parametrize("prefix", ["postgresql", "postgres", "postgresql+psycopg2"])
+def test_postgres_url_without_the_psycopg3_driver_is_refused(monkeypatch: pytest.MonkeyPatch, prefix: str) -> None:
+    with pytest.raises(ValidationError) as excinfo:
+        load(monkeypatch, DATABASE_URL=f"{prefix}://rag_app:pw-secret@db.example:5432/postgres", DATABASE_SCHEMA="rag")
+
+    message = str(excinfo.value)
+    assert "postgresql+psycopg://" in message
+    assert "pw-secret" not in message
+
+
+def test_postgres_url_needs_a_schema(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValidationError, match="DATABASE_SCHEMA is required"):
+        load(monkeypatch, DATABASE_URL="postgresql+psycopg://rag_app:pw@localhost:5433/rag")
+
+
+def test_postgres_url_with_schema_is_accepted_and_stays_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = load(monkeypatch, DATABASE_URL="postgresql+psycopg://rag_app:pw-secret@localhost:5433/rag", DATABASE_SCHEMA="rag")
+
+    assert s.database_scheme == "postgresql+psycopg"
+    assert "pw-secret" not in repr(s) + str(s)
+
+
+def test_unknown_database_scheme_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValidationError, match="must be sqlite"):
+        load(monkeypatch, DATABASE_URL="mysql://u:p@localhost/db")
 
 
 def test_env_file_is_the_repo_root_dotenv_whatever_the_cwd() -> None:

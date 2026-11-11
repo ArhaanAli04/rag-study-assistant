@@ -248,9 +248,9 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 ### Day 13 — Postgres provisioning and Alembic as the real migration path (T2)
 
 - Branch: feature/day13-postgres
-- Local: pgvector/pgvector:pg16 image in docker-compose with a named volume
-- Hosted: Supabase (decided 2026-11-04) — Postgres with pgvector plus Supabase Storage (Day 15), one vendor. Free plan allows 2 active projects: production and staging on Supabase, dev on the local Docker Postgres
-- Keep-alive: free projects pause after ~7 days without activity — .github/workflows/supabase-keepalive.yml on a schedule (every 3 days) runs one cheap read against each project, with the URL/key as GitHub secrets (same pattern as the F1 project). Note: GitHub disables scheduled workflows after 60 days without repo activity
+- Local: pgvector/pgvector image in docker-compose with a named volume — done as pgvector/pgvector:0.8.2-pg17, matching Supabase's Postgres 17.11 and pgvector 0.8.2
+- Hosted: Supabase (decided 2026-11-04) — Postgres with pgvector plus Supabase Storage (Day 15), one vendor. Changed 2026-11-11: no new projects — the owner's existing project, isolated by schema: `rag` (production) and `rag_staging`, each owned by its own login role (rag_app, rag_staging_app) with search_path set on the role, not exposed to the Data API; dev on the local Docker Postgres with the same rag schema / role
+- Keep-alive: free projects pause after ~7 days without activity — .github/workflows/supabase-keepalive.yml on a schedule (every 3 days) runs one cheap read as rag_app against the one project, with the URL as a GitHub secret (same pattern as the F1 project). Note: GitHub disables scheduled workflows after 60 days without repo activity
 - DATABASE_URL in Settings; Postgres driver psycopg (new dependency — confirm); keep the sync Session for now
 - Alembic: URL from Settings, import every model (including ConceptMap, ConceptMapNode) in env.py, baseline revision of the current schema; delete db.py's startup migrate_database()
 - Split db/database.py into db/session.py (engine, SessionLocal) and db/models/ (user, session, message, document, failed_query) — deferred from Day 9 so the engine is rewritten for Postgres only once
@@ -261,8 +261,9 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 
 - Branch: feature/day14-sqlite-to-postgres
 - scripts/migrate_sqlite_to_postgres.py: users, sessions, messages, documents, failed_queries, concept maps — IDs preserved, sequences reset, --dry-run with a row-count report
-- Run against a copy of src/data/app.db first, then production; keep the SQLite file as a backup
-- Tests and CI run against a Postgres service container (GitHub Actions services:)
+- First check whether Render has a persistent disk: production's real data lives there, not in either local database (Day 13 brief, "Day 14 notes" — the SQLite→Postgres type differences and copy order are listed there)
+- Run against a copy of backend/data/app.db first, then production; keep the SQLite file as a backup
+- Tests and CI run against a Postgres service container (GitHub Actions services:) — the service exists since Day 13 (alembic upgrade + check, repository tests); Day 14 moves the whole suite onto it
 - Verify: row counts match table by table; an existing account logs in and sees its sessions
 
 ### Day 15 — Chunks table — vector + keyword search in Postgres (I4, I5, I6, I1, I2)
@@ -275,7 +276,8 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Indexing orchestration moves out of ingestion/indexing_pipeline.py (which writes into retrieval's indexes, a known sideways layering exception since Day 8) into a services/ use case — deferred from Day 9 because the indexes are rewritten for pgvector today
 - PgVectorStore + PgKeywordIndex behind the existing vector/keyword interfaces; the user filter is in the WHERE clause, so no over-fetch and post-filter (I1)
 - Postgres full-text (ts_rank_cd) replaces BM25Okapi — measure the difference on E4 before deleting rank-bm25
-- Uploaded files move to Supabase Storage (private bucket, object key uploads/{user_id}/{uuid}{ext} as on Day 3): upload writes to Storage, indexing reads from it, Document.file_path holds the object key; a one-off script copies existing local files up. Render's disk is ephemeral, so without this every restart loses the files that reindexing (Day 16), the viewer (Day 50) and connectors depend on
+- pgvector is already installed in Supabase's `extensions` schema (Day 13); the app roles' search_path includes `extensions`, so VECTOR and <=> resolve unqualified. statement_timeout is 60 s on the roles: an HNSW build in a migration must SET LOCAL a longer one
+- Uploaded files move to Supabase Storage (private buckets rag-prod and rag-staging in the same project as the database, object key uploads/{user_id}/{uuid}{ext} as on Day 3): upload writes to Storage, indexing reads from it, Document.file_path holds the object key; a one-off script copies existing local files up. Render's disk is ephemeral, so without this every restart loses the files that reindexing (Day 16), the viewer (Day 50) and connectors depend on
 - I5: deleting a document cascades to its chunks and removes the file from Storage
 - I6: register_document reports new / changed / unchanged; unchanged skips indexing and the doc_version bump; changed deletes the old version's chunks
 - UI: deleted documents disappear from the list and from citations immediately; re-uploading an unchanged file shows "already indexed" instead of a duplicate
@@ -352,6 +354,8 @@ Focus: CI-gated deploys, staging + preview environments, post-deploy checks, rel
 - Branch: feature/day21-cd
 - Render: production deploys from master only after CI checks pass (auto-deploy setting — confirm the option in the dashboard)
 - Migrations on deploy: Render pre-deploy command running alembic upgrade head — if not available on the instance type, run it from a start script before uvicorn
+  - Since Day 13 the image's CMD already runs `alembic upgrade head && exec uvicorn …`; decide whether a pre-deploy command replaces it or it stays
+- CI maintenance, noted Day 13 from CI warnings (not fixed then): actions/checkout@v4 and actions/setup-python@v5 target the deprecated Node 20 runtime and are being forced onto Node 24 — move to the current major versions; the ubuntu-latest label is migrating to Ubuntu 26 (from 2026-10-19) — pin ubuntu-24.04 or confirm the jobs (tesseract, poppler apt packages) pass on 26
 - render.yaml blueprint committed to the repo for the production and staging services
 - Staging: a second Render service deploying develop, pointing at the staging database and the staging Langfuse project
 - Vercel: production = master; preview deployments for develop and every PR; REACT_APP_API_URL set per environment

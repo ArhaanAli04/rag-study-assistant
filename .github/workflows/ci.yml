@@ -25,6 +25,23 @@ jobs:
     name: backend
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # T2 (Day 13): the same Postgres as docker compose (pg17 + pgvector 0.8.2, as on Supabase), used
+    # to prove the Alembic baseline and the repositories on Postgres. Throwaway and only reachable
+    # from this job, so `trust` auth: no password needs to live in this file.
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rag
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rag"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +56,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils postgresql-client
 
       - name: Install Python dependencies
         run: |
@@ -52,6 +69,47 @@ jobs:
 
       - name: Ruff
         run: ruff check . --output-format github
+
+      # Values only for this job, generated so no secret-looking literal sits in the repo:
+      # rag_app's password (the init script requires one), and the required Settings fields that
+      # alembic/env.py's `from app.core.config import settings` validates. Masked in the log.
+      - name: Postgres - generate throwaway credentials
+        run: |
+          for name in RAG_APP_PASSWORD GEMINI_API_KEY JWT_SECRET_KEY GOOGLE_CLIENT_SECRET; do
+            value=$(openssl rand -hex 24)
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+          echo "GOOGLE_CLIENT_ID=ci.apps.googleusercontent.com" >> "$GITHUB_ENV"
+          echo "GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback" >> "$GITHUB_ENV"
+
+      # Same script docker compose runs, so CI, local and Supabase share one shape: role rag_app
+      # owning schema rag, search_path = rag, extensions, pgvector in `extensions`.
+      - name: Postgres - create the rag schema and rag_app role
+        env:
+          PGHOST: localhost
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rag
+        run: sh scripts/postgres/init-rag-schema.sh
+
+      # The timeline's Day 13 check: an empty database migrates to head, and autogenerate finds no
+      # difference between the models and the migrated schema. Connected as rag_app, so the
+      # current_schema() guard in app/db/migrations.py runs too.
+      - name: Postgres - alembic upgrade head and alembic check
+        env:
+          DATABASE_SCHEMA: rag
+        run: |
+          export DATABASE_URL="postgresql+psycopg://rag_app:${RAG_APP_PASSWORD}@localhost:5432/rag"
+          alembic upgrade head
+          alembic check
+
+      # Postgres compares types strictly: a filter like Document.user_id == str(user.id) passes on
+      # SQLite and fails here ("operator does not exist: integer = character varying"), so it fails
+      # CI instead of production. The full suite below still runs on SQLite until Day 14.
+      - name: Postgres - repository tests
+        run: |
+          export TEST_POSTGRES_URL="postgresql+psycopg://rag_app:${RAG_APP_PASSWORD}@localhost:5432/rag"
+          python -m pytest backend/tests/test_repositories.py -q
 
       # No secrets on purpose: tests/conftest.py supplies dummy keys, fakes Gemini, Tavily and
       # Redis, and refuses network sockets.

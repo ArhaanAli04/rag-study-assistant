@@ -23,6 +23,7 @@ Authlib==1.6.6                 # Google OAuth (services/oauth_service.py)
 # --- Data ------------------------------------------------------------------------------------
 SQLAlchemy==2.0.44
 alembic==1.17.2                # alembic/ (T2: made the real migration path on Day 13)
+psycopg[binary]==3.3.8         # Postgres driver, postgresql+psycopg:// (T2, Day 13); binary = prebuilt libpq
 redis==7.1.0                   # query, web and semantic caches
 
 # --- LLM, embeddings, retrieval --------------------------------------------------------------

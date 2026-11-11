@@ -8,7 +8,7 @@ from app.schemas.auth import PasswordChange, UserCreate
 from app.services.account_service import authenticate_user
 from app.services.oauth_service import get_google_oauth_client
 from app.core.security import create_access_token, get_password_hash, verify_password
-from app.db.database import User
+from app.db.models import User
 from app.core.config import settings
 from datetime import timedelta
 import logging

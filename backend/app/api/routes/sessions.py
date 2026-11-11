@@ -5,7 +5,7 @@ from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.db.database import Message, Session as ChatSession, User
+from app.db.models import Message, Session as ChatSession, User
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 

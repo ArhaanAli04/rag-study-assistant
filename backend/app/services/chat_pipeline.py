@@ -17,7 +17,7 @@ from typing import Any, AsyncIterator, Dict, Iterator, List, Union
 
 from sqlalchemy.orm import Session
 
-from app.db.database import FailedQuery, Message, Session as ChatSession, User
+from app.db.models import FailedQuery, Message, Session as ChatSession, User
 from app.core.errors import UserFriendlyError
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier

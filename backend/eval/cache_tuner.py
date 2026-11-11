@@ -5,7 +5,8 @@ Run from backend/: python -m eval.cache_tuner (needs the real .env, Gemini and R
 It only looks entries up, so hits come from what the first user's semantic cache already holds.
 CO5 (Day 32) replaces it.
 """
-from app.db.database import SessionLocal, User
+from app.db.models import User
+from app.db.session import SessionLocal
 from app.services.caches.semantic_cache import SemanticCache
 from app.services.container import build_services
 

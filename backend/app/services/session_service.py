@@ -1,6 +1,6 @@
 #session management+ CRUD + auto create
 from sqlalchemy.orm import Session as DBSession
-from app.db.database import Session as ChatSession, Message
+from app.db.models import Session as ChatSession, Message
 from typing import Optional
 def create_session(db: DBSession, user_id: int, title: str | None = None) -> ChatSession:
     s = ChatSession(user_id=user_id, title=title)

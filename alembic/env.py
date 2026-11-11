@@ -10,7 +10,8 @@ import sys
 # Alembic runs from the repo root, outside the backend's import root; T2 (Day 13) reworks this file.
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backend"))
 
-from app.db.database import Base
+import app.db.models  # noqa: F401  (registers every table, concept maps included; T2)
+from app.db.base import Base
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

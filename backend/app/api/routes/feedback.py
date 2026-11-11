@@ -6,7 +6,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.db.database import FailedQuery, Message, User
+from app.db.models import FailedQuery, Message, User
 from app.schemas.feedback import FeedbackRequest
 
 router = APIRouter(tags=["Feedback"])

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
-from app.db.database import Document, User
+from app.db.models import Document, User
 from app.ingestion.upload_storage import UPLOAD_ROOT
 from app.schemas.users import ProfileUpdate
 from app.services.account_service import delete_user_account

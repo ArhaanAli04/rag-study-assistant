@@ -7,7 +7,7 @@ from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
-from app.db.database import Document, User
+from app.db.models import Document, User
 from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
 from app.schemas.documents import SearchRequest
 from app.services.container import Services

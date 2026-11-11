@@ -6,7 +6,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.db.database import Base, Document, User
+from app.db.base import Base
+from app.db.models import Document, User
 from app.services.document_service import register_upload
 from app.ingestion.upload_storage import new_upload_path
 from app.ingestion.file_hash import compute_file_hash

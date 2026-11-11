@@ -17,7 +17,9 @@ from app.api.routes import auth, chat, concepts, documents, feedback, health, qu
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.request_id import RequestIdMiddleware
-from app.db.database import init_db
+from app.db import models  # noqa: F401  (registers every table on Base.metadata for create_all)
+from app.db.base import Base
+from app.db.session import engine
 from app.services.container import build_services
 
 logger = setup_logging()
@@ -27,7 +29,8 @@ ROUTERS = (health, auth, users, documents, chat, sessions, feedback, quiz, conce
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    init_db()
+    # Until Alembic owns the schema (Day 13, Checkpoint 4): creates missing tables, alters nothing.
+    Base.metadata.create_all(bind=engine)
     logger.info("Database initialized")
     started = time.perf_counter()
     app.state.services = build_services()

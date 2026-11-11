@@ -4,7 +4,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
 
-from app.db.database import SessionLocal, Document
+from app.db.models import Document
+from app.db.session import SessionLocal
 from app.ingestion.upload_storage import is_inside_user_dir
 from app.ingestion.file_hash import compute_file_hash
 

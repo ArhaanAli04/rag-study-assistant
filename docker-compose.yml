@@ -65,11 +65,13 @@ services:
       - "5433:5432"
     environment:
       # No defaults: passwords live only in .env (compose reads it for ${...}), never in the repo.
-      # A missing value stops `docker compose` with the message after `?`.
+      # `:?` makes both required; a missing one stops every `docker compose` command. Set them in
+      # .env as .env.example shows. (A custom message after `?` reads as a literal password to
+      # GitGuardian's generic detector, so the bare form is used.)
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?}
       - POSTGRES_DB=rag
-      - RAG_APP_PASSWORD=${RAG_APP_PASSWORD:?set RAG_APP_PASSWORD in .env (see .env.example)}
+      - RAG_APP_PASSWORD=${RAG_APP_PASSWORD:?}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs once, on an empty volume only. Changing the script later needs `docker compose down`

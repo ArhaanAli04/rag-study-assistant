@@ -8,7 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.core.errors import UserFriendlyError
 from app.core.security import decode_access_token
-from app.db.database import SessionLocal, User
+from app.db.models import User
+from app.db.session import SessionLocal
 from app.services.container import Services
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login")

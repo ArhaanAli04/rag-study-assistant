@@ -1,12 +1,11 @@
-import datetime
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
-from app.db.models import FailedQuery, Message, User
+from app.db.models import User
+from app.db.repositories import failed_queries as failed_queries_repo, messages as messages_repo
 from app.schemas.feedback import FeedbackRequest
 
 router = APIRouter(tags=["Feedback"])
@@ -20,48 +19,25 @@ async def submit_feedback(
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
     """Submit thumbs up/down feedback for a message"""
-    # Verify message belongs to user
-    msg = db.query(Message).filter(
-        Message.id == message_id,
-        Message.user_id == str(current_user.id)
-    ).first()
-
+    msg = messages_repo.get_owned(db, message_id, current_user.id)
     if not msg:
         raise HTTPException(status_code=404, detail="Message not found")
 
-    # Update feedback using raw SQL
-    sql = text("""
-        UPDATE messages
-        SET feedback = :feedback, feedback_comment = :comment
-        WHERE id = :message_id
-    """)
-
-    db.execute(sql, {
-        'feedback': body.feedback,
-        'comment': body.comment or "",
-        'message_id': message_id
-    })
+    messages_repo.set_feedback(msg, body.feedback, body.comment or "")
 
     # A thumbs down is also logged as a failed query, against the question that led to the answer.
     if body.feedback == 'down':
-        user_msg = db.query(Message).filter(
-            Message.session_id == msg.session_id,
-            Message.role == 'user',
-            Message.id < msg.id
-        ).order_by(Message.id.desc()).first()
-
+        user_msg = messages_repo.previous_user_message(db, msg)
         if user_msg:
-            failed_query = FailedQuery(
-                user_id=str(current_user.id),
+            failed_queries_repo.add(
+                db,
+                user_id=current_user.id,
                 session_id=msg.session_id,
                 query=user_msg.content,
-                confidence=None,  # Can be populated if you track confidence
-                feedback='down',
                 reason='negative_feedback',
+                feedback='down',
                 comment=body.comment or "",
-                timestamp=datetime.datetime.utcnow()
             )
-            db.add(failed_query)
 
     db.commit()
 
@@ -75,10 +51,6 @@ async def get_failed_queries(
     limit: int = 50
 ) -> List[Dict[str, Any]]:
     """Get recent failed queries for analysis"""
-    failed_queries = db.query(FailedQuery).filter(
-        FailedQuery.user_id == str(current_user.id)
-    ).order_by(FailedQuery.timestamp.desc()).limit(limit).all()
-
     return [
         {
             "id": fq.id,
@@ -89,5 +61,5 @@ async def get_failed_queries(
             "timestamp": fq.timestamp.isoformat() if fq.timestamp else None,
             "session_id": fq.session_id
         }
-        for fq in failed_queries
+        for fq in failed_queries_repo.list_recent(db, current_user.id, limit)
     ]

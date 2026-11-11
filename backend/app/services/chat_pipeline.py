@@ -196,7 +196,7 @@ class ChatPipeline:
 
             if final_confidence < LOW_CONFIDENCE_BELOW:
                 db.add(FailedQuery(
-                    user_id=str(user_id_int),
+                    user_id=user_id_int,
                     session_id=chat_session_id,
                     query=query,
                     confidence=final_confidence,

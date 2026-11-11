@@ -9,6 +9,7 @@ from app.services.account_service import authenticate_user
 from app.services.oauth_service import get_google_oauth_client
 from app.core.security import create_access_token, get_password_hash, verify_password
 from app.db.models import User
+from app.db.repositories import users as users_repo
 from app.core.config import settings
 from datetime import timedelta
 import logging
@@ -19,12 +20,10 @@ router = APIRouter(tags=["Authentication"])
 
 @router.post("/register")
 async def register(user: UserCreate, db: Session = Depends(get_db)) -> Dict[str, Any]:
-    existing = db.query(User).filter(User.email == user.email).first()
-    if existing:
+    if users_repo.get_by_email(db, user.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
-    new_user = User(email=user.email, hashed_password=get_password_hash(user.password))
-    db.add(new_user)
+    new_user = users_repo.create_password_user(db, user.email, get_password_hash(user.password))
     db.commit()
     db.refresh(new_user)
 
@@ -132,20 +131,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         # No identity here: the user row (and its id) isn't loaded yet, and emails stay out of logs.
         logger.info("Google OAuth callback received")
         
-        # Check if user exists
-        user = db.query(User).filter(User.email == email).first()
-        
+        user = users_repo.get_by_email(db, email)
+
         if not user:
-            # Create new OAuth user
-            user = User(
-                email=email,
-                username=name,
-                name=name,
-                hashed_password=None,  # OAuth users don't have passwords
-                profile_picture=picture,
-                oauth_provider="google"
-            )
-            db.add(user)
+            user = users_repo.create_oauth_user(db, email, name, picture, provider="google")
             db.commit()
             db.refresh(user)
             logger.info(f"Created new OAuth user {user.id}")

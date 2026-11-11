@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.core.errors import UserFriendlyError
 from app.core.security import decode_access_token
 from app.db.models import User
+from app.db.repositories import users as users_repo
 from app.db.session import SessionLocal
 from app.services.container import Services
 
@@ -36,7 +37,7 @@ def _user_for_token(db: Session, token: str) -> Optional[User]:
         return None
     if email is None:
         return None
-    return db.query(User).filter(User.email == email).first()
+    return users_repo.get_by_email(db, email)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:

@@ -326,7 +326,8 @@ That's acceptable for a free-tier solo project. Real production systems usually 
   - `services: postgres` (`pgvector/pgvector:pg17`)
   - a step that applies `scripts/postgres/init-rag-schema.sh`
   - then `alembic upgrade head` and `alembic check` as `rag_app` (`DATABASE_SCHEMA=rag`)
-  - all before pytest, which stays on SQLite until Day 14.
+  - then **`pytest backend/tests/test_repositories.py` with `TEST_POSTGRES_URL`** pointing at the service (added on approval of Checkpoint 5). An int-vs-text comparison then fails CI, not production; on Day 13 the old `Document.user_id == str(id)` filter raised `operator does not exist: integer = character varying` on Postgres.
+  - all before the full pytest run, which stays on SQLite until Day 14.
 - `.github/workflows/supabase-keepalive.yml`:
   - `schedule: "0 6 */3 * *"` + `workflow_dispatch`, `permissions: contents: read`
   - installs `postgresql-client`
@@ -433,6 +434,9 @@ These are the differences Day 14's copy script has to handle:
 | Type strictness | stores `'5'` in an integer column silently | `integer = text` is an error | Cast ids to `int`. The `str(user_id)` filters are fixed in Checkpoint 5. |
 
 Also for Day 14:
+- **Production data lives on Render, not in either local database.** The first step of Day 14 is to check whether the Render backend service has a **persistent disk** mounted at `/app/backend/data` (Render dashboard → the service → Disks). CLAUDE.md lists this as not verified.
+  - **No disk:** production's SQLite file is recreated empty on every deploy and restart. There may be nothing durable to migrate; only what accumulated since the last deploy exists, and it disappears at the next one. Day 14's copy then targets the local databases (or nothing), and "users log in after the move" means re-registering.
+  - **A disk:** production's `app.db` is the real source. It must be backed up (Render shell or a one-off download) before anything else, and it is **not stamped**. Do **not** merge Day 13's migrate-before-uvicorn `CMD` to `master` before it is either stamped or replaced by the Postgres copy: `upgrade head` on an unstamped, populated SQLite would fail with "table users already exists" and the deploy would crash-loop.
 - **Copy order follows the foreign keys:**
   1. `users`
   2. `sessions`, `documents`, `concept_maps`

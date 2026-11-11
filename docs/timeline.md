@@ -352,6 +352,8 @@ Focus: CI-gated deploys, staging + preview environments, post-deploy checks, rel
 - Branch: feature/day21-cd
 - Render: production deploys from master only after CI checks pass (auto-deploy setting — confirm the option in the dashboard)
 - Migrations on deploy: Render pre-deploy command running alembic upgrade head — if not available on the instance type, run it from a start script before uvicorn
+  - Since Day 13 the image's CMD already runs `alembic upgrade head && exec uvicorn …`; decide whether a pre-deploy command replaces it or it stays
+- CI maintenance, noted Day 13 from CI warnings (not fixed then): actions/checkout@v4 and actions/setup-python@v5 target the deprecated Node 20 runtime and are being forced onto Node 24 — move to the current major versions; the ubuntu-latest label is migrating to Ubuntu 26 (from 2026-10-19) — pin ubuntu-24.04 or confirm the jobs (tesseract, poppler apt packages) pass on 26
 - render.yaml blueprint committed to the repo for the production and staging services
 - Staging: a second Render service deploying develop, pointing at the staging database and the staging Langfuse project
 - Vercel: production = master; preview deployments for develop and every PR; REACT_APP_API_URL set per environment

@@ -414,3 +414,34 @@ That's acceptable for a free-tier solo project. Real production systems usually 
 9. *Decided 2026-11-11: `rag, extensions`. Risk 10 decided the same day: leave `PUBLIC` as is.* **`search_path = rag, extensions`, not just `rag`.** Your instruction was `search_path = <schema>`. I'm proposing to add `extensions` after it, because pgvector's type (`vector`) and its operators (`<=>`, `<#>`) live in Supabase's `extensions` schema. With `rag` alone, Day 15's `VECTOR(1536)` columns and `ORDER BY embedding <=> :q` would fail to resolve. The alternative is qualifying every use as `extensions.vector` / `OPERATOR(extensions.<=>)` in code. Unqualified objects are still *created* in the first schema (`rag`), so isolation is unchanged, and `extensions` holds no data. **Please confirm or overrule.**
 10. **"No rights on `public`"**: the new roles get `USAGE` on `public` through the `PUBLIC` pseudo-role (a Postgres default the catalog check shows). It can't be revoked per role, only from `PUBLIC` as a whole, which could affect the other app. What it actually allows today: seeing object names (the catalogs are readable anyway) and calling the 1 `PUBLIC`-executable function, `rls_auto_enable`, an event-trigger function that can't be called directly. No `CREATE`, no tables, no sequences. The verification reports exactly this. I'd leave `PUBLIC` alone; say if you want the project-wide revoke instead.
 8. **Doc drift found**: `docs/architecture/layout.md:59` puts the chunk model on Day 13 (it is Day 15). The fix is included in Checkpoint 6. `docs/posts/README.md` has no Day 13 row, so only post 9 gets a line unless you add one.
+
+## Day 14 notes — SQLite → Postgres copy
+Measured on Day 13 (2026-11-11), Checkpoint 4. The baseline `7cb8829683ab` applies cleanly on both dialects:
+- SQLite: `test_migrations.py`, plus the two stamped files.
+- Postgres 17: the local `rag` schema, where `alembic check` reports no diff.
+
+These are the differences Day 14's copy script has to handle:
+
+| Model type | SQLite (source) | Postgres (target) | What the copy must do |
+|---|---|---|---|
+| `Integer` primary key | `INTEGER PRIMARY KEY` (rowid alias; freed ids are reused, the B1 residual) | `integer` + `nextval('<table>_id_seq')`, the **only** server defaults in the schema | Insert the ids as they are (foreign keys depend on them), then **reset every sequence**: `select setval('<table>_id_seq', coalesce(max(id), 1), max(id) is not null) from <table>` for all 7 tables. Otherwise the next insert collides with a copied id. |
+| `DateTime` | `DATETIME`, stored as **text** (`2026-11-08 10:06:12.345678`) | `timestamp without time zone` | **Parse the text** into `datetime` (reading through SQLAlchemy models does it; raw `sqlite3` doesn't). Values are naive UTC on both sides; keep them naive. |
+| `Boolean` | `BOOLEAN`, stored **0/1**, no CHECK | `boolean` | **Convert 0/1 → false/true** (`users.is_active`, `documents.is_active`). Postgres rejects an integer for a boolean. |
+| `Float` | `FLOAT` (REAL, 8 bytes) | `double precision` | Nothing; same precision (`concept_maps.confidence_score`). |
+| `String` / `Text` | `VARCHAR` / `TEXT` | `character varying` (no length) / `text` | Nothing. |
+| Defaults: `is_active`, `doc_version`, `version`, `topic`, `node_count`…, every `created_at` / `timestamp` | **Python-side only** (`Column(default=…)`); no server defaults (both SQLite files checked) | Python-side only | **Carry every column explicitly.** A raw `INSERT` that omits one gets `NULL`, not the ORM default. Count NULLs per column before and after. |
+| Type strictness | stores `'5'` in an integer column silently | `integer = text` is an error | Cast ids to `int`. The `str(user_id)` filters are fixed in Checkpoint 5. |
+
+Also for Day 14:
+- **Copy order follows the foreign keys:**
+  1. `users`
+  2. `sessions`, `documents`, `concept_maps`
+  3. `messages`, `failed_queries`, `concept_map_nodes`
+
+  Otherwise defer the constraints in one transaction.
+- **Sources:** two SQLite files, each stamped at `7cb8829683ab`, with backups:
+  - host `backend/data/app.db`: 2 users / 2 sessions / 16 messages / 2 documents / 1 failed query / 1 concept map / 20 nodes. Backup: `backend/data/app.backup-2026-11-11.db`.
+  - Docker `data` volume: 3 / 3 / 10 / 3 / 0 / 2 / 12. Backup: `backend/data/app.docker-backup-2026-11-11.db`.
+
+  They are **separate user populations whose ids overlap** (both start at 1). Decide which one is the source of truth before copying; merging them needs id remapping.
+- **The target schema is created by Alembic**, never by the copy script: `alembic upgrade head` first, then copy data only. The copy must leave `alembic_version` alone.

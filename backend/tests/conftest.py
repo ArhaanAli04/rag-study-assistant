@@ -126,6 +126,14 @@ def pytest_configure(config: pytest.Config) -> None:
     _state["workdir"] = workdir
     os.chdir(workdir)
 
+    # The lifespan refuses a database that isn't at Alembic head (T2, Day 13), so the suite's own
+    # SQLite file is migrated first, through the same scripts production runs.
+    from alembic import command
+
+    from app.db.migrations import alembic_config
+
+    command.upgrade(alembic_config(), "head")
+
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     if "cwd" not in _state:

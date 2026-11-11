@@ -2,9 +2,11 @@
 # Skip this file with `docker compose -f docker-compose.yml ...` to run the stack as deployed.
 services:
   backend:
+    # Migrate first, as the image's CMD does (T2); sh -c because `command` replaces the CMD.
     command: >
-      uvicorn app.main:app --host 0.0.0.0 --port 8000
-      --reload --reload-dir /app/backend/app
+      sh -c "alembic -c /app/alembic.ini upgrade head &&
+      exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app/backend/app"
     environment:
       # Windows bind mounts don't deliver inotify events into the Linux VM; poll instead.
       - WATCHFILES_FORCE_POLLING=true

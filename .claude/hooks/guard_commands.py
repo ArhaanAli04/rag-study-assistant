@@ -9,10 +9,12 @@ here-string bodies are treated as data, so `bash -c "rm -rf src"` is not detecte
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sys
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
+from urllib.parse import urlsplit
 
 from hook_io import (
     configure_utf8_streams,
@@ -52,10 +54,6 @@ PATTERN_RULES: tuple[tuple[re.Pattern[str], str], ...] = (
     (re.compile(r"\bgit\b.*\bstash\s+(drop|clear)\b"), "`git stash drop/clear` deletes stashed work"),
     (re.compile(r"\bgit\b.*\bbranch\b.*\s-D\b"), "`git branch -D` force-deletes a branch"),
     (re.compile(r"\bredis-cli\b.*\bflush(all|db)\b", re.IGNORECASE), "FLUSHALL/FLUSHDB wipes every Redis cache"),
-    (
-        re.compile(r"\balembic\b.*\bdowngrade\b", re.IGNORECASE),
-        "`alembic downgrade` drops schema, and Alembic currently targets the wrong database (T2)",
-    ),
 )
 DROP_SQL = re.compile(r"\bdrop\s+(table|database)\b", re.IGNORECASE)
 QUOTED_STRING = re.compile(r"\"[^\"]*\"|'[^']*'")
@@ -63,6 +61,21 @@ HEREDOC_START = re.compile(r"(?<!<)<<(?!<)-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\
 HERE_STRING_START = re.compile(r"@['\"]\s*$")
 SHORT_FLAG = re.compile(r"-[a-z]{1,4}")
 DRIVE_ROOT = re.compile(r"[a-z]:")
+
+# `alembic downgrade` (T2, Day 13): allowed only against throwaway databases.
+ALEMBIC_DOWNGRADE = re.compile(r"\balembic\b.*\bdowngrade\b", re.IGNORECASE)
+# `$env:DATABASE_URL = …` (PowerShell), `export DATABASE_URL=…`, `set DATABASE_URL=…`, `DATABASE_URL=… cmd`
+DATABASE_URL_ASSIGNMENT = re.compile(
+    r"(?:\$env:|\bexport\s+|\bset\s+|(?<![\w$:]))DATABASE_URL\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s;]+)", re.IGNORECASE
+)
+# Any mention of a hosted database keeps a downgrade blocked, however the URL is built.
+HOSTED_DATABASE_MARKERS = re.compile(
+    r"supabase\.(?:co|com)\b|\bRAG_STAGING_DATABASE_URL\b|\bSUPABASE_\w*URL\b", re.IGNORECASE
+)
+# Loopback, plus the compose service and container name of the local Postgres.
+LOCAL_DATABASE_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1", "postgres", "rag-postgres"})
+# The app's real SQLite files: backend/data/app.db on the host, /app/backend/data/app.db in Docker.
+REAL_SQLITE_DATABASE = re.compile(r"(^|/)(backend/)?data/app\.db$|(^|/)app\.db$", re.IGNORECASE)
 
 
 def tokenize(segment: str) -> list[str]:
@@ -202,9 +215,69 @@ def split_segments(command: str) -> list[str]:
     return [segment.strip() for segment in segments if segment.strip()]
 
 
+def database_url_problem(url: str | None) -> str | None:
+    """None if the URL is a throwaway database; otherwise why a downgrade there must be blocked.
+
+    Throwaway means a temporary SQLite file (not the app's real app.db) or a Postgres on this machine
+    (loopback or the compose service). No URL at all is the app's default: the real SQLite file.
+    """
+    if url is None:
+        return "no DATABASE_URL is set, so the target is the app's real SQLite database (backend/data/app.db)"
+    value = url.strip().strip("\"'")
+    if "://" not in value:
+        return "DATABASE_URL is built from an expression the guard can't read"
+    parts = urlsplit(value)
+    if parts.scheme.lower().startswith("sqlite"):
+        path = value.split("://", 1)[1].lstrip("/").replace("\\", "/")
+        if REAL_SQLITE_DATABASE.search(path):
+            return "DATABASE_URL is the app's real SQLite database (app.db)"
+        return None
+    host = (parts.hostname or "").lower()
+    if host in LOCAL_DATABASE_HOSTS:
+        return None
+    return f"DATABASE_URL points at a non-local host ({host or 'unknown'})"
+
+
+def dotenv_database_url(root: str) -> str | None:
+    """DATABASE_URL from the repo-root .env, if set there. Only that one line is read."""
+    try:
+        lines = (Path(root) / ".env").read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        name, separator, value = line.strip().partition("=")
+        if separator and name.strip() == "DATABASE_URL":
+            return value.strip()
+    return None
+
+
+def downgrade_block_reason(command: str, root: str) -> str | None:
+    """Why an `alembic downgrade` in `command` must be blocked, or None for a throwaway target.
+
+    The hook runs in its own process and can't see variables the command sets for itself, so the
+    target is resolved the way the app's Settings resolves it: an assignment in the command, then
+    this process's environment, then .env, then the default (the real SQLite file). Anything hosted,
+    real or unreadable stays blocked.
+    """
+    if HOSTED_DATABASE_MARKERS.search(command):
+        return "`alembic downgrade` against a hosted database (Supabase rag / rag_staging) drops real schema"
+    assigned = [match.group(1) for match in DATABASE_URL_ASSIGNMENT.finditer(command)]
+    candidates: list[str | None] = list(assigned) or [os.environ.get("DATABASE_URL") or dotenv_database_url(root)]
+    for url in candidates:
+        problem = database_url_problem(url)
+        if problem is not None:
+            return f"`alembic downgrade` drops schema, and {problem}"
+    return None
+
+
 def find_block_reason(command: str, root: str) -> str | None:
     """Return the reason the first dangerous segment of `command` must be blocked, or None."""
-    for segment in split_segments(strip_heredoc_bodies(command)):
+    segments = split_segments(strip_heredoc_bodies(command))
+    if any(ALEMBIC_DOWNGRADE.search(QUOTED_STRING.sub('""', segment)) for segment in segments):
+        reason = downgrade_block_reason(command, root)
+        if reason is not None:
+            return reason
+    for segment in segments:
         unquoted = QUOTED_STRING.sub('""', segment)
         for pattern, reason in PATTERN_RULES:
             if pattern.search(unquoted):

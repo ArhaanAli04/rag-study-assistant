@@ -449,3 +449,72 @@ Also for Day 14:
 
   They are **separate user populations whose ids overlap** (both start at 1). Decide which one is the source of truth before copying; merging them needs id remapping.
 - **The target schema is created by Alembic**, never by the copy script: `alembic upgrade head` first, then copy data only. The copy must leave `alembic_version` alone.
+
+## Outcome
+Done 2026-11-11 → 2026-11-12. Six checkpoints and six commits on `feature/day13-postgres` (PR #17, draft): `e95ef81`, `c02b5e6`, `52ca646`, `ac795d6`, `cd188ff`, `16584fe`, plus this docs commit. 59 files changed against `develop` before the docs commit.
+
+### What changed against the plan
+- **Hosting (owner, on approval):** no new Supabase projects. The existing project holds schemas `rag` / `rag_staging`, each owned by its own login role, with `search_path = <schema>, extensions` (Risk 9: `extensions` added so pgvector resolves) and no Data API exposure. `PUBLIC` was left as is (Risk 10). Decision 5 was settled by the catalog: Postgres 17.11, so the local image is `pgvector/pgvector:0.8.2-pg17`, the exact pgvector version.
+- **Added on request:**
+  - local parity: `scripts/postgres/init-rag-schema.sh`, shared by compose and CI
+  - CI Postgres service: `alembic upgrade head` + `alembic check`, then `test_repositories.py` on Postgres
+  - SQLite backups before stamping, and the "Day 14 notes" (types, sequences, Render disk)
+  - a narrowed `alembic downgrade` guard instead of the blanket block
+  - a commit after every checkpoint
+- **Found during implementation, fixed the same day:**
+  - **`lastrowid` (Checkpoint 5):** `session_service.add_message` used a raw INSERT + `lastrowid`, which gives no row id on Postgres. The SSE `message_id` would have been null and feedback broken. It now goes through `messages_repo.add`.
+  - **`str(user_id)` (Checkpoint 5):** 5 filters + 3 inserts compared or stored `str(user_id)` in integer columns. Measured on Postgres 17: `operator does not exist: integer = character varying`.
+  - **Autogenerate (Checkpoint 4):** with `version_table_schema`, autogenerate wrote `op.drop_table('alembic_version')`. Fixed with an `include_name` filter.
+  - **Silent rollback (Checkpoint 4):** `env.py`'s schema-guard SELECT auto-began a transaction, so `upgrade` ran and was rolled back silently. Fixed with `engine.begin()`.
+  - **Conftest (Checkpoint 2):** with the absolute SQLite default, the test suite would have written to the real `backend/data/app.db`. `conftest` now sets its own `DATABASE_URL`.
+  - **GitGuardian (Checkpoints 1–3):** it flagged dev-default passwords, then the `${VAR:?message}` form. Now the bare `${VAR:?}` form is used, with no password in any tracked file. The 6 old incidents stay in history (`e95ef81`, `c02b5e6`); the owner resolves them as false positives.
+  - **Supabase setup script (Checkpoint 6), three iterations caught by dry runs:**
+    - the result grid echoed the passwords
+    - an owner-only `REVOKE` failed
+    - the error context quoted the password
+    - then the owner spotted that the SQL editor sends the script as **one** query, so `log_statement = ddl` logs it whole. Proved: 2 of 2 test passwords in the server log. Final version: SCRAM verifiers only (`scripts/supabase/scram_verifier.py`), with 0 passwords in the log or `pg_stat_statements`.
+- **Not done / deferred:** the app still runs on SQLite (Decision 2, Day 14). `rag` (production) is empty (Day 14). The keep-alive can't run before it reaches `master` (Day 17). The Postgres CLI downgrade round trip was skipped on request: `test_migrations` covers downgrade on SQLite, CI covers upgrade + check on Postgres.
+- **Correction to Risk 8:** `docs/posts/README.md` maps Day 13 to post 3 (days 13–17). The brief wrongly said there was no row; post 3 got today's material entry.
+
+### Files (against `develop`)
+- **Settings and driver:**
+  - `requirements.in`, `requirements.txt`: `psycopg[binary]==3.3.8`; the lock gains only psycopg + psycopg-binary, 136 → 138
+  - `backend/app/core/config.py`: `DATABASE_URL` (`SecretStr`, absolute SQLite default), `DATABASE_SCHEMA`, scheme validator
+  - `.env.example`
+- **Database package:**
+  - new `backend/app/db/{base,session,migrations}.py`
+  - new `db/models/{user,chat_session,message,document,failed_query}.py`; `db/models/__init__.py`, `concept_map.py` updated
+  - new `db/repositories/{__init__,users,sessions,documents,messages,failed_queries}.py`
+  - `db/database.py` deleted
+- **Callers:** `api/deps.py`; `api/routes/{auth,chat,concepts,documents,feedback,quiz,sessions,users}.py`; `services/{account_service,chat_pipeline,document_service,session_service}.py`; `main.py` (lifespan head check); `eval/cache_tuner.py`, `eval/retrieval/mine_feedback.py`.
+- **Alembic:** `alembic.ini`, `alembic/env.py`; `versions/1e5877c62358_…` deleted; `versions/7cb8829683ab_baseline_schema.py` new.
+- **Docker:** `Dockerfile` (ships `alembic/`, `CMD` migrates first), `.dockerignore`, `docker-compose.yml` (postgres service, required passwords), `docker-compose.override.yml`.
+- **Scripts:** `.gitattributes` (`*.sh` LF), `scripts/postgres/init-rag-schema.sh`, `scripts/supabase/{setup_rag_schemas.sql,scram_verifier.py}`.
+- **CI:** `.github/workflows/ci.yml` (`backend` job), `.github/workflows/supabase-keepalive.yml` (new).
+- **Tests:** `backend/tests/{conftest,test_config,test_account_service,test_document_service}.py`; new `test_migrations.py`, `test_repositories.py`.
+- **Hooks:** `.claude/hooks/guard_commands.py` (target-aware downgrade guard), `.claude/hooks/edit_reminders.py` (the new `alembic/versions/` reminder).
+- **Docs:** `CLAUDE.md` (sections plus Current Status), `docs/architecture/layout.md`, `docs/timeline.md` (Days 13, 14, 15, 21), `docs/improvement-tracker.md` (T2 Done), this brief, `docs/posts/03-hybrid-search-postgres.md`, `docs/posts/09-launch-recap.md`.
+
+### Checks
+| Check | Result |
+|---|---|
+| Offline suite, host (3.12) | 244 → **269 passed** (+7 config, +7 migrations, +11 repositories) |
+| Offline suite, container (Linux / 3.11) | 258 passed after Checkpoint 4 (the last container run) |
+| ruff 0.15.18 | clean |
+| CI on `16584fe` | `backend` 1m55s (Postgres steps: baseline ran, **no new upgrade operations**, repositories **11/11**, suite 269), `frontend` 39s, `docker` 17s |
+| Alembic, local Postgres (`rag`) | `upgrade head` → 7 tables + `rag.alembic_version`, nothing in `public`; `alembic check` = no diff |
+| Alembic, Supabase `rag_staging` | `upgrade head` → 8 tables, 12 indexes, 7 sequences, all in `rag_staging` and owned by `rag_staging_app`; `check` = no diff; `public` unchanged (2 tables) |
+| SQLite stamp | both files: `compare_metadata` differs only in the `uq_users_email` name and has no server defaults; stamped at `7cb8829683ab`; row counts unchanged (host 2/2/16/2/1/1/20, Docker 3/3/10/3/0/2/12); dev container healthy, "Database schema is at head" |
+| Supabase verification (MCP, catalog only) | roles LOGIN-only with SCRAM secrets; schemas owner-only; no cross-schema access; API roles have no USAGE on either schema; in `public`: USAGE via `PUBLIC` only, 0 tables / 0 sequences, 1 EXECUTE (`rls_auto_enable`, an event-trigger function that can't be called directly); `vector` 0.8.2 in `extensions`; advisors: no new findings |
+| Guard hook | **29/29** cases as expected (JSON-payload harness) |
+| Docker image | builds; `alembic -c /app/alembic.ini heads` → `7cb8829683ab` |
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Settings, model split, Alembic, startup head check | — | backend-only: schema and startup mechanics; no endpoint, field or status changed |
+| Repositories, int `user_id` filters, ORM message insert | — | backend-only: every response shape unchanged (`test_api_smoke.py` passes unmodified); same `message_id` frame |
+| Postgres (local, CI, Supabase), keep-alive | — | backend-only: infrastructure; the app stays on SQLite until Day 14 |
+
+### Numbers for the tracker
+T2: suite 244 → 269; `alembic check` no diff on local / CI / staging; 5 `str(user_id)` filters + 3 string-id inserts + 1 `lastrowid` fixed; Supabase setup logs 0 passwords (single-query dry run: 2 of 2 before the verifier change).

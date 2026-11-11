@@ -17,7 +17,7 @@ rag-study-assistant/
 │   │   │   ├── deps.py          ← Depends(): db session, current user, services from app.state
 │   │   │   └── routes/          ← auth, users, documents, chat, sessions, quiz, concepts, health
 │   │   ├── core/                ← config, logging, request_id, security, errors — imports nothing else from app
-│   │   ├── db/                  ← engine/session, models/, repositories/
+│   │   ├── db/                  ← base, session (engine), migrations (head check), models/, repositories/ (Day 13)
 │   │   ├── ingestion/           ← parsers/ (pdf, pptx, docx), chunking, ocr/, tables/, upload storage
 │   │   ├── retrieval/           ← embeddings, vector store, keyword index, fusion, rerank,
 │   │   │                          decomposition, compression, web/
@@ -30,7 +30,7 @@ rag-study-assistant/
 │   ├── scripts/                 ← one-off scripts when they appear (Day 16 reindex); none today
 │   ├── data/  uploads/  logs/   ← runtime state, gitignored (Docker: named volumes)
 ├── frontend/                    ← unchanged
-├── alembic/  alembic.ini        ← stays at the root until Day 13 (T2)
+├── alembic/  alembic.ini        ← at the root; `prepend_sys_path = backend` (Day 13, T2), copied into the image
 ├── docs/  .github/  .claude/  scripts/dev.ps1
 ├── Dockerfile  docker-compose*.yml  requirements.in  requirements.txt  pytest.ini  ruff.toml
 ```
@@ -56,9 +56,9 @@ Each has an owner day that removes it. Add new ones here, never silently.
 |---|---|---|
 | ~~`retrieval/retrieval_service.py` → `services/caches/{query_cache,web_cache}` (upward)~~ | `RetrievalService` called the Redis cache helpers directly | **Removed Day 9:** `QueryCache` / `WebCache` are injected from `services/container.py`; `RetrievalService` types them with `Protocol`s of its own |
 | `ingestion/indexing_pipeline.py` → `retrieval/{index_builder,keyword_index}` (sideways) | the pipeline writes chunks into the indexes itself | **Day 15** (deferred on Day 9): indexing orchestration moves into a `services/` use case when the indexes are rewritten for pgvector |
-| `retrieval/{vector_store,index_builder}.py` → `ingestion/models.py` (`DocumentChunk`, sideways) | the chunk dataclass is shared by both layers | Day 13: the pgvector chunk model replaces `DocumentChunk` |
+| `retrieval/{vector_store,index_builder}.py` → `ingestion/models.py` (`DocumentChunk`, sideways) | the chunk dataclass is shared by both layers | Day 15: the pgvector chunk model replaces `DocumentChunk` (said Day 13 until Day 13 corrected it: the chunks table is Day 15) |
 | ~~`core/security.py` → `db/database.py` (upward from `core`)~~ | `get_db` and `get_current_user*` lived in `security` | **Removed Day 9:** they are in `api/deps.py`; `authenticate_user` is in `services/account_service.py` |
-| `api/routes/{sessions,documents,users,feedback}.py` hold CRUD SQL (rule 3) | Day 9 moved handlers body-for-body; only chat and quiz got service layers | **Day 13:** `db/repositories/`, written for Postgres |
+| ~~`api/routes/{sessions,documents,users,feedback}.py` hold CRUD SQL (rule 3)~~ | Day 9 moved handlers body-for-body; only chat and quiz got service layers | **Removed Day 13:** the queries are in `db/repositories/` (`auth.py` and `deps.py` too); routers keep HTTP checks, response shapes and `db.commit()` |
 
 ## Module map
 
@@ -79,9 +79,9 @@ where each module ends up, and "Day" is when it gets there. A module whose targe
 ### db
 | Current | Target | Day |
 |---|---|---|
-| `db.py` | `db/database.py` (pure move). The split into `db/session.py` (engine, `SessionLocal`, startup migrations) and `db/models/` (user, session, message, document, failed_query) was planned for Day 9 and deferred: Postgres rewrites the engine on Day 13, so it is split once, then | 8 / 13 |
+| `db.py` | `db/database.py` (pure move, Day 8), **deleted Day 13**: split into `db/base.py` (`Base` + naming convention), `db/session.py` (`build_engine`, `engine`, `SessionLocal`), `db/migrations.py` (Alembic head check, schema guard) and `db/models/{user,chat_session,message,document,failed_query}.py`. Its startup `ALTER`s went with it; Alembic replaces them | 8 / 13 ✓ |
 | `concept_models.py` | `db/models/concept_map.py` | 8 |
-| — | `db/repositories/` | created when first needed (Postgres, Day 13+); no empty package before |
+| — | `db/repositories/{users,sessions,documents,messages,failed_queries}.py` | 13 ✓ |
 
 ### ingestion
 | Current | Target | Day |
@@ -157,7 +157,7 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 | `routes/auth_routes.py` | `api/routes/auth.py` (Google OAuth + `/auth/logout`, joined by `/register`, `/login`, `/change-password`, `/me`); moved as its own commit (R100) | 9 |
 | routes in `main.py` | `api/routes/{users,documents,chat,sessions,feedback,quiz,concepts,health}.py` — `feedback` (feedback + failed-queries) was not in the Day 7 list | 9 |
 | — | `api/deps.py`: `get_db`, `get_current_user`, `get_user_from_query_token`, `get_services` | 9 |
-| `main.py` | `app/main.py`: `create_app()` + lifespan (`init_db()`, `build_services()` on `app.state.services`, Redis closed on shutdown) | 9 |
+| `main.py` | `app/main.py`: `create_app()` + lifespan (`init_db()` until Day 13, then `assert_schema_at_head()`; `build_services()` on `app.state.services`, Redis closed on shutdown) | 9 / 13 |
 
 ### eval, scripts, dead code
 | Current | Target | Day |

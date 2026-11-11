@@ -53,21 +53,23 @@ services:
       - rag-network
 
   # ==================== Postgres Service (T2, Day 13) ====================
-  # Local stand-in for Supabase: same major version (17), pgvector, and the same rag schema /
-  # rag_app role / search_path (scripts/postgres/init-rag-schema.sh). The backend doesn't use it
-  # until Day 14 copies the SQLite data; today it is the target for `alembic upgrade head`.
+  # Local stand-in for Supabase: same major version (17), the same pgvector version (0.8.2, so dev
+  # can't use a feature production lacks), and the same rag schema / rag_app role / search_path
+  # (scripts/postgres/init-rag-schema.sh). The backend doesn't use it until Day 14 copies the
+  # SQLite data; today it is the target for `alembic upgrade head`.
   postgres:
-    image: pgvector/pgvector:pg17
+    image: pgvector/pgvector:0.8.2-pg17
     container_name: rag-postgres
     ports:
       # Host port 5433, not 5432, so this can run alongside another project's Postgres
       - "5433:5432"
     environment:
-      # Dev-only defaults; set the real values in .env. Compose reads .env for ${...} here.
+      # No defaults: passwords live only in .env (compose reads it for ${...}), never in the repo.
+      # A missing value stops `docker compose` with the message after `?`.
       - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres-dev-only}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
       - POSTGRES_DB=rag
-      - RAG_APP_PASSWORD=${RAG_APP_PASSWORD:-rag-app-dev-only}
+      - RAG_APP_PASSWORD=${RAG_APP_PASSWORD:?set RAG_APP_PASSWORD in .env (see .env.example)}
     volumes:
       - pgdata:/var/lib/postgresql/data
       # Runs once, on an empty volume only. Changing the script later needs `docker compose down`

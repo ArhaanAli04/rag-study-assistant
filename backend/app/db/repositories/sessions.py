@@ -3,7 +3,7 @@ import datetime
 from sqlalchemy import desc, func
 from sqlalchemy.orm import Session
 
-from app.db.models import Message, Session as ChatSession
+from app.db.models import FailedQuery, Message, Session as ChatSession
 
 
 def list_with_last_message(db: Session, user_id: int) -> list[tuple[ChatSession, datetime.datetime | None]]:
@@ -32,6 +32,14 @@ def get_owned(db: Session, session_id: int, user_id: int) -> ChatSession | None:
 
 
 def delete_with_messages(db: Session, session: ChatSession) -> None:
+    """Delete a session and its messages; failed queries logged in it are kept, detached.
+
+    Postgres enforces failed_queries.session_id's foreign key (SQLite never did), so they are
+    detached before the session goes. The schema-level ON DELETE SET NULL comes on Day 15.
+    """
     # Bulk-delete the messages first: the ORM cascade would load every message just to delete it.
     db.query(Message).filter(Message.session_id == session.id).delete(synchronize_session=False)
+    db.query(FailedQuery).filter(FailedQuery.session_id == session.id).update(
+        {FailedQuery.session_id: None}, synchronize_session=False
+    )
     db.delete(session)

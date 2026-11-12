@@ -2,9 +2,10 @@
 
 Runs on two databases:
 - default: a temporary SQLite file migrated through Alembic, like the rest of the suite.
-- TEST_POSTGRES_URL set (CI's Postgres service, already at `alembic upgrade head`): the same tests
-  on Postgres, which compares types strictly. A filter like `Document.user_id == str(user.id)`
-  passes on SQLite and fails there, so CI catches it instead of production.
+- TEST_DATABASE_URL set (the suite's Postgres _test database since Day 14, which conftest has
+  already migrated to head): the same tests on Postgres, which compares types strictly. A filter
+  like `Document.user_id == str(user.id)` passes on SQLite and fails there, so CI catches it
+  instead of production.
 
 Each test runs inside one transaction that is rolled back afterwards. Repositories only flush,
 never commit, so nothing persists between tests on either backend.
@@ -30,7 +31,7 @@ from app.db.repositories import (
 )
 from app.db.session import build_engine
 
-POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL")
+POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
 T0 = datetime.datetime(2026, 11, 11, 12, 0, 0)
 
 
@@ -141,6 +142,22 @@ def test_deleting_a_session_deletes_its_messages(db: Session, two_users: Tuple[U
 
     assert db.query(Message).filter(Message.session_id == session.id).count() == 0
     assert sessions_repo.get_owned(db, session.id, alice.id) is None
+
+
+def test_deleting_a_session_keeps_its_failed_queries_detached(db: Session, two_users: Tuple[User, User]) -> None:
+    # Postgres enforces failed_queries.session_id's foreign key; SQLite let the session go and left
+    # the row pointing at nothing, so this delete returned 500 only on Postgres (found Day 14).
+    alice, _ = two_users
+    session = _session(db, alice, "low confidence")
+    failed = failed_queries_repo.add(db, user_id=alice.id, session_id=session.id, query="q", reason="low_confidence", confidence=10)
+    db.flush()
+
+    sessions_repo.delete_with_messages(db, session)
+    db.flush()
+    db.expire(failed)
+
+    assert failed.session_id is None
+    assert [f.query for f in failed_queries_repo.list_recent(db, alice.id, limit=10)] == ["q"]
 
 
 # --- documents ------------------------------------------------------------------------------------

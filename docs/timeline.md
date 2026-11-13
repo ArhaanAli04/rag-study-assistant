@@ -29,7 +29,7 @@
 | 16 | 56–59 | Design system, new navigation, chat UX, rich answers, restyle of every page incl. Projects, Progress, Practice, Memory and the viewer, mobile + a11y |
 | 17 | 60–61 | UI integration audit, load testing, security review, docs, v1.0 |
 
-Releases: Day 3 v0.1.0 · Day 10 v0.2.0 · Day 17 v0.3.0 · Day 20 v0.4.0 · Day 32 v0.5.0 · Day 37 v0.6.0 · Day 43 v0.7.0 · Day 52 v0.8.0 · Day 59 v0.9.0 · Day 61 v1.0.0
+Releases: Day 3 v0.1.0 · Day 10 v0.2.0 · Day 14 v0.2.2 (production onto Postgres) · Day 17 v0.3.0 · Day 20 v0.4.0 · Day 32 v0.5.0 · Day 37 v0.6.0 · Day 43 v0.7.0 · Day 52 v0.8.0 · Day 59 v0.9.0 · Day 61 v1.0.0
 
 ## How every day runs
 
@@ -257,14 +257,15 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - db/repositories/: move the CRUD SQL still inside the sessions, documents, users and feedback routers (a known layering exception since Day 9) into repositories the routers call
 - Verify: alembic upgrade head on an empty database creates every table and autogenerate reports no diff
 
-### Day 14 — Migrate the data off SQLite
+### Day 14 — Migrate the data off SQLite → production on Postgres (release v0.2.2)
 
 - Branch: feature/day14-sqlite-to-postgres
-- scripts/migrate_sqlite_to_postgres.py: users, sessions, messages, documents, failed_queries, concept maps — IDs preserved, sequences reset, --dry-run with a row-count report
-- First check whether Render has a persistent disk: production's real data lives there, not in either local database (Day 13 brief, "Day 14 notes" — the SQLite→Postgres type differences and copy order are listed there)
-- Run against a copy of backend/data/app.db first, then production; keep the SQLite file as a backup
-- Tests and CI run against a Postgres service container (GitHub Actions services:) — the service exists since Day 13 (alembic upgrade + check, repository tests); Day 14 moves the whole suite onto it
-- Verify: row counts match table by table; an existing account logs in and sees its sessions
+- Replanned 2026-11-13: Render has no persistent disk (free plan), so production's SQLite was wiped on every deploy, restart and idle spin-down — there was nothing to migrate. Production and local dev start empty on Postgres; the copy script (scripts/migrate_sqlite_to_postgres.py) was dropped. Its notes (ids with gaps → setval to max(id), type differences, copy order) are kept in the Day 14 brief's "Reference" section in case a copy is ever needed
+- The whole pytest suite runs on Postgres in CI (database rag_test; conftest accepts only a *_test database and wipes it each run); a plain local run stays on SQLite. It found a 500 on deleting a session with failed queries (Postgres enforces the foreign key) — fixed; schema-level ON DELETE rules on Day 15
+- Local dev (Docker backend and venv) on the compose Postgres; compose passes the password as PGPASSWORD, never inside the URL
+- An identical re-upload re-links the row when its file is gone (rows now outlive Render's files)
+- Release v0.2.2 (develop → master, Days 13–14): set DATABASE_URL (rag_app, session pooler, postgresql+psycopg://) and DATABASE_SCHEMA=rag on Render before the deploy, flush Render's Redis, the image's CMD runs alembic upgrade head on rag. Runbook, live check, latency Render (Singapore) → Supabase (Mumbai) before/after, and rollback in the Day 14 brief
+- Verify: the suite passes on Postgres in CI; an account survives a backend restart with its sessions, locally and on Render
 
 ### Day 15 — Chunks table — vector + keyword search in Postgres (I4, I5, I6, I1, I2)
 
@@ -304,7 +305,7 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Test: a document indexed through the pipeline is returned by the concept-map retriever
 - UI: CreateMapForm's existing "use documents" toggle now works; ConceptNodeDetails shows the source document and page for document-derived nodes
 - Update CLAUDE.md Data & State: indexes now persist in Postgres, files in Supabase Storage
-- Release: develop → master; run alembic upgrade, the data migration and reindex on production; tag v0.3.0
+- Release: develop → master; alembic upgrade runs on production through the image's CMD (Day 15's document_chunks revision); run the reindex (Day 16) on production; tag v0.3.0. No data migration: production has been on Postgres since v0.2.2 (Day 14)
 - Verify: generate a concept map with "use documents" on — nodes cite the uploaded material
 
 ---

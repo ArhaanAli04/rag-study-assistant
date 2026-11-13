@@ -21,9 +21,11 @@ services:
       - TESSERACT_PATH=/usr/bin/tesseract
       - FRONTEND_URL=http://localhost:3000
       # Day 14: the compose Postgres, on the network name `postgres`. Overrides the host-side
-      # localhost:5433 URL that .env holds for the venv. The password is interpolated from .env,
-      # so none lives in this file.
-      - DATABASE_URL=postgresql+psycopg://rag_app:${RAG_APP_PASSWORD:?}@postgres:5432/rag
+      # localhost:5433 URL that .env holds for the venv. The URL carries no password: libpq (under
+      # psycopg) reads PGPASSWORD when the URL has none, so no credential-shaped string sits in
+      # this file and .env keeps a single copy of the password.
+      - DATABASE_URL=postgresql+psycopg://rag_app@postgres:5432/rag
+      - PGPASSWORD=${RAG_APP_PASSWORD:?}
       - DATABASE_SCHEMA=rag
     volumes:
       # Runtime state in Docker-managed volumes, so it survives container recreation and never

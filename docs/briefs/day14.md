@@ -231,7 +231,7 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
    - `DATABASE_URL = postgresql+psycopg://rag_app.<project-ref>:<password>@aws-0-ap-south-1.pooler.supabase.com:5432/postgres` (session pooler, `+psycopg`)
    - `DATABASE_SCHEMA = rag`
    - Render redeploys v0.2.1, which ignores them. Harmless.
-2. **(you) Clear Render's Redis (Key Value).** Only caches live there (query, web and semantic). This removes `semantic_cache:{id}` entries keyed by SQLite-era ids that Postgres will hand out again. Do it **after step 1's redeploy has finished and before step 3**, so v0.2.1 has as little time as possible to write new entries.
+2. **(you) Clear Render's Redis (Key Value).** Only caches live there (query, web and semantic). This removes `semantic_cache:{id}` entries keyed by SQLite-era ids that Postgres will hand out again. **This step is the fix for G9** (security): mark G9 Done in the tracker once the `DBSIZE` after the flush reads 0. Do it **after step 1's redeploy has finished and before step 3**, so v0.2.1 has as little time as possible to write new entries.
    1. Render dashboard → the Key Value instance → **Info / Connect**.
       - An **External** URL (`rediss://` + user and password + `@singapore-keyvalue.render.com:6379`) needs your IP on its allowlist: **Networking / Access Control → Add source → your IP**, `/32`.
       - The **Internal** URL (`redis://red-…:6379`) is reachable only from Render services, so it won't work from your machine.
@@ -274,8 +274,15 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
 
       Both are fixed by Day 15 (Supabase Storage + pgvector chunks) and Day 16 (reindex).
    4. Re-upload the same file. Since Decision 2 this succeeds (before, it failed every time), and the next answer cites it again.
-8. **(me)** After-latency on v0.2.2: the same script and the same measurements, with the test account deleted at the end. Both columns go into the Outcome with the Render region (Singapore), compared against the expected ~50–70 ms per database round trip.
-9. **(you)** Tag: `git checkout master; git pull origin master; git tag v0.2.2; git push origin v0.2.2`. Then the `master` → `develop` sync is not needed (a release merges `develop` into `master`).
+8. **(me)** After-latency on v0.2.2: the same script and the same measurements, with the test account deleted at the end.
+   - **Expectation, stated before measuring:** Render (Singapore) → Supabase (Mumbai) costs **~50–70 ms per database round trip**.
+     - `/me` makes ~2 round trips (`pool_pre_ping` + the user query): expect `/me − /health` to grow by ~100–150 ms.
+     - A chat turn makes several: session lookup or create, history load, the user-message insert + commit, the topic check, the assistant-message insert + commit, the failed-query insert when confidence is low, each plus pre-pings. Expect the chat median (time to the `metadata` frame, and to `[DONE]`) to grow by ~0.4–0.8 s.
+   - **Stop rule:** if the **chat median grows by more than ~1 s** against the v0.2.1 baseline, **stop before tagging (step 9)**. First count the round trips per chat turn (a temporary statement counter, or Supabase's `pg_stat_statements` for `rag_app`). Then decide, with you, between fewer round trips (one commit per turn, no pre-ping) and leaving it as is.
+     - The release stays deployed while we look: latency alone is not a rollback trigger (decision rule below).
+     - `/me` above ~+200 ms is a warning sign, reported with the numbers, but not a stop on its own.
+   - Both columns go into the Outcome with the Render region.
+9. **(you)** Tag, only after step 8 passed its stop rule: `git checkout master; git pull origin master; git tag v0.2.2; git push origin v0.2.2`. Then the `master` → `develop` sync is not needed (a release merges `develop` into `master`).
 10. **(you) Keep-alive (now on `master`).** The secret `SUPABASE_RAG_DB_URL` is **already set and verified** (owner: `rag_app` → `current_schema = rag`). Run the workflow once by hand from `master` and confirm it passes:
     ```powershell
     gh workflow run supabase-keepalive.yml --ref master
@@ -334,6 +341,18 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
 9. **Found in Checkpoint 1 (2026-11-13): deleting a session that has a failed query returned 500 on Postgres.** The error was `ForeignKeyViolation` on `fk_failed_queries_session_id_sessions`, from `DELETE /sessions/{id}`; SQLite never enforced it.
    - **Fixed (owner: A):** `sessions_repo.delete_with_messages` sets the session's failed queries' `session_id` to `NULL` before deleting the session, with a new repository test.
    - **Tracked for Day 15 (owner: B):** the same revision that creates `document_chunks` recreates the foreign key with `ON DELETE SET NULL`. It also recreates the `user_id` foreign keys of sessions, documents, messages, failed_queries and concept_maps with `ON DELETE CASCADE`, following the delete-path audit (owner, 2026-11-13). Both are noted in `docs/timeline.md` Day 15.
+10. **GitGuardian incident 40042417 (Checkpoint 2, commit `64c89a8`) — a false positive.**
+    - It flagged the compose `DATABASE_URL` in `docker-compose.yml` as a "Generic Password". That URL put the variable reference `${RAG_APP_PASSWORD:?}` in the password slot (user, colon, variable, at-sign, host), so it was shaped like an inline credential. No real password was ever committed.
+    - **Fixed (owner: option C):** compose sets `DATABASE_URL=postgresql+psycopg://rag_app@postgres:5432/rag` plus `PGPASSWORD=${RAG_APP_PASSWORD:?}`. libpq reads `PGPASSWORD` when the URL has none, so no credential-shaped string is in any tracked file and `.env` keeps one copy of the password.
+    - Verified: the `Settings` validator accepts a URL without a password; the container is healthy at head; `alembic current` in the container shows `7cb8829683ab (head)`; a login reaches the database.
+    - The owner marks the incident as a false positive; `64c89a8` stays in history.
+11. **The `rag_staging_app` password was exposed in this session's transcript (2026-11-13, Claude's mistake).**
+    - A `docker compose config | Select-String 'DATABASE_URL|PGPASSWORD'` also matched `RAG_STAGING_DATABASE_URL` and printed it whole. Not committed, not written to any file.
+    - **Action (owner):** rotate it with `scram_verifier.py rag_staging_app`, then `ALTER ROLE rag_staging_app PASSWORD '<verifier>'` in the SQL editor, then update `.env`.
+    - **Lesson:** never print resolved compose config or env, even filtered; grep for the variable *names* only.
+12. **`env_file: .env` passes every `.env` variable into the backend container** (`docker-compose.yml`). That includes `RAG_STAGING_DATABASE_URL`, `POSTGRES_PASSWORD` and any other key the app never reads.
+    - Not new today and local only; Render sets its own variables.
+    - Worth a later cleanup: an explicit `environment:` allowlist, or a separate env file for the container. Not changed today.
 8. **Day 17 changes:** its release (v0.3.0) no longer does a data migration or a first `upgrade` on `rag`. Its CLAUDE.md bullet ("indexes now persist in Postgres") stays.
 
 ## Reference — if a SQLite → Postgres copy is ever needed

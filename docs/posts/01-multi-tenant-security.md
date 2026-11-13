@@ -114,3 +114,13 @@ Images, in this order: `post01-code-card-falsy-zero.png`, then `post01-two-accou
   - [ ] Table card: the three live deletions (status, ms, `index_entries_removed`)
 - Lesson / quote: "Deleting a user is a distributed transaction in disguise. And the id you just freed comes straight back: our very next sign-up got id 3, the id of an account deleted a minute earlier. Every cache and index keyed by user id has to forget it, or the new person inherits the old one's notes."
 - Concept source: docs/briefs/day03.md#the-concept
+
+### Day 14 — 2026-11-13 — The leak G6 didn't close: user ids that restart (G9)
+- Takeaway: Day 1 gave every user their own cache key. But production's database was wiped and its ids restarted at 1 on every deploy and idle spin-down, while the cache server kept its keys. So the next person to sign up could become "user 1" again and be served the previous user 1's cached answers, including text from their private documents. Moving to Postgres (ids are never reused) plus one cache flush at the switch closes it.
+- Numbers: none measured. The conditions are read from the code: no TTL on `semantic_cache:{id}`, similarity ≥ 0.92, matching `doc_version` and `mode`. Whether it was ever hit is unknown, because cache hits are logged by user id only.
+- Capture now: nothing today. The flush happens in release v0.2.2's runbook; a `DBSIZE` before/after would be the only live artifact.
+- Make when writing the post:
+  - [ ] Diagram: SQLite on Render (wiped, ids restart) next to Redis (kept), and the arrow from new "user 1" to old `semantic_cache:1`
+  - [ ] Code card: the lookup's backstops (`user_id ==`, `doc_version ==`, `mode ==`), all passing for a reused id
+- Lesson / quote: "Scoping a cache by user id is only as good as the guarantee that a user id means one person forever. Ours meant 'whoever signed up first since the last restart'."
+- Concept source: docs/improvements.md#g9 · docs/briefs/day14.md

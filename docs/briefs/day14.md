@@ -346,6 +346,9 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
     - **Fixed (owner: option C):** compose sets `DATABASE_URL=postgresql+psycopg://rag_app@postgres:5432/rag` plus `PGPASSWORD=${RAG_APP_PASSWORD:?}`. libpq reads `PGPASSWORD` when the URL has none, so no credential-shaped string is in any tracked file and `.env` keeps one copy of the password.
     - Verified: the `Settings` validator accepts a URL without a password; the container is healthy at head; `alembic current` in the container shows `7cb8829683ab (head)`; a login reaches the database.
     - The owner marks the incident as a false positive; `64c89a8` stays in history.
+    - **Option C was flagged too:** incident **40043275** on commit `4c441ee`, "Generic Password" in `docker-compose.yml`, most likely `PGPASSWORD=${RAG_APP_PASSWORD:?}`. Both incidents were resolved as false positives (owner, option A, 2026-11-13).
+    - **Rule from here on:** GitGuardian's generic-password detector flags any `*PASSWORD=` key with a value in compose, even a `${…}` reference. Any change to those lines (`PGPASSWORD`, `POSTGRES_PASSWORD`, `RAG_APP_PASSWORD`) needs the same quick triage: check that the value is a variable reference, then resolve the incident as a false positive in the dashboard.
+    - Not a code workaround: a second copy of the password in `.env`, or a `.gitguardian.yaml` that ignores `docker-compose.yml`, would hide a real secret pasted there later.
 11. **The `rag_staging_app` password was exposed in this session's transcript (2026-11-13, Claude's mistake).**
     - A `docker compose config | Select-String 'DATABASE_URL|PGPASSWORD'` also matched `RAG_STAGING_DATABASE_URL` and printed it whole. Not committed, not written to any file.
     - **Action (owner):** rotate it with `scram_verifier.py rag_staging_app`, then `ALTER ROLE rag_staging_app PASSWORD '<verifier>'` in the SQL editor, then update `.env`.

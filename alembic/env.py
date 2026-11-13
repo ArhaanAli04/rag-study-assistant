@@ -5,7 +5,8 @@ Run from the repo root (`alembic upgrade head`); alembic.ini puts backend/ on sy
 - Models: app.db.models imports every table, so autogenerate never mistakes one for deleted.
 - Postgres: alembic_version lives inside DATABASE_SCHEMA, and a connection whose search_path
   resolves elsewhere is refused before anything runs (app.db.migrations.assert_expected_schema).
-- SQLite (until Day 14): batch mode, since SQLite can't ALTER or DROP most things in place.
+- SQLite (a plain local test run and test_migrations; no environment runs on it since Day 14):
+  batch mode, since SQLite can't ALTER or DROP most things in place.
 - Tests pass their own connection in config.attributes["connection"].
 """
 from logging.config import fileConfig

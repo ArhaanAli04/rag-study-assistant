@@ -6,6 +6,9 @@
 # Runs as the database superuser:
 #   - docker compose: once, from /docker-entrypoint-initdb.d, when the pgdata volume is empty
 #   - CI: `sh scripts/postgres/init-rag-schema.sh` with PGHOST / PGPASSWORD pointing at the service
+#   - by hand, for another database in the same cluster (Day 14: a `rag_test` database for the
+#     suite on Postgres): `createdb rag_test`, then this script with POSTGRES_DB=rag_test
+# Re-runnable: the role is cluster-wide and may already exist, the schema is per database.
 # Needs POSTGRES_USER, POSTGRES_DB and RAG_APP_PASSWORD in the environment.
 set -eu
 
@@ -20,8 +23,17 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
 CREATE SCHEMA IF NOT EXISTS extensions;
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
 
-CREATE ROLE rag_app LOGIN PASSWORD :'rag_app_password' CONNECTION LIMIT 10;
-CREATE SCHEMA rag AUTHORIZATION rag_app;
+-- psql doesn't substitute variables inside a dollar-quoted DO body, so the role is created
+-- without a password there and the password is set by the ALTER ROLE below, on every run.
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'rag_app') THEN
+        CREATE ROLE rag_app;
+    END IF;
+END
+$$;
+ALTER ROLE rag_app LOGIN PASSWORD :'rag_app_password' CONNECTION LIMIT 10;
+CREATE SCHEMA IF NOT EXISTS rag AUTHORIZATION rag_app;
 REVOKE ALL ON SCHEMA rag FROM PUBLIC;
 GRANT USAGE ON SCHEMA extensions TO rag_app;
 ALTER ROLE rag_app SET search_path = rag, extensions;

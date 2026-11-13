@@ -1,7 +1,9 @@
 """T2 (Day 13): Alembic is the only path to the schema, and its baseline matches the models.
 
-These run on SQLite, which the app still uses until Day 14; CI also runs `alembic upgrade head`
-plus `alembic check` against a Postgres service, so the baseline is proven on both dialects.
+These run on their own temporary SQLite files on purpose (downgrade round trips, a database at no
+revision), whatever database the rest of the suite uses. CI also runs `alembic upgrade head` plus
+`alembic check` against its Postgres service, and conftest's downgrade base + upgrade head runs on it
+before every Postgres test run, so the baseline is proven on both dialects.
 """
 from pathlib import Path
 from typing import Iterator

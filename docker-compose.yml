@@ -20,6 +20,13 @@ services:
       - SEMANTIC_CACHE_REDIS_URL=redis://redis:6379/1
       - TESSERACT_PATH=/usr/bin/tesseract
       - FRONTEND_URL=http://localhost:3000
+      # Day 14: the compose Postgres, on the network name `postgres`. Overrides the host-side
+      # localhost:5433 URL that .env holds for the venv. The URL carries no password: libpq (under
+      # psycopg) reads PGPASSWORD when the URL has none, so no credential-shaped string sits in
+      # this file and .env keeps a single copy of the password.
+      - DATABASE_URL=postgresql+psycopg://rag_app@postgres:5432/rag
+      - PGPASSWORD=${RAG_APP_PASSWORD:?}
+      - DATABASE_SCHEMA=rag
     volumes:
       # Runtime state in Docker-managed volumes, so it survives container recreation and never
       # lands in the working tree. The image pre-creates these directories owned by `app`.
@@ -29,6 +36,9 @@ services:
       - logs:/app/backend/logs
     depends_on:
       redis:
+        condition: service_healthy
+      # `alembic upgrade head` runs first thing in the container, so Postgres must accept connections.
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -55,8 +65,8 @@ services:
   # ==================== Postgres Service (T2, Day 13) ====================
   # Local stand-in for Supabase: same major version (17), the same pgvector version (0.8.2, so dev
   # can't use a feature production lacks), and the same rag schema / rag_app role / search_path
-  # (scripts/postgres/init-rag-schema.sh). The backend doesn't use it until Day 14 copies the
-  # SQLite data; today it is the target for `alembic upgrade head`.
+  # (scripts/postgres/init-rag-schema.sh). The app's database since Day 14, for the Docker backend
+  # and the venv (host port 5433); the old SQLite file stays in the `data` volume, unused.
   postgres:
     image: pgvector/pgvector:0.8.2-pg17
     container_name: rag-postgres

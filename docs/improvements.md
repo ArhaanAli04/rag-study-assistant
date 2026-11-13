@@ -12,7 +12,8 @@ the semantic cache.
 Items R5, G7, G8, I4, I5, I6, and the new sections 10–11 (B1, B2, T1, T2, T3) were added on
 2026-09-12 from the codebase review done while writing `CLAUDE.md`.
 
-B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07).
+B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07). G9 and B11 were found on
+Day 14 (2026-11-13), while moving the app to Postgres.
 
 Priority legend:
 - **P0** — cheap to fix, and either a correctness/security bug or something that blocks
@@ -312,6 +313,43 @@ log shipping, a shared machine) can impersonate users.
 OAuth redirect log line. Longer term, stop putting the JWT in the SSE query string — e.g. a
 short-lived, single-use stream ticket obtained via an authenticated POST, or a fetch-based
 SSE client that can send an `Authorization` header.
+
+### G9 — A new user can inherit a previous user's semantic cache when user ids restart (P0)
+Found Day 14 (2026-11-13), while planning the Postgres cutover. G6 scoped the semantic cache by
+user id: `semantic_cache:{user_id}` (`services/caches/semantic_cache.py:16-19`). Each entry carries
+`user_id`, `doc_version` and `mode`, and `lookup` serves the best entry whose cosine similarity to
+the query is ≥ 0.92 (`:69-101`). The key has **no TTL**. An entry is removed only by
+`clear_user` (account deletion, B1) or by eviction from the user's 64-entry list.
+
+On Render, production ran on SQLite with **no persistent disk**. Every deploy, restart and
+15-minute idle spin-down started an empty database, and SQLite hands out ids from 1 again. Render's
+Redis (Key Value) is a separate service and **kept its keys** across those resets. So after a reset:
+1. The first person to register got id 1, the id of a user from before the reset, whose account
+   was never deleted, so `clear_user` never ran.
+2. `semantic_cache:1` still held that earlier user's entries. Every backstop passes:
+   - the `user_id` check passes (same number)
+   - `doc_version` matches whenever both are at the same count (0 for anyone who never uploaded, 1
+     after a first upload)
+   - `mode` defaults to `quick`
+3. A question similar enough (≥ 0.92) to one the earlier user asked was answered from the cache:
+   that user's answer, **and its `sources`, which include chunk text from their private documents**.
+
+The query cache (`query_cache:{sha256(user_id::doc_version::query)}`, TTL 1 h) had the same flaw for
+exact repeats within the hour.
+
+**Why it matters:** this is a cross-tenant leak of answers and document text, the same impact as
+G6, reopened by id reuse instead of by a missing key. It was live for every past reset of the
+deployment. It is not known whether it was ever hit: the cache logs hits by user id only.
+
+**Fix (Day 14, with release v0.2.2):**
+- Render's Redis DB 0 and DB 1 are flushed right before the deploy that moves production to Postgres
+  (runbook step 2 in `docs/briefs/day14.md`). This removes every entry keyed by a SQLite-era id.
+- From then on Postgres sequences never reuse an id, so a new account can't receive a key that
+  already has entries.
+- Account deletion still runs `clear_user`.
+- **Residual:** any future switch to a new or emptied database restarts the ids, and needs the same
+  flush first (CLAUDE.md, Redis key schema).
+- A version or epoch prefix in the cache keys, or CO5's per-entry TTLs, would make that automatic.
 
 ---
 
@@ -748,6 +786,26 @@ vector equally far (L2 = 1.0) from every query. Combined with B8 it becomes the 
 (h-09 → slide 52) and is sent to the model as context.
 **Direction:** skip chunks whose text is empty after stripping, at indexing time (one check covers
 every parser), and find why the PPTX chunker emits them. Fix on Day 16 with the re-index.
+
+### B11 — Reloaded chats don't show feedback already given (P2)
+Found Day 14 (2026-11-13), during the local persistence check. `POST /messages/{id}/feedback` stores
+`messages.feedback` / `feedback_comment`, and the row survives restarts since the move to Postgres.
+But `GET /sessions/{session_id}/messages` returns only `id`, `role`, `content`, `sources` and
+`created_at` for each message: no `feedback`. The chat UI (`ChatWindow.js`) therefore rebuilds a
+reloaded session with every thumb unset.
+**Why it matters:**
+- A user who gave a thumbs-down sees no trace of it after a reload, and can submit it again. That
+  logs a second `negative_feedback` row in `failed_queries` for the same answer, skewing whatever is
+  mined from them (`eval/retrieval/mine_feedback.py`).
+- It is invisible on SQLite-era Render, where every reset wiped the rows anyway; Postgres makes the
+  gap visible.
+
+**Direction:** do it on one day, per the owner's rule (backend field + UI, same day):
+- **Backend:** add `feedback` to the session-messages response, a new field, so it's backward
+  compatible.
+- **UI:** `ChatWindow.js` renders the stored thumb as selected when it loads a session.
+- **Optional:** make a repeat of the same feedback a no-op instead of a second failed-query row.
+- **Tests:** an API smoke assertion for the field, and a frontend test for the selected thumb.
 
 ---
 

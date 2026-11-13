@@ -87,17 +87,44 @@ def _guarded_getaddrinfo(original: Any) -> Any:
     return getaddrinfo
 
 
+def _suite_database_env(workdir: Path) -> Dict[str, Optional[str]]:
+    """The database the whole suite runs against; None means "unset this variable".
+
+    Default: a SQLite file in the suite's temp dir. Since Day 13 the app's default database is an
+    absolute path (backend/data/app.db, the developer's real one), so the chdir below doesn't
+    isolate it. With TEST_DATABASE_URL (CI since Day 14), a Postgres database instead, which this
+    suite wipes and re-migrates; only a database named *_test is accepted, so a stray variable
+    can never point the reset at dev, staging or production.
+    """
+    url = os.environ.get("TEST_DATABASE_URL")
+    if not url:
+        return {"DATABASE_URL": f"sqlite:///{(workdir / 'data' / 'app.db').as_posix()}", "DATABASE_SCHEMA": None}
+
+    from sqlalchemy.engine import make_url
+
+    parsed = make_url(url)
+    if parsed.get_backend_name() != "postgresql" or not (parsed.database or "").endswith("_test"):
+        raise pytest.UsageError(
+            "TEST_DATABASE_URL must be a postgresql+psycopg:// URL whose database name ends in _test "
+            "(the suite wipes it)."
+        )
+    schema = os.environ.get("TEST_DATABASE_SCHEMA")
+    if not schema:
+        raise pytest.UsageError("TEST_DATABASE_SCHEMA is required with TEST_DATABASE_URL (e.g. rag).")
+    return {"DATABASE_URL": url, "DATABASE_SCHEMA": schema}
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # data/, uploads/ and logs/ are resolved against the CWD at import time; keep them out of the repo.
     workdir = Path(tempfile.mkdtemp(prefix="rag-tests-"))
-    # Since Day 13 the default database is an absolute path (backend/data/app.db, the developer's
-    # real one), so the chdir below no longer isolates it: the suite gets its own SQLite file. Set
-    # here, before settings is imported, and it also wins over a DATABASE_URL in the real .env.
-    test_env = {**TEST_ENV, "DATABASE_URL": f"sqlite:///{(workdir / 'data' / 'app.db').as_posix()}"}
+    # Set before settings is imported, so these also win over the real .env.
+    test_env: Dict[str, Optional[str]] = {**TEST_ENV, **_suite_database_env(workdir)}
     for key, value in test_env.items():
         _state.setdefault("env", {})[key] = os.environ.get(key)
-        os.environ[key] = value
-    os.environ.pop("DATABASE_SCHEMA", None)
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
 
     import redis
     import tavily
@@ -127,11 +154,15 @@ def pytest_configure(config: pytest.Config) -> None:
     os.chdir(workdir)
 
     # The lifespan refuses a database that isn't at Alembic head (T2, Day 13), so the suite's own
-    # SQLite file is migrated first, through the same scripts production runs.
+    # database is migrated first, through the same scripts production runs. A Postgres _test
+    # database outlives the run, so it is emptied first: every run starts from the same state, and
+    # the downgrade path runs on Postgres too.
     from alembic import command
 
     from app.db.migrations import alembic_config
 
+    if os.environ.get("TEST_DATABASE_URL"):
+        command.downgrade(alembic_config(), "base")
     command.upgrade(alembic_config(), "head")
 
 

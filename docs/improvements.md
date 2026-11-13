@@ -12,8 +12,8 @@ the semantic cache.
 Items R5, G7, G8, I4, I5, I6, and the new sections 10–11 (B1, B2, T1, T2, T3) were added on
 2026-09-12 from the codebase review done while writing `CLAUDE.md`.
 
-B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07). G9 and B11 were found on
-Day 14 (2026-11-13), while moving the app to Postgres.
+B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07). G9, B11 and B12 were found on
+Day 14 (2026-11-13), while moving the app to Postgres; the same day added a finding under CO5.
 
 Priority legend:
 - **P0** — cheap to fix, and either a correctness/security bug or something that blocks
@@ -567,6 +567,72 @@ cheap LLM equivalence check; track thumbs-down on cached answers as a production
 false-hit signal. Consider caching retrieval results instead of final answers, so the
 answer is still generated with the current conversation. Builds on CO1 (index-based
 lookup).
+**Day 14 finding (2026-11-13, live on v0.2.2):** a cached answer can cite a document that is no
+longer indexed.
+- After a Render restart, Postgres keeps the document rows and `User.doc_version`, while the
+  uploaded file and its FAISS/BM25 chunks are gone (no disk; I4).
+- The semantic-cache entry's key and checks (`user_id`, the unchanged `doc_version`, `mode`) still
+  match, so repeating a pre-restart question replayed the old answer **with its old sources**.
+  A new question correctly found nothing in the documents.
+- `doc_version` only tracks *changes to the document set*, not *whether the index still holds it*.
+- Days 15–16 (persistent pgvector chunks) remove the gap. Until then, a post-restart check must use
+  a new question.
+- When reworking the cache: validate a hit's cited sources against what is currently retrievable,
+  or key entries on an index epoch as well as `doc_version`.
+
+### CO6 — Every database round trip now crosses regions, and a chat turn makes many (P1)
+Found Day 14 (2026-11-13), measuring release v0.2.2. Render runs in Singapore, and Supabase is in
+`ap-south-1` (Mumbai), so **each round trip costs ~63 ms**.
+
+**What the database time actually is:** `pg_stat_statements` for `rag_app` after 9 chat turns shows
+every statement averaging ≤ 0.05 ms server-side (inserts ~1–3 ms). The cost is entirely network
+round trips, multiplied by how many the code makes:
+- psycopg sends `BEGIN` as its own round trip (153 `BEGIN`s in that window).
+- The pool sends `ROLLBACK` when each connection is returned (104).
+- Every write commits separately (48 `COMMIT`s).
+- `pool_pre_ping` adds a ping per checkout (`db/session.py`).
+
+**Measured** (client-side differential timing, p50; Decision 3 in `docs/briefs/day14.md`):
+
+| | v0.2.1 SQLite | v0.2.2 Postgres | Δ |
+|---|---|---|---|
+| `/me` − `/health` (n = 30) | 0.2 ms | 190.3 ms | **+190 ms**, 3 round trips: `BEGIN`, the user query, `ROLLBACK` |
+| chat → `metadata` frame (n = 5) | 7720 ms | 9170 ms | +1450 ms (noisy; min only +330 ms) |
+| chat → `[DONE]` (n = 5) | 8621 ms | 11019 ms | +2398 ms |
+
+A chat turn runs one transaction per step:
+- user lookup
+- session lookup / insert + commit
+- history load + a message `count(*)`
+- user-message insert + commit
+- topic `UPDATE` + commit
+- assistant-message insert + commit
+
+That is **≈ 10–15 round trips ≈ +1 s** per turn.
+
+**Why it matters:**
+- Every authenticated request pays ≥ 190 ms before doing anything.
+- Every chat turn pays about a second of pure waiting on top of a 6–12 s, Gemini-dominated answer.
+- The count grows with features: Day 15 moves vector and keyword search into Postgres (more queries
+  per sub-query), and Projects (Days 18–20) add scope lookups.
+
+**Fix plan:**
+1. **Count statements per chat turn locally:** a SQLAlchemy `before_cursor_execute` counter plus the
+   test suite's fake Gemini, against the compose Postgres. No production quota is used, and it gives
+   exact numbers per step instead of totals.
+2. **One transaction per chat step:** batch the session, history and user-message work into one
+   transaction with one commit, and the assistant message and failed query into another. Drop the
+   separate `count(*)` if the history query can return what is needed.
+3. **Drop `pool_pre_ping`:** `pool_recycle = 300 s` already retires connections before the pooler's
+   idle timeout. Accept a rare retryable failure on a dead connection; it saves one round trip per
+   checkout.
+4. **Re-measure** with the same script: n = 30 for `/me`, **n ≥ 15** chat turns, before and after.
+   Record the round trips per turn and the p50s.
+
+Co-locating Render and Supabase in one region would cut the cost per round trip. Neither can move
+in place (a new Render service changes the API URL, OAuth redirect and CORS; the Supabase project
+is shared), so fewer round trips is the lever. Request tracing (O1, Day 23) will show this per
+span once it exists.
 
 ---
 
@@ -806,6 +872,32 @@ reloaded session with every thumb unset.
 - **UI:** `ChatWindow.js` renders the stored thumb as selected when it loads a session.
 - **Optional:** make a repeat of the same feedback a no-op instead of a second failed-query row.
 - **Tests:** an API smoke assertion for the field, and a frontend test for the selected thumb.
+
+### B12 — Source chips repeat and don't match the pages the answer cites (P2)
+Found Day 14 (2026-11-13), in the live check on v0.2.2.
+- **What the chips show:** the chat's source chips come from the `metadata` frame's `sources`,
+  which lists the **retrieved chunks** sent as context (`ChatPipeline` → `ChatWindow.js`), one
+  chip per chunk.
+- **Duplicates:** several chunks of the same web page or PDF page each get a chip. One Wikipedia URL
+  appeared ×4, and "p.1" ×2.
+- **Mismatch:** the chips show what was retrieved, not what the answer cites. The answer said
+  "Page 2", but the chips showed only p.1 (page 2's text presumably reached the model through
+  parent-page expansion or a chunk spanning both pages, while the chip carries the chunk's start
+  page).
+
+**Why it matters:** citations are how a student checks an answer. Duplicate chips are noise, and a
+chip list that disagrees with the answer's own "Page N" undermines trust in both.
+
+**Direction:**
+- **Quick fix:** de-duplicate the sources by (document, page) or by URL before they are sent, or in
+  `ChatWindow.js`.
+- **Proper fix:** derive the chips from the citations the answer actually makes. Parse the
+  `[source]` / page references, which the generation eval already checks in code
+  (`eval/generation/citations.py`), and show retrieved-but-uncited sources separately, collapsed.
+- The page mismatch needs a look at how `page_num` is set for chunks that span pages, and for
+  parent-expanded blocks.
+- Backend + `ChatWindow.js` the same day (UI rule). Pairs naturally with the Day 50 PDF citation
+  viewer.
 
 ---
 

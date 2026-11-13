@@ -274,6 +274,11 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
 
       Both are fixed by Day 15 (Supabase Storage + pgvector chunks) and Day 16 (reindex).
    4. Re-upload the same file. Since Decision 2 this succeeds (before, it failed every time), and the next answer cites it again.
+   5. **Use a NEW question for the post-restart citation check** (found live, 2026-11-13). Repeating a question asked before the restart is answered by the **semantic cache** (Redis), with the original answer and its original `sources`.
+      - The key's `doc_version` hasn't changed, because rows survive while the index doesn't.
+      - So a cached answer can still cite a document that is no longer indexed.
+      - A new question goes through retrieval and shows the real state.
+      - After the re-upload (`doc_version` + 1), old cache entries stop matching. See CO5.
 8. **(me)** After-latency on v0.2.2: the same script and the same measurements, with the test account deleted at the end.
    - **Expectation, stated before measuring:** Render (Singapore) → Supabase (Mumbai) costs **~50–70 ms per database round trip**.
      - `/me` makes ~2 round trips (`pool_pre_ping` + the user query): expect `/me − /health` to grow by ~100–150 ms.
@@ -303,7 +308,7 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
 - **Suite on Postgres, CI, init script** → backend-only: tests and infrastructure.
 - **Local switch, production cutover** → backend-only: no endpoint, field or status changes. The API smoke tests run unchanged on Postgres to prove the contract holds.
 - **What users do notice:** accounts and chats now survive restarts. That is a behavior change with no new UI, so there is nothing to wire.
-- **Re-upload fix (Decision 2 A)** → no response shape changes. The same `POST /upload` success that `DocumentUpload` already renders replaces an error. Decision 2 B would add a UI badge.
+- **Re-upload fix (Decision 2 A)** → no response shape changes. The same `POST /upload` success that `pages/DocumentsPage.js` already renders replaces an error. Decision 2 B would add a UI badge.
 
 ## Verification
 - **Suite:**
@@ -395,3 +400,106 @@ Not built (owner, 2026-11-13). Measured today on the two local files (read-only)
 - **Reconcile before commit:** per table, rows, `max(id)` and per-column `NULL` counts must match; otherwise roll back.
 - **The two local files are separate user populations whose ids overlap.** Combining them needs id remapping (offset every id and foreign key, resolve duplicate emails).
 - **Read the target URL from `Settings`/env, never as an argument** (shell history), and never print it.
+
+## Outcome
+Done 2026-11-13. Production has been on Supabase Postgres since **release v0.2.2**:
+- PR #19 `develop` → `master`, merge `1e84de8`, tagged `v0.2.2`.
+- It carries Days 13–14. Day 14 itself merged into `develop` as PR #18 (merge `5e92855`), in four commits: `df64f47`, `64c89a8`, `4c441ee`, `d63e383`.
+- This Outcome, the post material and the tracker updates ride on `docs/day14-outcome`.
+
+### What changed against the plan
+- **Replanned after the first brief (owner):**
+  - Render has no disk, so the copy script was dropped and production and local dev started empty.
+  - Production moved with v0.2.2 today instead of on Day 17.
+- **Found and fixed:**
+  - **Session delete:** `DELETE /sessions/{id}` returned 500 on Postgres for a session with a failed query (found by the first full-suite run on Postgres). `sessions_repo.delete_with_messages` now detaches them.
+  - **Re-upload:** the re-upload of a file whose stored copy was gone failed every time (found while planning the cutover). `register_upload` now re-links the row. Proven live on Render after a restart.
+  - **Fixed ids in tests:** the two service tests used private in-memory SQLite and fixed ids. They now run on the suite's database with database-assigned ids.
+- **Delete-path audit (owner request):** account, concept-map and document deletes order children first. Day 15 adds `ON DELETE SET NULL` on `failed_queries.session_id` and `ON DELETE CASCADE` on every `user_id` foreign key (`timeline.md` Day 15).
+- **New tracked items:**
+  - G9 (P0 security): reused ids served another user's cache; **Done** with the step-2 flush.
+  - B11 (P2): feedback is not returned for reloaded chats.
+  - B12 (P2): source chips are duplicated and don't match what the answer cites.
+  - CO6 (P1): DB round trips cross regions; on Day 16.
+  - A CO5 finding: a cached answer replays sources that are no longer indexed.
+- **GitGuardian:** two false positives (40042417, 40043275) on compose `*PASSWORD=` lines, resolved by the owner. The rule is "triage, don't work around" (Risk 10).
+- **Exposure (Claude's mistake):** the `rag_staging_app` URL was printed into the session transcript (Risk 11). It is to be rotated by the owner. Memory rule saved: never print `.env` values or connection strings.
+- **Correction to Risk 5:** `rag_app`'s connection limit is **20**, not 10. The app's pool (5 + 5) leaves room for a deploy overlap.
+
+### Files (PR #18, against `develop`)
+- **Fix:** `backend/app/db/repositories/sessions.py` detaches failed queries before a session is deleted.
+- **Fix:** `backend/app/services/document_service.py` re-links on re-upload when the stored file is gone.
+- **Tests:**
+  - `backend/tests/conftest.py`: `TEST_DATABASE_URL` / `TEST_DATABASE_SCHEMA`, `*_test`-only guard, `downgrade base` + `upgrade head` each run
+  - `backend/tests/test_repositories.py`: `TEST_DATABASE_URL`, plus the detach test
+  - `backend/tests/test_account_service.py`, `test_document_service.py`: the suite's database, no fixed ids, plus the vanished-file test
+  - `backend/tests/test_migrations.py`: docstring only
+- **CI / infra:**
+  - `.github/workflows/ci.yml`: service DB `rag_test`, the whole suite on Postgres, job names unchanged
+  - `scripts/postgres/init-rag-schema.sh`: re-runnable (role guarded in a `DO` block, `CREATE SCHEMA IF NOT EXISTS`)
+  - `docker-compose.yml`: the backend on the compose Postgres, URL without a password + `PGPASSWORD`, `depends_on` postgres healthy
+  - `.env.example`: local Postgres lines, Render note, test variables
+  - `alembic/env.py`: docstring only
+- **Docs:** `CLAUDE.md`, `docs/timeline.md` (Days 14, 15, 17 + release list), `docs/improvements.md` + tracker (G9, B11), post 1, this brief.
+- **Docs PR (`docs/day14-outcome`):**
+  - this Outcome
+  - `docs/improvements.md` + tracker: G9 Done, B12, CO6, the CO5 finding
+  - `CLAUDE.md`: Known Issues, P-lists, Current Status
+  - `docs/timeline.md`: the Day 16 CO6 bullet
+  - posts 3 and 9
+  - learning notes (gitignored)
+
+### Checks
+| Check | Result |
+|---|---|
+| Suite, SQLite (host) | 269 → **271 passed** |
+| Suite, local Postgres `rag_test` | **271 passed** (first run: 268 + 1 failure, the session-delete 500) |
+| CI on PR #18 (4 runs) | `backend` / `frontend` / `docker` green every time. Backend log: `rag_test` migrated, `alembic check` no diff, **270 passed on Postgres** (first run). |
+| `_test` guard | `TEST_DATABASE_URL` → `rag` refused with the "_test" error |
+| Init script re-run | on existing `rag` and new `rag_test`: succeeds, skips existing objects |
+| Local Docker on Postgres | healthy, "Database schema is at head"; `alembic current` in the container `7cb8829683ab (head)`; login reaches the DB with the URL carrying no password |
+| Local end-to-end (API script) | register → upload → chat (cites `samples.pdf`) → thumbs-down → container restart → same user id, 1 session, 2 identical messages, document listed, feedback row kept; chat after the restart: no sources (I4) |
+| Pre-flight (prod) | `alembic current` against `rag`: no revision (owner); MCP: `rag` 0 tables / 0 sequences / no `alembic_version` |
+| Redis flush (step 2, owner) | DB 0 **5 → 0**, DB 1 0 → 0 (G9 Done) |
+| Deploy (step 4) | v0.2.2 live; restart at 17:34 UTC: "Database schema is at head" |
+| Catalog (step 5, MCP) | `alembic_version` `7cb8829683ab`; 7 tables + `alembic_version` owned by `rag_app`; 7 sequences; 12 indexes; `public` unchanged (2 tables, 0 with our names); `rag_app` objects elsewhere: only 7 + 7 in `pg_toast` |
+| Live check (step 6, owner) | register, upload, chat with citation, thumbs-down, concept maps: no errors. Rows: 1 user, 1 session, 2 messages (1 thumbs-down), 1 document, 1 failed query, 2 maps (2 topics), 25 nodes. |
+| Persistence (step 7, owner) | after the restart: session + messages, both maps, PDF listed ✓. New question: no PDF citation (expected, I4). Re-upload succeeded; the same question cited the PDF ✓. DB: still 1 user and 1 document row (`v1`, active), `doc_version` 2. |
+| Keep-alive (step 10, owner) | run 43477183639 from `master`: passed, 15 s |
+| ruff 0.15.18 | clean |
+
+### Latency (step 8): Render Singapore → Supabase Mumbai, p50 (p90)
+| Metric | v0.2.1 SQLite | v0.2.2 Postgres | Δ p50 |
+|---|---|---|---|
+| `/health` (n = 30) | 68.8 (77.9) ms | 66.1 (73.1) ms | −2.7 ms |
+| `/me` (n = 30) | 69.0 (75.4) ms | 256.4 (269.8) ms | +187 ms |
+| **`/me` − `/health`** | 0.2 ms | **190.3 ms** | **+190 ms** (3 round trips × ~63 ms) |
+| chat → `metadata` (n = 5) | 7720 (10243) ms | 9170 (10705) ms | +1450 ms (min +330) |
+| chat → `[DONE]` (n = 5) | 8621 (12650) ms | 11019 (11881) ms | +2398 ms (min +682) |
+
+- **Stop rule:** the chat median grew more than 1 s, so tagging waited until round trips were counted from `pg_stat_statements`.
+  - Server-side statement time is ≤ 0.05 ms, so all of it is round trips: separate `BEGIN` (153), `ROLLBACK` on return (104), a `COMMIT` per write (48), and the pre-ping.
+  - Estimated ≈ 10–15 round trips per chat turn.
+- **Owner decision:** tag now; the fix is **CO6**, on Day 16.
+- **Cold start on v0.2.1:** 43.1 s.
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Postgres in production and locally | — | backend-only: same screens and responses; accounts, chats, feedback and maps now survive restarts |
+| Session delete detaches failed queries | `pages/ChatPage.js` (existing `DELETE /sessions/{id}`) | backend-only: the existing delete now succeeds instead of 500 on Postgres; no response change |
+| Re-upload re-links a row whose file is gone | `pages/DocumentsPage.js` (existing `POST /upload`) | backend-only: the existing success response replaces an error; no new field |
+| Suite on Postgres, CI, init script, compose | — | backend-only: tests and infrastructure |
+
+Found today, deferred with their UI work (rule: backend + UI on the same day): **B11** (thumb state on reload, `ChatWindow.js`) and **B12** (source chips, `ChatWindow.js`).
+
+### Timeline bullets dropped or deferred
+- **The copy script and "row counts match":** dropped (no disk, nothing to migrate). The reference notes are kept above.
+- **"Run against a copy of app.db, then production":** dropped for the same reason.
+- **Day 17's data migration:** removed from its release bullet.
+
+### Numbers for the tracker
+- **G9:** Done (flush DB 0 5 → 0).
+- **CO6:** the latency table above.
+- **T2** (Done Day 13): production `rag` migrated by the image's CMD on the first v0.2.2 start.
+- **Tests:** 269 → 271, on Postgres in CI.

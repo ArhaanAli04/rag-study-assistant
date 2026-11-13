@@ -29,7 +29,7 @@
 | 16 | 56–59 | Design system, new navigation, chat UX, rich answers, restyle of every page incl. Projects, Progress, Practice, Memory and the viewer, mobile + a11y |
 | 17 | 60–61 | UI integration audit, load testing, security review, docs, v1.0 |
 
-Releases: Day 3 v0.1.0 · Day 10 v0.2.0 · Day 17 v0.3.0 · Day 20 v0.4.0 · Day 32 v0.5.0 · Day 37 v0.6.0 · Day 43 v0.7.0 · Day 52 v0.8.0 · Day 59 v0.9.0 · Day 61 v1.0.0
+Releases: Day 3 v0.1.0 · Day 10 v0.2.0 · Day 14 v0.2.2 (production onto Postgres) · Day 17 v0.3.0 · Day 20 v0.4.0 · Day 32 v0.5.0 · Day 37 v0.6.0 · Day 43 v0.7.0 · Day 52 v0.8.0 · Day 59 v0.9.0 · Day 61 v1.0.0
 
 ## How every day runs
 
@@ -248,22 +248,24 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 ### Day 13 — Postgres provisioning and Alembic as the real migration path (T2)
 
 - Branch: feature/day13-postgres
-- Local: pgvector/pgvector:pg16 image in docker-compose with a named volume
-- Hosted: Supabase (decided 2026-11-04) — Postgres with pgvector plus Supabase Storage (Day 15), one vendor. Free plan allows 2 active projects: production and staging on Supabase, dev on the local Docker Postgres
-- Keep-alive: free projects pause after ~7 days without activity — .github/workflows/supabase-keepalive.yml on a schedule (every 3 days) runs one cheap read against each project, with the URL/key as GitHub secrets (same pattern as the F1 project). Note: GitHub disables scheduled workflows after 60 days without repo activity
+- Local: pgvector/pgvector image in docker-compose with a named volume — done as pgvector/pgvector:0.8.2-pg17, matching Supabase's Postgres 17.11 and pgvector 0.8.2
+- Hosted: Supabase (decided 2026-11-04) — Postgres with pgvector plus Supabase Storage (Day 15), one vendor. Changed 2026-11-11: no new projects — the owner's existing project, isolated by schema: `rag` (production) and `rag_staging`, each owned by its own login role (rag_app, rag_staging_app) with search_path set on the role, not exposed to the Data API; dev on the local Docker Postgres with the same rag schema / role
+- Keep-alive: free projects pause after ~7 days without activity — .github/workflows/supabase-keepalive.yml on a schedule (every 3 days) runs one cheap read as rag_app against the one project, with the URL as a GitHub secret (same pattern as the F1 project). Note: GitHub disables scheduled workflows after 60 days without repo activity
 - DATABASE_URL in Settings; Postgres driver psycopg (new dependency — confirm); keep the sync Session for now
 - Alembic: URL from Settings, import every model (including ConceptMap, ConceptMapNode) in env.py, baseline revision of the current schema; delete db.py's startup migrate_database()
 - Split db/database.py into db/session.py (engine, SessionLocal) and db/models/ (user, session, message, document, failed_query) — deferred from Day 9 so the engine is rewritten for Postgres only once
 - db/repositories/: move the CRUD SQL still inside the sessions, documents, users and feedback routers (a known layering exception since Day 9) into repositories the routers call
 - Verify: alembic upgrade head on an empty database creates every table and autogenerate reports no diff
 
-### Day 14 — Migrate the data off SQLite
+### Day 14 — Migrate the data off SQLite → production on Postgres (release v0.2.2)
 
 - Branch: feature/day14-sqlite-to-postgres
-- scripts/migrate_sqlite_to_postgres.py: users, sessions, messages, documents, failed_queries, concept maps — IDs preserved, sequences reset, --dry-run with a row-count report
-- Run against a copy of src/data/app.db first, then production; keep the SQLite file as a backup
-- Tests and CI run against a Postgres service container (GitHub Actions services:)
-- Verify: row counts match table by table; an existing account logs in and sees its sessions
+- Replanned 2026-11-13: Render has no persistent disk (free plan), so production's SQLite was wiped on every deploy, restart and idle spin-down — there was nothing to migrate. Production and local dev start empty on Postgres; the copy script (scripts/migrate_sqlite_to_postgres.py) was dropped. Its notes (ids with gaps → setval to max(id), type differences, copy order) are kept in the Day 14 brief's "Reference" section in case a copy is ever needed
+- The whole pytest suite runs on Postgres in CI (database rag_test; conftest accepts only a *_test database and wipes it each run); a plain local run stays on SQLite. It found a 500 on deleting a session with failed queries (Postgres enforces the foreign key) — fixed; schema-level ON DELETE rules on Day 15
+- Local dev (Docker backend and venv) on the compose Postgres; compose passes the password as PGPASSWORD, never inside the URL
+- An identical re-upload re-links the row when its file is gone (rows now outlive Render's files)
+- Release v0.2.2 (develop → master, Days 13–14): set DATABASE_URL (rag_app, session pooler, postgresql+psycopg://) and DATABASE_SCHEMA=rag on Render before the deploy, flush Render's Redis, the image's CMD runs alembic upgrade head on rag. Runbook, live check, latency Render (Singapore) → Supabase (Mumbai) before/after, and rollback in the Day 14 brief
+- Verify: the suite passes on Postgres in CI; an account survives a backend restart with its sessions, locally and on Render
 
 ### Day 15 — Chunks table — vector + keyword search in Postgres (I4, I5, I6, I1, I2)
 
@@ -271,11 +273,16 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Alembic revision: document_chunks
   - id, user_id FK, document_id FK ON DELETE CASCADE, document_version, page, chunk_index, text, content_hash, embedding, tsv (generated tsvector), metadata jsonb
   - Indexes: HNSW on embedding (cosine), GIN on tsv, btree on (user_id, document_id)
+  - Same revision (found Day 14, Postgres enforces the foreign keys SQLite ignored):
+    - recreate fk_failed_queries_session_id_sessions with ON DELETE SET NULL (`ondelete="SET NULL"` on the model), so the database itself detaches failed queries when a session is deleted. Day 14 does it in sessions_repo.delete_with_messages; that repository test stays as the check
+    - recreate the user_id foreign keys of sessions, documents, messages, failed_queries and concept_maps with ON DELETE CASCADE (`ondelete="CASCADE"` on each model), so deleting a user can't leave or block on child rows whatever the code path. account_service.delete_user_account keeps its explicit children-first deletes (it also counts them for the summary and removes files, index entries and caches); test_account_service stays as the check
+    - drop + create each constraint by its naming-convention name (fk_<table>_user_id_users); review the autogenerated revision by hand
 - Note: EMBEDDING_DIM changes 3072 → 1536 (pgvector HNSW limit); re-embed on Day 16. gemini-embedding-001 returns 3072 by default (confirmed Day 9) and pgvector's HNSW on vector supports up to 2000; the constant lives in retrieval/embeddings.py and is sent as output_dimensionality on every call. Confirm the quality cost with E4
 - Indexing orchestration moves out of ingestion/indexing_pipeline.py (which writes into retrieval's indexes, a known sideways layering exception since Day 8) into a services/ use case — deferred from Day 9 because the indexes are rewritten for pgvector today
 - PgVectorStore + PgKeywordIndex behind the existing vector/keyword interfaces; the user filter is in the WHERE clause, so no over-fetch and post-filter (I1)
 - Postgres full-text (ts_rank_cd) replaces BM25Okapi — measure the difference on E4 before deleting rank-bm25
-- Uploaded files move to Supabase Storage (private bucket, object key uploads/{user_id}/{uuid}{ext} as on Day 3): upload writes to Storage, indexing reads from it, Document.file_path holds the object key; a one-off script copies existing local files up. Render's disk is ephemeral, so without this every restart loses the files that reindexing (Day 16), the viewer (Day 50) and connectors depend on
+- pgvector is already installed in Supabase's `extensions` schema (Day 13); the app roles' search_path includes `extensions`, so VECTOR and <=> resolve unqualified. statement_timeout is 60 s on the roles: an HNSW build in a migration must SET LOCAL a longer one
+- Uploaded files move to Supabase Storage (private buckets rag-prod and rag-staging in the same project as the database, object key uploads/{user_id}/{uuid}{ext} as on Day 3): upload writes to Storage, indexing reads from it, Document.file_path holds the object key; a one-off script copies existing local files up. Render's disk is ephemeral, so without this every restart loses the files that reindexing (Day 16), the viewer (Day 50) and connectors depend on
 - I5: deleting a document cascades to its chunks and removes the file from Storage
 - I6: register_document reports new / changed / unchanged; unchanged skips indexing and the doc_version bump; changed deletes the old version's chunks
 - UI: deleted documents disappear from the list and from citations immediately; re-uploading an unchanged file shows "already indexed" instead of a duplicate
@@ -298,7 +305,7 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Test: a document indexed through the pipeline is returned by the concept-map retriever
 - UI: CreateMapForm's existing "use documents" toggle now works; ConceptNodeDetails shows the source document and page for document-derived nodes
 - Update CLAUDE.md Data & State: indexes now persist in Postgres, files in Supabase Storage
-- Release: develop → master; run alembic upgrade, the data migration and reindex on production; tag v0.3.0
+- Release: develop → master; alembic upgrade runs on production through the image's CMD (Day 15's document_chunks revision); run the reindex (Day 16) on production; tag v0.3.0. No data migration: production has been on Postgres since v0.2.2 (Day 14)
 - Verify: generate a concept map with "use documents" on — nodes cite the uploaded material
 
 ---
@@ -352,6 +359,8 @@ Focus: CI-gated deploys, staging + preview environments, post-deploy checks, rel
 - Branch: feature/day21-cd
 - Render: production deploys from master only after CI checks pass (auto-deploy setting — confirm the option in the dashboard)
 - Migrations on deploy: Render pre-deploy command running alembic upgrade head — if not available on the instance type, run it from a start script before uvicorn
+  - Since Day 13 the image's CMD already runs `alembic upgrade head && exec uvicorn …`; decide whether a pre-deploy command replaces it or it stays
+- CI maintenance, noted Day 13 from CI warnings (not fixed then): actions/checkout@v4 and actions/setup-python@v5 target the deprecated Node 20 runtime and are being forced onto Node 24 — move to the current major versions; the ubuntu-latest label is migrating to Ubuntu 26 (from 2026-10-19) — pin ubuntu-24.04 or confirm the jobs (tesseract, poppler apt packages) pass on 26
 - render.yaml blueprint committed to the repo for the production and staging services
 - Staging: a second Render service deploying develop, pointing at the staging database and the staging Langfuse project
 - Vercel: production = master; preview deployments for develop and every PR; REACT_APP_API_URL set per environment

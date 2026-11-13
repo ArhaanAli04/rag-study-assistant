@@ -4,7 +4,8 @@ from pathlib import Path
 
 from sqlalchemy.orm import sessionmaker
 
-from app.db.database import SessionLocal, Document
+from app.db.models import Document
+from app.db.session import SessionLocal
 from app.ingestion.upload_storage import is_inside_user_dir
 from app.ingestion.file_hash import compute_file_hash
 
@@ -65,17 +66,21 @@ def register_upload(
 ) -> Document:
     """Register a freshly stored upload; the returned row always points at a file this user owns.
 
-    On an identical re-upload the existing row wins. If that row already points into the
-    user's own directory, the new copy is redundant and removed. If it points at a legacy
-    flat path (pre-G7), that file may since have been overwritten by another user's upload of
-    the same name, so the row is moved to the new per-user copy and the legacy file is left
-    alone (another user's row may still reference it).
+    On an identical re-upload the existing row wins. If that row still points at a file in the
+    user's own directory, the new copy is redundant and removed. Otherwise the row is moved to
+    the new per-user copy:
+    - a legacy flat path (pre-G7) may since have been overwritten by another user's upload of
+      the same name; that file is left alone, since another user's row may still reference it.
+    - the row's file may be gone: rows live in Postgres since Day 14, but Render's disk is
+      ephemeral, so a restart deletes the file and keeps the row. Keeping the row's path would
+      make the upload index a missing file, every time.
     """
     doc = register_document(user_id, stored_path, file_name, session_factory)
     if doc.file_path == stored_path:
         return doc
 
-    if is_inside_user_dir(upload_root, user_id, Path(doc.file_path)):
+    existing_path = Path(doc.file_path)
+    if is_inside_user_dir(upload_root, user_id, existing_path) and existing_path.is_file():
         os.remove(stored_path)
         return doc
 

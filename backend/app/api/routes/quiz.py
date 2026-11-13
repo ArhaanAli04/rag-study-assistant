@@ -4,7 +4,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user, get_services
-from app.db.database import User
+from app.db.models import User
 from app.schemas.quiz import QuizRequest
 from app.services.container import Services
 from app.services.quiz_service import generate_quiz_text

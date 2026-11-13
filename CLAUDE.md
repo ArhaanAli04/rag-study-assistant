@@ -15,8 +15,8 @@
 
 An AI study assistant. Users upload PDF/PPTX/DOCX study material; the backend chunks it,
 embeds it with Gemini, and indexes it per user in FAISS + BM25. Chat answers questions with
-hybrid retrieval plus Tavily web results, generates a cited answer with Gemini 2.5
-Flash-Lite, and streams it to a React app over SSE. Also: concept-map generation, quiz
+hybrid retrieval plus Tavily web results, generates a cited answer with Gemini 3.5
+Flash-Lite (since v0.2.1, B9), and streams it to a React app over SSE. Also: concept-map generation, quiz
 generation, chat sessions with export, thumbs feedback, and email/password + Google OAuth
 login.
 
@@ -31,37 +31,44 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  3ba5278 day 12 - B9 switch, on feature/day12-e1-e2-judge → PR #15 (draft) into develop;
-              CI green on all 3 commits (047b628 prepare_answer + model setting, 8de3b1b judge harness,
-              3ba5278 B9 switch + faith-v2 + calibration). Checkpoint 5 (old eval scripts + ragas out,
-              lock regenerated, docs, tracker, this block) is the last commit of the day
-Pushed:       master = v0.2.0 (60fbce2, PR #13, tagged) — Days 4–10. develop = Days 4–11 (PR #14,
-              3d02a96). Days 11–12 (B8 + B9) reach master with v0.2.1, released right after PR #15
-Uncommitted:  Checkpoint 5 (to commit with /ship commit, then /ship merge PR #15)
-Untracked:    none. Local only (gitignored): backend/eval/corpus/* except manifest.json, eval/.cache/
-              (embedding + generation caches), eval/results/*.json, eval/datasets/{*.draft.jsonl,
-              *.review.md,*.progress.jsonl,*.sheet.md,hard_candidates.jsonl}, docs/learning/
-Day 12:       E1/E2 done — generation eval (backend/eval/generation/, python -m eval.generation): the
-              chat's own prepare_answer (services/answer_preparation.py, shared with ChatPipeline) →
-              stream_answer → Gemini judge (gemini-3.5-flash-lite, schema JSON, claim-level faithfulness
-              faith-v2 + citation support, relevance rel-v1; citation validity in code), answers and
-              verdicts cached. Calibrated on 20 blind reference labels (Claude, owner-adjudicated):
-              faith-v1 0.90 / κ 0.76 → faith-v2 1.00 (tuned on the set). Baseline (retrieval_v1, 61 q,
-              quick mode): strict faithfulness 0.956 (≈ 0.963 with the h-02 ruling), 0 / 186
-              contradicted, relevance 0.982, citations 151/151 valid; retrieval hit → faithfulness 0.976,
-              miss → 0.760 (n=5). B9 done: GEMINI_GENERATION_MODEL, default gemini-3.5-flash-lite
-              (20 → 500 RPD); absolute gate passed, not paired (2.5-flash-lite → 404 for new projects).
-              RAGAS + datasets + 20 transitive packages removed (lock 158 → 136). Suite 244 on host and
-              container. Notes in docs/briefs/day12.md
-Next:         Commit Checkpoint 5 and /ship merge PR #15. Then release v0.2.1 (develop → master, B8 +
-              B9, tag v0.2.1) — before it, ask one question in the local app on gemini-3.5-flash-lite
-              through /chat/stream; after it, confirm Render answers on 3.5 (rollback:
-              GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite on Render). Then Day 13 (/run-day 13) —
-              Postgres + Alembic (T2). Deferred: the E4 `--config web` run, a `--mode detailed`
-              generation run
-Blockers:     none. Eval runs need $env:GEMINI_API_KEY set to the eval project's key (key guard).
-              Local runtime state lives in backend/{data,uploads,logs}; a checkout from before Day 7
-              must move src\data, src\uploads, src\logs there or the app starts with an empty database
+Last commit:  16584fe day 13 - Supabase setup script + CI Postgres + keep-alive, on feature/day13-postgres →
+              PR #17 (draft) into develop; CI green on all 6 commits (e95ef81 settings + psycopg + local
+              pg17, c02b5e6 model split, 52ca646 importers + database.py deleted, ac795d6 Alembic baseline
+              + head check, cd188ff repositories, 16584fe Supabase/CI/keep-alive). The Checkpoint 6 docs
+              commit (hooks, CLAUDE.md, layout, timeline, tracker, brief Outcome, posts) is the last of the day
+Pushed:       master = v0.2.1 (PR #16, tagged) — Days 4–12 incl. B8 + B9 (Render on gemini-3.5-flash-lite).
+              develop = Days 4–12 (PR #15). Day 13 reaches develop with PR #17; master only with v0.3.0
+              (Day 17) — and its migrate-before-uvicorn CMD must not reach Render before Day 14 settles
+              production's SQLite (see Day 14 notes)
+Uncommitted:  Checkpoint 6 docs (to commit with /ship commit, then /ship merge PR #17)
+Untracked:    none. Local only (gitignored): backend/data/app.backup-2026-11-11.db and
+              app.docker-backup-2026-11-11.db (pre-stamp SQLite backups), backend/eval/corpus/* except
+              manifest.json, eval/.cache/, eval/results/*.json, eval/datasets/{drafts, sheets,
+              hard_candidates.jsonl}, docs/learning/. .env now also holds POSTGRES_PASSWORD,
+              RAG_APP_PASSWORD (compose) and RAG_STAGING_DATABASE_URL (manual Alembic runs)
+Day 13:       T2 done — Alembic is the only schema path: DATABASE_URL / DATABASE_SCHEMA in Settings
+              (absolute SQLite default; postgresql+psycopg:// required), psycopg 3.3.8; db/database.py split
+              into db/{base,session,migrations}.py + db/models/ + db/repositories/; baseline 7cb8829683ab
+              autogenerated on Postgres; startup ALTERs / create_all deleted; image CMD runs `alembic
+              upgrade head && exec uvicorn`, lifespan refuses a DB not at head. `alembic check` = no diff on
+              local pg17, CI's service and Supabase rag_staging. Both local SQLite files schema-checked
+              and stamped (row counts unchanged). Supabase: existing project, schemas rag (prod, empty) /
+              rag_staging (at head), roles rag_app / rag_staging_app, search_path = <schema>, extensions,
+              vector 0.8.2, not exposed to the Data API — set up by scripts/supabase/setup_rag_schemas.sql
+              with SCRAM verifiers (a single-query dry run proved plaintext passwords would be logged).
+              Postgres exposed 5 str(user_id) filters + 3 string-id inserts and a lastrowid that isn't the
+              row id — fixed via repositories, tested on Postgres in CI. Guard hook: alembic downgrade only
+              against temp SQLite / local Postgres. Suite 244 → 269. Notes in docs/briefs/day13.md
+Next:         Commit the docs and /ship merge PR #17. Resolve GitGuardian's 6 old incidents (e95ef81,
+              c02b5e6 — dev-default passwords, no longer in any file) as false positives. Add the GitHub
+              secret SUPABASE_RAG_DB_URL (rag_app, psql form) and check it by hand with
+              psql "<url>" -tAc "select current_schema()" → rag. Then Day 14 (/run-day 14) — copy the data
+              to Postgres: first check whether Render has a persistent disk (brief "Day 14 notes": types,
+              sequence reset, copy order, two local DBs with overlapping ids). Deferred: the E4
+              `--config web` run, a `--mode detailed` generation run
+Blockers:     none. Every `docker compose` command needs POSTGRES_PASSWORD and RAG_APP_PASSWORD in .env.
+              The app stays on SQLite until Day 14 — don't set DATABASE_URL in .env before then. Eval runs
+              need $env:GEMINI_API_KEY set to the eval project's key (key guard)
 ```
 
 ---
@@ -75,7 +82,7 @@ rag-study-assistant/
 │   │   ├── main.py           ← create_app() + lifespan (Day 9); `app = create_app()` is what uvicorn serves
 │   │   ├── api/              ← deps.py (get_db, current user, services from app.state); routes/ — one router per area
 │   │   ├── core/             ← config.py (Settings), logging.py, request_id.py, security.py, errors.py, gemini.py
-│   │   ├── db/               ← database.py (Base, engine, ORM models, startup migrations), models/concept_map.py
+│   │   ├── db/               ← base.py (Base + naming convention), session.py (engine, SessionLocal), migrations.py (head check), models/ (one file per table), repositories/ (queries) — Day 13
 │   │   ├── ingestion/        ← pipeline, chunking, upload storage; parsers/, ocr/, tables/
 │   │   ├── retrieval/        ← embeddings, FAISS, BM25, retrieval service, rerank, decomposition, web/
 │   │   ├── generation/       ← llm_client.py, topic_classifier.py, concept_extractor.py
@@ -87,13 +94,13 @@ rag-study-assistant/
 │   └── logs/, uploads/       ← runtime output — gitignored
 ├── frontend/                 ← React 19 (react-scripts), Tailwind, React Flow, react-markdown
 │   └── src/                  ← pages/ components/ contexts/ hooks/ services/ config/ utils/ lib/
-├── scripts/                  ← dev.ps1 (Docker dev helper)
-├── alembic/, alembic.ini     ← one revision (feedback fields); not the real migration path
+├── scripts/                  ← dev.ps1 (Docker dev helper); postgres/init-rag-schema.sh (local + CI role/schema); supabase/ (setup SQL, scram_verifier.py)
+├── alembic/, alembic.ini     ← the only schema path since Day 13 (T2): baseline 7cb8829683ab; URL from Settings; shipped in the image
 ├── docs/                     ← timeline.md (61-day build plan), architecture/layout.md (target package layout + module map), posts/ (LinkedIn series material), improvements.md (gap audit), improvement-tracker.md (status), briefs/, claude-cheatsheet.md, architecture.png
 ├── .claude/                  ← skills/ (/run-item, /pre-commit), hooks/*.py, settings.json
-├── .github/workflows/ci.yml  ← CI: backend, frontend, docker jobs (the required checks)
+├── .github/workflows/        ← ci.yml: backend (+ Postgres service), frontend, docker — the required checks; supabase-keepalive.yml (Day 13)
 ├── ruff.toml                 ← lint rules for CI, the edit hook and local `ruff check .`
-├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis
+├── Dockerfile, docker-compose.yml                      ← backend + frontend + redis + postgres (local, Day 13)
 ├── pytest.ini                ← testpaths = backend/tests, pythonpath = backend
 ├── requirements.in           ← direct dependencies, one reason each — the file to edit (Day 10)
 └── requirements.txt          ← generated UTF-8 lock (Linux, Python 3.11); the Dockerfile and CI install it
@@ -108,8 +115,8 @@ and the known exceptions to the downward-only dependency rule, are in `docs/arch
 | Area | Modules | Notes |
 |---|---|---|
 | Core (Day 7) | `core/config.py`, `core/logging.py`, `core/request_id.py`, `core/security.py`, `core/errors.py`, `core/gemini.py` | `Settings`: every env var, read once at import. `request_id`: per-request ID (`X-Request-ID`) stamped on log lines by `RequestIdFilter`. `security`: JWT encode/decode and password hashing only — no DB access since Day 9. `gemini.py`: `build_gemini_client()`, the only place a `genai.Client` is built. `logging`: rotating file + console handlers, G8 redaction |
-| App & wiring (Day 9) | `main.py`, `services/container.py`, `api/deps.py`, `api/routes/{health,auth,users,documents,chat,sessions,feedback,quiz,concepts}.py` | `main.py`: `create_app()` (middleware, routers, handlers — no I/O) and the lifespan (`init_db()`, `build_services()` onto `app.state.services`, Redis closed on shutdown). `container.py`: the `Services` dataclass — one Gemini client, one FAISS + BM25, caches, `ChatPipeline`, `ConceptMapService`. `deps.py`: `get_db`, `get_current_user` (Bearer), `get_user_from_query_token` (SSE `?token=`), `get_services`. Routers are thin except the CRUD SQL in sessions / documents / users / feedback (Day 13) |
-| Data | `db/database.py`, `db/models/concept_map.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `db/database.py`: Base, SQLite engine, ORM models, startup column migrations (split into `db/session.py` + `db/models/` on Day 13). `ingestion/models.py`: `DocumentChunk` data model. `account_service.py`: `authenticate_user`, `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
+| App & wiring (Day 9) | `main.py`, `services/container.py`, `api/deps.py`, `api/routes/{health,auth,users,documents,chat,sessions,feedback,quiz,concepts}.py` | `main.py`: `create_app()` (middleware, routers, handlers — no I/O) and the lifespan (`assert_schema_at_head` — refuses a database not at Alembic head, Day 13; `build_services()` onto `app.state.services`, Redis closed on shutdown). `container.py`: the `Services` dataclass — one Gemini client, one FAISS + BM25, caches, `ChatPipeline`, `ConceptMapService`. `deps.py`: `get_db`, `get_current_user` (Bearer), `get_user_from_query_token` (SSE `?token=`), `get_services`. Routers hold HTTP only; their SQL moved to `db/repositories/` on Day 13 |
+| Data (Day 13, T2) | `db/{base,session,migrations}.py`, `db/models/{user,chat_session,message,document,failed_query,concept_map}.py`, `db/repositories/{users,sessions,documents,messages,failed_queries}.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `base.py`: `Base` with a constraint naming convention (`pk_`, `fk_`, `uq_`, `ix_`). `session.py`: `build_engine(url)` — SQLite (`check_same_thread=False`, creates the parent dir) or Postgres (`pool_pre_ping`, pool 5 + 5, recycle 300 s) — plus `engine`, `SessionLocal` from `settings.DATABASE_URL`. `migrations.py`: `assert_schema_at_head`, `assert_expected_schema` (Postgres `current_schema()` must equal `DATABASE_SCHEMA`), `alembic_config()`. `models/__init__.py` imports all 7 models (what `alembic/env.py` imports); `Session` lives in `chat_session.py`. Repositories: plain functions taking the session, `user_id: int`, never commit (the caller does), return `None` for a missing row. `ingestion/models.py`: `DocumentChunk`. `account_service.py`: `authenticate_user`, `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
 | Auth | `core/security.py`, `api/routes/auth.py`, `api/deps.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
 | Ingestion | `ingestion/{indexing_pipeline,chunk_builder,chunking,text_preprocessing,file_hash,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/document_service.py` | character-based chunks (1000 chars / 100 overlap); hash-based document versioning; `upload_storage.py`: per-user UUID paths + containment check (G7) |
 | OCR / tables | `ingestion/parsers/unified.py`, `ingestion/ocr/{ocr,image_preprocessing}.py`, `ingestion/tables/{pdf_tables,tables}.py` | not reachable from `/upload` (images are rejected) |
@@ -138,12 +145,12 @@ The one-off DB scripts, `scripts/manual/`, `frontend.py`, `document_delete_servi
 | Keyword search | `rank-bm25` (`BM25Okapi`), rebuilt over the full corpus on every add |
 | Web search | Tavily (`search_depth="advanced"`) + domain allowlist + BeautifulSoup scraping |
 | Cache | Redis (`redis-py`) |
-| Database | SQLite at `backend/data/app.db` |
+| Database | Postgres since Day 14. Production: Supabase (Postgres 17.11, pgvector 0.8.2, `ap-south-1` Mumbai) in the owner's existing project, isolated by schema — `rag` (production, role `rag_app`, from release v0.2.2; started empty) and `rag_staging` (role `rag_staging_app`, at head). Local dev (Docker backend and venv): `pgvector/pgvector:0.8.2-pg17` in compose, schema `rag`, started empty — no data was copied (Render had no disk; Day 14 brief). Driver `psycopg[binary]` 3.3.8; schema only through Alembic. SQLite is still supported (the default `DATABASE_URL`, used by a plain local `pytest`) but no environment runs on it |
 | Auth | python-jose JWT, passlib, Authlib Google OAuth; token kept in browser `localStorage` |
 | Parsing | PDF/PPTX/DOCX utilities, camelot + pdfplumber tables, Tesseract OCR |
 | Frontend | React 19, react-scripts 5, Tailwind 3, React Flow 11 + dagre, react-markdown + remark-gfm, jsPDF, html-to-image, lucide-react |
 | Deploy | Docker; Render (backend), Vercel (frontend); `docker-compose.yml` for the local full stack |
-| CI | GitHub Actions (`.github/workflows/ci.yml`); ruff 0.15.18 pinned in the CI job only (not in `requirements.txt`), rules in `ruff.toml` |
+| CI | GitHub Actions (`.github/workflows/ci.yml`); ruff 0.15.18 pinned in the CI job only (not in `requirements.txt`), rules in `ruff.toml`. The `backend` job has a Postgres service (database `rag_test`): `alembic upgrade head` + `alembic check` (Day 13), then the **whole pytest suite on Postgres** (Day 14, `TEST_DATABASE_URL`); `supabase-keepalive.yml` pings production every 3 days (runs only from `master`) |
 
 Kept but not imported by `backend/app/` (Day 10, each with its reason in `requirements.in`):
 `langgraph` (A1), `langsmith` (O1), `instructor` (S1; it also pulls in `openai`), `tiktoken` (C1; also
@@ -178,7 +185,7 @@ FAISS add + BM25 rebuild → `User.doc_version += 1`. An identical re-upload is 
 the only chat endpoint since Day 9 (`POST /chat`, a divergent copy, was deleted). Steps 1–6 run
 before the response starts, so a retrieval failure is a normal HTTP 500; generation runs while streaming.
 1. Auth from the `?token=` query param (`get_user_from_query_token`) → injection-phrase and unsafe-keyword checks (`chat_guards.py`) → semantic cache lookup (a hit is replayed as SSE)
-2. Get/create session → load the last 20 messages → log the user message → LLM topic tagging while the session topic is "General"
+2. Get/create session → load the last 20 messages → log the user message (`session_service.add_message` → `messages_repo.add`, committed at once; its id is the `message_id` frame — Day 13 replaced a raw INSERT whose `lastrowid` is not the row id on Postgres) → LLM topic tagging while the session topic is "General"
 3. `assemble_context` (`retrieval/context_assembly.py`): `QueryDecomposer` (regex split) → for each sub-query, `hybrid_retrieve`: L1 in-process cache → FAISS (L2 distance → cosine, B8) + BM25 → min-max normalize → 0.6/0.4 fusion → confidence heuristic (0–100) → Tavily chunks (always: 3 if confidence < 60, else 2) → "rerank" (re-sort by existing score) → top 5 → parent-page expansion
 4. `SimpleContextCompressor`: top 6 chunks, 800 characters each
 5. Grounding level from confidence (`retrieval/confidence.py`): strict ≥ 70, loose ≥ 30, else none (model knowledge allowed)
@@ -208,7 +215,9 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Quiz generation by topic and difficulty
 - LLM retry with backoff (non-streaming) and a circuit breaker; user-friendly error messages
 - Docker images and docker-compose (backend, frontend, Redis)
-- CI on GitHub Actions (Day 6, `.github/workflows/ci.yml`): `backend` (Python 3.11, ruff, offline pytest — no secrets), `frontend` (Node 24, `npm ci`, Jest, CRA build with `CI=true`), `docker` (both images, no push); required on `master` and `develop` by branch protection
+- CI on GitHub Actions (Day 6, `.github/workflows/ci.yml`): `backend` (Python 3.11, ruff, a Postgres service — `alembic upgrade head` + `alembic check` since Day 13, the whole offline pytest suite on it since Day 14 — no secrets), `frontend` (Node 24, `npm ci`, Jest, CRA build with `CI=true`), `docker` (both images, no push); required on `master` and `develop` by branch protection
+- Alembic as the only schema path (Day 13, T2): baseline `7cb8829683ab`, migrations before uvicorn (image `CMD`, compose dev command), startup refuses a database not at head
+- Postgres everywhere (Day 14): production on Supabase `rag` from v0.2.2, local dev on the compose Postgres. Accounts, sessions, messages, feedback, concept maps and document rows survive restarts and deploys (on Render they were wiped by every deploy, restart and idle spin-down before)
 
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
@@ -216,7 +225,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called first in `ChatPipeline`; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); the unsafe-topic check is one 6-keyword substring list in `chat_guards.py` since Day 9 ("bomb" still matches "bombardment") — G3 replaces it
 - Evaluation: retrieval eval since Day 11 (E4; its `web` config hasn't been run yet) and generation eval with a calibrated Gemini judge since Day 12 (E1/E2 done; RAGAS and the word-overlap metrics were removed). Partial: the judge is the same model as the generator, `faith-v2` was tuned on its 20-answer calibration set, and there is no answer-correctness metric or CI gate yet (E3, Day 26)
 - Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
-- Alembic is configured but effectively unused (see Known Issues)
+- Rows persist, files and vectors don't (Day 14 → Day 15): on Render a restart keeps a document's row but loses its uploaded file (no disk) and its FAISS/BM25 chunks (memory). The document stays listed but isn't cited until it is re-uploaded; an identical re-upload re-links the row to the new copy (`register_upload`, Day 14). Supabase Storage + pgvector chunks (Day 15) and the reindex (Day 16) end this
 
 ### Not present
 - Persistent vector / keyword indexes; token counting and budgets (C1); token-usage logging (CO4)
@@ -224,7 +233,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Indirect prompt-injection defenses (G5); request tracing (O1)
 - Golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
 - Query expansion / HyDE (R3); agentic tool use (A1); ANN or per-user indexes (I1); embedding cache (CO3)
-- Rate limiting, refresh tokens, PostgreSQL, quiz persistence
+- Rate limiting, refresh tokens, quiz persistence
 - Frontend tests beyond 5 files / 11 tests: `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5). No tests for documents, concept maps, quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
 
 ---
@@ -234,15 +243,18 @@ not the user's documents); returns plain text, unparsed and not persisted.
 `docs/improvement-tracker.md` is the source of truth for status; `docs/improvements.md` holds
 the evidence and direction for each ID. When status changes, update the tracker, not this file.
 
-- **P0 — do first:** G6, G7, G8, G4, G1, O2, E1, E4, R1, I4, I5, R5, B1
+- **P0 — do first:** G6, G7, G8, G4, G1, O2, E1, E4, R1, I4, I5, R5, B1, G9
 - **P1 — planned:** G2, G3, G5, E2, S1, O1, R2, R3, C1, C2, I3, CO1, CO2, CO4, CO5, I6, B2, T1, T2
-- **P2 — deferred until usage grows:** R4, E3, C3, A1, I1, I2, CO3, T3
+- **P2 — deferred until usage grows:** R4, E3, C3, A1, I1, I2, CO3, T3, B11
 
 Order: `docs/timeline.md` sequences every item (plus Docker, refactor, CI/CD, Langfuse,
 LangGraph, study-feature and UI work) into 61 days — one day per session, started with
 `/run-day <N>`. It moves I4/I5/I6 to the pgvector migration (Day 15) and E4 to just after the
 refactor (Day 11). Hosting decided 2026-11-04: **Supabase** for Postgres + pgvector (Day 13) and
-file storage (Day 15), kept awake by a scheduled GitHub workflow. Added 2026-11-04:
+file storage (Day 15), kept awake by a scheduled GitHub workflow. Changed 2026-11-11 (Day 13): no new
+Supabase projects — the owner's **existing project** (it also hosts another app), isolated by schema:
+`rag` / `rag_staging`, each owned by its own login role, not exposed to the Data API; Storage buckets
+`rag-prod` / `rag-staging` in the same project (Day 15). Added 2026-11-04:
 **Projects** (Days 18–20, a project = a course: its own files, instructions and chats),
 **Connectors** (Days 40–43: Google Drive Docs/Sheets/Slides import, Google export, web page by
 URL, YouTube lectures, Notion) and **memory across chats** (Days 53–55, with a Memory page).
@@ -264,7 +276,7 @@ Found while writing this file; evidence and direction live under each ID.
 | Deleting a document leaves its chunks searchable | I5 | P0 |
 | Re-uploading an identical file duplicates its chunks | I6 | P1 |
 | Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
-| Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h; SQLite reuses freed user ids (Postgres, Day 13) | B1 | Done |
+| Fixed Day 3: `DELETE /user/delete` removes all 7 tables' rows, files, FAISS + BM25 entries (tombstones) and caches. Residuals: tombstoned vectors stay in memory until restart; a deleted user's `query_cache:*` keys live ≤ 1 h. (SQLite's reuse of freed user ids ended with Postgres, Day 14: sequences never reuse an id) | B1 | Done |
 | Fixed Day 9: confidence compared on the wrong scale. `POST /chat`'s 0.7 / 0.3 grounding went with the endpoint; the forced-web cap is 30, not 0.3; every threshold is a named constant in `retrieval/confidence.py`. Day 11 (E4): the score doesn't predict a hit (AUC 0.638 → 0.332 after B8; strict band hits less often than loose; 2 of 6 out-of-corpus questions get strict) — replace the heuristic on Day 26 | B2 | Done |
 | Fixed Day 5: `pytest.ini` uses `[pytest]`, so `testpaths` / `pythonpath` apply; the manual `src/test_*.py` scripts moved to `scripts/manual/` (deleted Day 10) and are never collected | T1 | Done |
 | Fixed Day 10: the contrib OpenCV build is reinstalled last (Dockerfile, CI, venv setup), so `cv2.ximgproc` is complete and ruled tables in images / PPTX slide images extract again; the Docker build asserts it | B3 | Done |
@@ -275,27 +287,34 @@ Found while writing this file; evidence and direction live under each ID.
 | Fixed Day 11: FAISS's squared L2 distances were fused as if higher = better, ranking the vector half backwards. `hybrid_retrieve` converts to cosine (`1 − d²/2`). E4: Hit@5 0.782 → 0.909, MRR@5 0.339 → 0.801. Residual: `semantic_search` / `POST /search` still return raw distances (no frontend caller) | B8 | Done |
 | Fixed Day 12: the generation model is `GEMINI_GENERATION_MODEL` (passed to `LLMClient`, `TopicClassifier`, `ConceptExtractor`), default `gemini-3.5-flash-lite` (500 RPD; 2.5-flash-lite's free tier was 20 and production's peak 28 requests in one day). It passed the generation eval's absolute gate (strict faithfulness 0.956, 0 contradicted claims, relevance 0.982); not a paired comparison — 2.5-flash-lite is not served to new projects. Reaches production with v0.2.1; rollback: `GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite` on Render | B9 | Done |
 | The PPTX chunker emits empty chunks (`HPC Lecture.pptx` slides 52, 199, 203); Gemini rejects them (400) and they are indexed as zero vectors (before B8's fix, the top hybrid hit for some queries). Skip empty chunks at indexing time on Day 16 | B10 | P2 |
-| Alembic targets the wrong database and misses the concept-map models | T2 | P1 |
+| Fixed Day 13: Alembic is the only schema path — URL from `Settings` (absolute SQLite default, so no side database), every model imported (`app.db.models`), baseline `7cb8829683ab` autogenerated on Postgres; startup `ALTER`s and `create_all` deleted; migrations run before uvicorn and the app refuses a database not at head. Verified: empty Postgres → `upgrade head` + `alembic check` no diff (local, CI, Supabase `rag_staging`); both local SQLite files schema-checked and stamped (backups in `backend/data/`). Also found: five `str(user_id)` DB filters, three string-id inserts and a raw-INSERT `lastrowid` that break on Postgres — fixed with the repositories, guarded by repository tests on Postgres in CI | T2 | Done |
 | Done Day 10 except the Tesseract installer still in git history (purge decided on Day 60) | T3 | P2 |
+| Fixed Day 14: `DELETE /sessions/{id}` returned 500 on Postgres for a session with failed queries (`fk_failed_queries_session_id_sessions`; SQLite never enforced foreign keys). `sessions_repo.delete_with_messages` now detaches them (`session_id = NULL`). Day 15's revision adds `ON DELETE SET NULL` there and `ON DELETE CASCADE` on every `user_id` foreign key (delete-path audit in the Day 14 brief) | — | Done |
+| Fixed Day 14: an identical re-upload whose existing row's file was gone (Render has no disk) deleted the new copy and indexed a missing file, so that file could never be uploaded again. `register_upload` re-links the row to the new copy | — | Done |
+| Found Day 14 (security): Render's SQLite reset user ids on every deploy / restart / idle spin-down while Render's Redis kept `semantic_cache:{user_id}` (no TTL), so a new user with a reused id could get a previous user's cached answers and their document text. Fixed by flushing Render Redis right before the v0.2.2 deploy, after which Postgres never reuses an id; any future database reset needs the same flush | G9 | P0 (In Progress until the release flush) |
+| `GET /sessions/{id}/messages` omits each message's `feedback`, so a reloaded chat shows no thumb already given (and a repeat thumbs-down logs a second failed query). Fix the backend field and `ChatWindow.js` rendering the same day | B11 | P2 |
 
 ---
 
 ## Conventions for This Repo
 
 - **No backend work without its UI (owner's rule).** Every user-visible backend capability — a new endpoint, response field, status, flag, score, or feature — ships with its frontend integration **in the same day/PR**: the screen or control that uses it, plus loading, empty, and error states. Never "UI later". Briefs list the UI changes for every deliverable; if something is genuinely backend-only (internal refactor, tracing, migrations), the brief says so explicitly. The UI overhaul phase restyles existing screens — it is not where features first get wired in.
-- **Run the backend from `backend/`** (`uvicorn app.main:app`). The package is `app`: imports are absolute (`from app.db.database import User`), never bare module names or relative imports, and nothing inside `backend/` edits `sys.path`. `pytest.ini` puts `backend/` on the path for tests; Alembic adds it itself. Dependencies point down only (`api` → `services` → `retrieval` / `generation` / `ingestion` → `db` → `core`); rules and the module map are in `docs/architecture/layout.md`.
+- **Run the backend from `backend/`** (`uvicorn app.main:app`). The package is `app`: imports are absolute (`from app.db.models import User`), never bare module names or relative imports, and nothing inside `backend/` edits `sys.path`. `pytest.ini` puts `backend/` on the path for tests; Alembic adds it itself. Dependencies point down only (`api` → `services` → `retrieval` / `generation` / `ingestion` → `db` → `core`); rules and the module map are in `docs/architecture/layout.md`.
 - **Configuration comes only from `app.core.config.settings`** (Day 7). No `os.getenv` or `load_dotenv` in `backend/app/`; a new variable is a `Settings` field plus an `.env.example` entry. Secrets are `SecretStr`: read them with `.get_secret_value()` at the call site and never log `settings`. `settings` is built once at import, so tests override fields with `monkeypatch.setattr(settings, ...)`; a later `setenv` doesn't reach it.
 - **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Index metadata stores `user_id` as a **string** (`str(user.id)`); filters must use the same type. Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
+- **Schema changes only through Alembic revisions** (Day 13, T2). Change the model, run `alembic revision --autogenerate -m "…"` against the local Postgres, review the file by hand (no `drop_table` / `drop_column` you didn't mean, renames are drop + add), then `alembic upgrade head` + `alembic check`. Never `create_all`, never hand-run DDL, never edit a revision that has run anywhere. Every model module is imported in `db/models/__init__.py`, or autogenerate thinks its table was deleted.
+- **SQL lives in `db/repositories/`** (Day 13). Plain functions taking the `Session` first; `user_id` is an `int` in every database filter (Postgres refuses `integer = text`); the caller commits; no HTTP errors inside. Postgres enforces foreign keys (SQLite never did), so every delete removes or detaches children before their parent. Routers keep validation, status codes and response shapes. Index and retrieval metadata keep their **string** user ids (next rule).
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
 - **One chat pipeline, one SSE contract.** All chat logic lives in `services/chat_pipeline.py`; the frame order (`metadata` → `token`… → `message_id` → `[DONE]`; refusals without `message_id`) is a contract with `ChatWindow.js`, checked by `test_api_smoke.py`. Change both sides the same day or not at all.
 - **Long-lived objects are built only in `services/container.py`** (called from the lifespan) and reached through `Depends(get_services)`. No module-level clients or singletons, and no class builds its own `genai.Client` or Redis client — take it as a constructor argument. Importing `app.main` must stay free of network calls (`test_app_factory.py`).
 - **Retrieved text is untrusted** (uploaded documents and web pages). Never put it in the system instruction; keep it delimited in the final user turn (G5).
 - **Keep the prompt prefix stable.** Don't add new per-turn variation to the system instruction or the start of history; variable content belongs in the final user turn (CO4).
 - **Eval and experiment code must not `import main`.** It gets its objects from `build_services()` (`services/container.py`) or constructs `IndexBuilder` / `RetrievalService` directly — `app.main` no longer exposes any of them.
+- **Tests run on Postgres in CI** (Day 14). A plain local `pytest` uses a temp SQLite file; `TEST_DATABASE_URL` + `TEST_DATABASE_SCHEMA` switch the whole suite to Postgres, and conftest accepts only a database named `*_test` because it wipes it (`downgrade base` + `upgrade head`) every run. Tests that need a database use the suite's (`SessionLocal`, or the `client` fixture), never a private in-memory SQLite engine, and never fixed ids: the database is shared, so give rows unique emails and let the sequence assign ids. (`test_migrations.py` keeps its own SQLite files on purpose.)
 - **Measure retrieval and prompt changes** with the eval harness once E4 exists, and record before/after numbers in the tracker's Notes column.
 - **Dependencies: edit `requirements.in`, regenerate `requirements.txt`** (Day 10). The `.in` file lists direct dependencies with a reason each; the lock is generated in `python:3.11-slim` with the old lock as constraints (command in its header) and is never hand-edited. Both are UTF-8. A new dependency still needs the owner's OK. After any `pip install -r requirements.txt`, reinstall the contrib OpenCV build last (B3): `pip install --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.88`.
 - **The host venv is not the lock.** It is Python 3.12; camelot-py requires `pypdf>=4,<6` on Python ≥ 3.12 and `pypdf<4` below, so the venv keeps `pypdf` 5.9.0 while the image and CI have 3.17.4. Windows also adds `colorama`. CI and the container (`.\scripts\dev.ps1 test`) run the exact Linux / 3.11 lock and are the reference.
-- **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID).
+- **Secrets live only in the root `.env`** (gitignored). `frontend/.env.production` **is tracked** and must hold only public values (API URL, Google client ID). No passwords in tracked files, not even dev defaults (GitGuardian flags them): compose requires `POSTGRES_PASSWORD` / `RAG_APP_PASSWORD` from `.env`, CI generates its own. Postgres role passwords reach Supabase only as SCRAM verifiers (`scripts/supabase/scram_verifier.py`) — its SQL editor logs the whole script (`log_statement = ddl`).
 - **Git flow** (since Day 1): `master` = released code, `develop` = integration branch.
   - **Branch protection (since Day 6), on both `master` and `develop`:** every change lands through a PR (0 approvals — solo repo); the required checks are exactly the three CI jobs `backend`, `frontend`, `docker` (bound to the GitHub Actions app; Vercel and GitGuardian checks are not required); branches need not be up to date; force-pushes and deletions are blocked; **administrators included** — direct pushes to either branch are rejected, for the owner too. Renaming a CI job means updating both protection rules first, or every PR waits forever.
   - Each timeline day runs on `feature/dayNN-<ids>-<slug>`, branched from `develop`, and is merged back into `develop` through a PR (`gh pr create --base develop`, then `gh pr merge <N> --merge --delete-branch`) once CI is green.
@@ -323,6 +342,33 @@ pip install --no-deps --force-reinstall opencv-contrib-python-headless==4.12.0.8
 .\venv\Scripts\Activate.ps1
 cd backend; uvicorn app.main:app --reload  # http://localhost:8000  (Swagger UI at /docs)
 
+# Database schema (Day 13, T2) — Alembic from the repo root; the URL comes from Settings (DATABASE_URL,
+# default backend/data/app.db). The app refuses to start on a database that isn't at head.
+alembic upgrade head                      # Docker runs this before uvicorn (image CMD, compose dev command)
+alembic check                             # "No new upgrade operations detected." = models and schema agree
+alembic current                           # the database's revision
+alembic revision --autogenerate -m "add x"   # against the local Postgres (below), then review the file by hand
+# alembic downgrade: the guard hook allows it only against a temp SQLite file or a local Postgres
+
+# Local Postgres — the app's database since Day 14 (compose, host port 5433; .env must set
+# POSTGRES_PASSWORD and RAG_APP_PASSWORD — every `docker compose` command fails without them — plus
+# DATABASE_URL=postgresql+psycopg://rag_app:<RAG_APP_PASSWORD>@localhost:5433/rag and DATABASE_SCHEMA=rag
+# for the venv). The init script creates role rag_app owning schema rag.
+docker compose up -d postgres
+alembic upgrade head; alembic check       # from the repo root, against .env's DATABASE_URL (local rag)
+
+# The whole suite on Postgres, as CI runs it (Day 14). Once per pgdata volume, create the rag_test
+# database (the init script is re-runnable; it reads RAG_APP_PASSWORD inside the container):
+docker exec rag-postgres sh -c 'createdb -U postgres rag_test && POSTGRES_DB=rag_test sh /docker-entrypoint-initdb.d/10-rag-schema.sh'
+$env:TEST_DATABASE_URL = "postgresql+psycopg://rag_app:<RAG_APP_PASSWORD>@localhost:5433/rag_test"; $env:TEST_DATABASE_SCHEMA = "rag"
+python -m pytest -q                       # conftest wipes + re-migrates rag_test; refuses a name not ending in _test
+Remove-Item Env:TEST_DATABASE_URL, Env:TEST_DATABASE_SCHEMA
+
+# Supabase staging (rag_staging): .env holds RAG_STAGING_DATABASE_URL (not read by the app); copy it
+# into $env:DATABASE_URL for one session with $env:DATABASE_SCHEMA = "rag_staging". Roles and schemas
+# come from scripts/supabase/setup_rag_schemas.sql (run by the owner in the SQL editor, verifiers only:
+# python scripts/supabase/scram_verifier.py rag_app)
+
 # Redis — must be running before the first chat request
 docker compose up redis                   # or a local redis-server
 
@@ -340,7 +386,8 @@ docker compose up --build                 # the same, in the foreground
 docker compose -f docker-compose.yml up --build
 
 # Tests — offline: no API keys, no network, no Redis (backend/tests/conftest.py fakes them); from the
-# repo root, pytest.ini limits collection to backend/tests/ and puts backend/ on the path
+# repo root, pytest.ini limits collection to backend/tests/ and puts backend/ on the path. A plain run
+# uses a temp SQLite file; CI runs it on Postgres (see "The whole suite on Postgres" above)
 python -m pytest
 .\scripts\dev.ps1 test                    # the same suite in the backend container (Linux, Python 3.11)
 
@@ -397,10 +444,17 @@ with one `ValidationError` that lists all of them.
 | `SEMANTIC_CACHE_REDIS_URL` | no | Semantic cache (`services/caches/semantic_cache.py`). Unset → `REDIS_URL` → `redis://localhost:6379/1`. Docker: `redis://redis:6379/1`. Render sets only `REDIS_URL`, so there the semantic cache still shares DB 0 |
 | `BASE_URL`, `FRONTEND_URL` | no | OAuth redirects; `http://localhost:8000`, `http://localhost:3000` |
 | `ALLOWED_ORIGINS` | no | Comma-separated CORS allowlist (entries trimmed). Default: `http://localhost:3000,http://localhost:8000,https://rag-study-assistant-chi.vercel.app`. On Render: only `https://rag-study-assistant-chi.vercel.app` |
+| `DATABASE_URL` | no (every environment sets it since Day 14) | `SecretStr`. Default `sqlite:///<repo>/backend/data/app.db` (absolute; only a plain local `pytest` still relies on SQLite, via its own temp file). Postgres must use `postgresql+psycopg://` — `postgresql://` is refused with the corrected prefix; Supabase via the **session pooler** (`<role>.<project-ref>@aws-0-<region>.pooler.supabase.com:5432/postgres`). Read by `db/session.py` and `alembic/env.py`. **Render** (from v0.2.2): `rag_app`'s session-pooler URL. **Venv**: `.env`, `rag_app@localhost:5433/rag`. **Docker**: compose sets `postgresql+psycopg://rag_app@postgres:5432/rag` with **no password in the URL** — libpq reads `PGPASSWORD` (compose sets it from `RAG_APP_PASSWORD`), so no credential-shaped string is tracked (GitGuardian flagged the `user:${VAR}@host` form, Day 14) |
+| `DATABASE_SCHEMA` | with a Postgres URL | the schema the role's `search_path` resolves to (`rag`, `rag_staging`); Alembic and the app refuse a connection whose `current_schema()` differs, and `alembic_version` lives in it. `rag` on Render, in `.env` and in compose |
+| `TEST_DATABASE_URL`, `TEST_DATABASE_SCHEMA` | no | not `Settings` fields: read by `backend/tests/conftest.py` (Day 14) to run the whole suite on Postgres. The database name must end in `_test` (it is wiped every run). CI: `rag_app@localhost:5432/rag_test`, schema `rag`. Never put them in `.env` |
+| `POSTGRES_PASSWORD`, `RAG_APP_PASSWORD` | for compose | not `Settings` fields: compose reads them for the local `postgres` service (superuser and `rag_app`); used once, when the `pgdata` volume is first initialised. No defaults — compose refuses to run without them |
+| `RAG_STAGING_DATABASE_URL` | no | not a `Settings` field: the Supabase staging URL kept in `.env` for manual Alembic runs (copied into `DATABASE_URL` for one session) |
 | `TESSERACT_PATH`, `PORT` | no | OCR binary path, set as pytesseract's `tesseract_cmd` by `ingestion/ocr/ocr.py`; unset → `tesseract` on `PATH`. Windows host `.env`: the `tesseract.exe` path; the Docker image sets `ENV TESSERACT_PATH=/usr/bin/tesseract` (so Render gets it without compose), and compose sets it again because `env_file: .env` would otherwise pass the Windows path in. uvicorn port in the Dockerfile (default 8000) |
 
 `.env.example` lists every backend variable with placeholders; keep it in sync when adding one.
-`DATABASE_URL` is not read by anything (SQLite path is hardcoded in `db/database.py`) — it returns on Day 13.
+Tests set their own `DATABASE_URL` (a temp SQLite file, or `TEST_DATABASE_URL`, in `conftest.py`), so a value in `.env` never reaches them.
+`env_file: .env` passes **every** `.env` variable into the Docker backend, including ones the app never reads (`RAG_STAGING_DATABASE_URL`, `POSTGRES_PASSWORD`) — never print a resolved `docker compose config` or a container's environment, even filtered (Day 14 brief, Risks 11–12).
+GitHub Actions secret: `SUPABASE_RAG_DB_URL` (`rag_app`, psql form) for `supabase-keepalive.yml`.
 
 Frontend (`frontend/.env`, `frontend/.env.production`): `REACT_APP_API_URL` (default
 `http://localhost:8000`), `REACT_APP_GOOGLE_CLIENT_ID`. CRA inlines these at **build** time; the
@@ -417,15 +471,18 @@ uses `node:24-alpine`. Changing one means changing all three. (The local machine
 
 | What | Where | Survives restart? |
 |---|---|---|
-| Users, sessions, messages, documents, failed queries, concept maps | SQLite `backend/data/app.db` (Docker: named volume `data` at `/app/backend/data`, separate from the venv's file) | yes on local disk / Docker volume |
-| Uploaded files | `backend/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `uploads/<name>`); `Document.file_path` is relative to the CWD (`backend/`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/backend/uploads`; Render: no disk, lost on every deploy |
+| Users, sessions, messages, documents, failed queries, concept maps | Postgres since Day 14: Supabase `rag` in production (from v0.2.2), the compose Postgres's `rag` locally (Docker backend and venv). Both started empty — nothing was copied. The old SQLite files are unused: `backend/data/app.db` (stamped Day 13), the Docker `data` volume, and the backups `backend/data/app.backup-2026-11-11.db`, `app.docker-backup-2026-11-11.db` | yes |
+| Local Postgres | compose `postgres` service, named volume `pgdata`, host port 5433: database `rag` (the app's) and `rag_test` (the suite's, wiped every Postgres test run); schema `rag`, role `rag_app` in both; `scripts/postgres/init-rag-schema.sh` (re-runnable since Day 14) creates them | yes (volume) |
+| Supabase | existing project (`ap-south-1`): schemas `rag` (production since v0.2.2) and `rag_staging` (at head, Day 13); `vector` in `extensions` | yes |
+| Uploaded files | `backend/uploads/{user_id}/{uuid}{ext}` (since Day 3; older rows: flat `uploads/<name>`); `Document.file_path` is relative to the CWD (`backend/`); display name in `Document.file_name` | yes locally; Docker: named volume `uploads` at `/app/backend/uploads`; Render: no disk, lost on every deploy, restart and idle spin-down while the row survives in Postgres (an identical re-upload re-links it; Supabase Storage on Day 15) |
 | FAISS vectors + chunk metadata (including chunk text) | process memory | **no** |
 | BM25 corpus | process memory | **no** |
 | L1 retrieval cache (≤ 256 entries) | class-level dict in `RetrievalService` | no |
 | Logs | `backend/logs/app.log` (rotating, 5 MB × 3, `[request_id]` on every line since Day 7; Docker: named volume `logs` at `/app/backend/logs`) | yes |
 
-On Render, local files (including SQLite) persist across deploys only if a persistent disk is
-attached — not verified for this deployment.
+Render (free plan, region Singapore) has **no persistent disk** — confirmed 2026-11-13 ("Disks
+are not supported"). Its filesystem is wiped on every deploy, restart and idle spin-down, so
+nothing durable may live there: the database is Supabase, files move to Supabase Storage on Day 15.
 
 ### Redis key schema
 
@@ -443,6 +500,11 @@ The code no longer reads it, but it still holds leaked data. Delete it on **both
 because which DB it landed in depended on whether `REDIS_URL` was set:
 - Locally: `docker exec rag-redis redis-cli -n 0 DEL semantic_cache_entries` and the same with `-n 1`.
 - On Render's Redis: the same `DEL` on DB 0 and DB 1 (Day 3 release checklist).
+
+**Whenever user ids restart** (switching the app to a new or emptied database, as at the v0.2.2
+cutover to Postgres): flush the cache DBs first. Keys embed the user id, and `semantic_cache:{id}` has
+no TTL, so a new user who receives an old id could be served another person's cached answers. The
+exact Render steps are in the Day 14 brief's release runbook (step 2).
 
 When adding a key: list it here with its TTL and how it is scoped to the user.
 
@@ -502,7 +564,8 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 
 ## Open Decisions (ask the owner before acting)
 
-- **Migrations:** make Alembic the real path (fix the URL, import all models in `env.py`) vs. keep the `db/database.py` startup migrations. Either way, retire the one-off scripts.
+- **Migrations — decided 2026-11-11 (Day 13, T2):** Alembic is the only path. Migrations run as their own step (`alembic upgrade head` before uvicorn), never from the app; the app only checks it is at head. Driver psycopg 3; repositories are plain functions and the caller commits.
+- **Database hosting — decided 2026-11-11 (Day 13):** the owner's existing Supabase project, isolated by schema (`rag` / `rag_staging`, one login role each, `search_path` set on the role as `<schema>, extensions`, not exposed to the Data API). `USAGE` on `public` stays inherited from `PUBLIC` (no project-wide revoke: another app shares the project). Through MCP, Claude reads catalog metadata only, never rows outside `rag` / `rag_staging`; schema and role changes go through reviewed SQL the owner runs.
 - **Chat endpoints — decided 2026-11-08 (Day 9):** `POST /chat` deleted; one `ChatPipeline` behind `/chat/stream`. A JSON endpoint, if one is ever needed, must call the same pipeline.
 - **Index persistence — decided 2026-11-04:** pgvector + Postgres full-text on Supabase (Days 13–16), uploaded files in Supabase Storage (Day 15). Render's filesystem is ephemeral, so nothing durable stays on it; `qdrant-client` can go with the Day 10 dependency cleanup.
 - **Dependencies — decided 2026-11-08 (Day 10):** unused packages removed; those tied to planned items kept (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); `src/requirements.txt` deleted. `ragas` (and the langchain packages it pulls in) waits for the Day 12 RAGAS-vs-judge decision.
@@ -513,7 +576,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 ## Claude Code Setup
 
 - **Skills** (`.claude/skills/`, user-invoked only): `/run-day <N>` reads Day N of `docs/timeline.md`, writes a brief to `docs/briefs/dayNN.md`, stops for approval, then implements checkpoint by checkpoint — the default way to start a day; `/run-item <ID>` does the same for a single tracker item outside the timeline; `/pre-commit` runs checks and reports, with no git writes; `/ship commit "day NN - …"` / `/ship merge` is the only skill that writes to git — commit + push + draft PR + watch CI, or merge a green PR into `develop` with a merge commit — with a safety scan (no `.env`, runtime data, `*.db` or secret-looking lines staged) and an explicit "yes" before every commit and merge. Releases (`develop` → `master` + tag) stay manual.
-- **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell), session-start context (git state and In Progress items), ruff check on edited `.py` files (rules from `ruff.toml`, the same set CI enforces), and reminders after editing this repo's trap files.
+- **Hooks** (`.claude/settings.json` → `.claude/hooks/*.py`): destructive-command guard (Bash and PowerShell; since Day 13 `alembic downgrade` is allowed only against a temp SQLite file or a local Postgres — the real `app.db`, the default, Supabase and any unreadable `DATABASE_URL` stay blocked), session-start context (git state and In Progress items), ruff check on edited `.py` files (rules from `ruff.toml`, the same set CI enforces), and reminders after editing this repo's trap files.
 - **Workflow, anchor and resume prompts:** `docs/claude-cheatsheet.md`.
 
 ## What Claude Must Do at the Start of Every Session

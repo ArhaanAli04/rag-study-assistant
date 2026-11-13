@@ -1,38 +1,41 @@
-"""B1: deleting an account removes all of that user's data and nothing of anyone else's."""
+"""B1: deleting an account removes all of that user's data and nothing of anyone else's.
+
+Runs on the suite's own database (SessionLocal: the temp SQLite file, or the Postgres _test
+database in CI since Day 14), so foreign keys are enforced on Postgres and a delete in the wrong
+order fails here. Users get database-assigned ids and unique emails, because the database is
+shared with the rest of the suite; every assertion is scoped to the users a test created.
+"""
+import uuid
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, Iterator, List, Tuple
 
 import numpy as np
 import pytest
-from sqlalchemy import create_engine, func
-from sqlalchemy.orm import Session as DbSession, sessionmaker
-from sqlalchemy.pool import StaticPool
+from sqlalchemy import func
+from sqlalchemy.orm import Session as DbSession
 
 from app.services.account_service import delete_user_account
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
-from app.db.database import Base, Document, FailedQuery, Message, Session as ChatSession, User
+from app.db.models import Document, FailedQuery, Message, Session as ChatSession, User
 from app.retrieval.keyword_index import BM25KeywordIndex
 from app.ingestion.models import DocumentChunk
 from app.ingestion.upload_storage import new_upload_path
 from app.retrieval.vector_store import FaissVectorStore
 
-A, B = 1, 2
 DIM = 4
 
 
 class FakeSemanticCache:
-    def __init__(self) -> None:
-        self.keys = {f"semantic_cache:{A}", f"semantic_cache:{B}"}
+    def __init__(self, *user_ids: int) -> None:
+        self.keys = {f"semantic_cache:{user_id}" for user_id in user_ids}
 
     def clear_user(self, user_id: int) -> None:
         self.keys.discard(f"semantic_cache:{user_id}")
 
 
 class FakeL1Cache:
-    def __init__(self) -> None:
-        self.entries: Dict[Tuple[str, str, int], Any] = {
-            (str(A), "q", 0): {}, (str(B), "q", 0): {},
-        }
+    def __init__(self, *user_ids: int) -> None:
+        self.entries: Dict[Tuple[str, str, int], Any] = {(str(user_id), "q", 0): {} for user_id in user_ids}
 
     def l1_cache_purge_user(self, user_id: str) -> int:
         stale = [k for k in self.entries if k[0] == user_id]
@@ -48,12 +51,10 @@ def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 @pytest.fixture
-def db() -> DbSession:
-    engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
-    )
-    Base.metadata.create_all(engine)
-    with sessionmaker(bind=engine)() as session:
+def db() -> Iterator[DbSession]:
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
         yield session
 
 
@@ -64,40 +65,42 @@ def _chunk(user_id: int, text: str) -> DocumentChunk:
     )
 
 
-def _seed_user(db: DbSession, root: Path, user_id: int, shared_legacy: str) -> Dict[str, Path]:
-    db.add(User(id=user_id, email=f"user{user_id}@example.com"))
-    own = new_upload_path(root, user_id, ".pdf")
+def _seed_user(db: DbSession, root: Path, shared_legacy: str) -> Tuple[int, Dict[str, Path]]:
+    user = User(email=f"account-{uuid.uuid4().hex[:12]}@example.com")
+    db.add(user)
+    db.flush()
+    own = new_upload_path(root, user.id, ".pdf")
     own.write_bytes(b"%PDF own")
-    private_legacy = root / f"private_{user_id}.pdf"
+    private_legacy = root / f"private_{user.id}.pdf"
     private_legacy.write_bytes(b"%PDF legacy")
     for path in (own, private_legacy, Path(shared_legacy)):
-        db.add(Document(user_id=user_id, file_name=path.name, file_path=str(path),
+        db.add(Document(user_id=user.id, file_name=path.name, file_path=str(path),
                         file_hash="h", version=1, is_active=True))
-    chat = ChatSession(user_id=user_id, title="chat")
+    chat = ChatSession(user_id=user.id, title="chat")
     db.add(chat)
     db.flush()
     db.add_all([
-        Message(user_id=user_id, session_id=chat.id, role="user", content="q"),
-        Message(user_id=user_id, session_id=chat.id, role="assistant", content="a"),
-        FailedQuery(user_id=user_id, session_id=chat.id, query="q", reason="low_confidence"),
+        Message(user_id=user.id, session_id=chat.id, role="user", content="q"),
+        Message(user_id=user.id, session_id=chat.id, role="assistant", content="a"),
+        FailedQuery(user_id=user.id, session_id=chat.id, query="q", reason="low_confidence"),
     ])
-    concept_map = ConceptMap(user_id=user_id, topic="RNN")
+    concept_map = ConceptMap(user_id=user.id, topic="RNN")
     db.add(concept_map)
     db.flush()
     db.add(ConceptMapNode(map_id=concept_map.id, node_id="n1", label="LSTM"))
     db.commit()
-    return {"own": own, "private_legacy": private_legacy}
+    return user.id, {"own": own, "private_legacy": private_legacy}
 
 
-def _indexes() -> Tuple[FaissVectorStore, BM25KeywordIndex]:
+def _indexes(a: int, b: int) -> Tuple[FaissVectorStore, BM25KeywordIndex]:
     store = FaissVectorStore(embedding_dim=DIM)
     bm25 = BM25KeywordIndex()
-    chunks = [_chunk(A, "recurrent networks"), _chunk(B, "recurrent networks")]
-    store.add_embeddings(np.ones((1, DIM), dtype=np.float32), [chunks[0]], user_id=str(A))
-    store.add_embeddings(np.ones((1, DIM), dtype=np.float32), [chunks[1]], user_id=str(B))
+    chunks = [_chunk(a, "recurrent networks"), _chunk(b, "recurrent networks")]
+    store.add_embeddings(np.ones((1, DIM), dtype=np.float32), [chunks[0]], user_id=str(a))
+    store.add_embeddings(np.ones((1, DIM), dtype=np.float32), [chunks[1]], user_id=str(b))
     bm25.add_documents([
         {"text": c.text, "metadata": {"user_id": str(uid), "id": c.id}}
-        for uid, c in ((A, chunks[0]), (B, chunks[1]))
+        for uid, c in ((a, chunks[0]), (b, chunks[1]))
     ])
     return store, bm25
 
@@ -110,34 +113,33 @@ def test_deleting_an_account_removes_everything_of_that_user_only(db: DbSession,
     root.mkdir(parents=True)
     shared = root / "DL_Unit5_RNN.pdf"
     shared.write_bytes(b"%PDF shared by A and B before G7")
-    files_a = _seed_user(db, root, A, str(shared))
-    files_b = _seed_user(db, root, B, str(shared))
-    store, bm25 = _indexes()
-    semantic_cache, l1 = FakeSemanticCache(), FakeL1Cache()
+    a, files_a = _seed_user(db, root, str(shared))
+    b, files_b = _seed_user(db, root, str(shared))
+    store, bm25 = _indexes(a, b)
+    semantic_cache, l1 = FakeSemanticCache(a, b), FakeL1Cache(a, b)
 
     summary = delete_user_account(
-        db, db.get(User, A), indexes=[store, bm25], semantic_cache=semantic_cache,
+        db, db.get(User, a), indexes=[store, bm25], semantic_cache=semantic_cache,
         retrieval_cache=l1, upload_root=root,
     )
 
     for model in (Document, ChatSession, Message, FailedQuery, ConceptMap):
-        assert _count(db, model, A) == 0, model.__tablename__
-        assert _count(db, model, B) > 0, model.__tablename__
-    assert db.get(User, A) is None and db.get(User, B) is not None
-    remaining_nodes = db.query(ConceptMapNode).join(ConceptMap).all()
-    assert [n.concept_map.user_id for n in remaining_nodes] == [B]
-    assert db.query(ConceptMapNode).count() == 1
+        assert _count(db, model, a) == 0, model.__tablename__
+        assert _count(db, model, b) > 0, model.__tablename__
+    assert db.get(User, a) is None and db.get(User, b) is not None
+    remaining_nodes = db.query(ConceptMapNode).join(ConceptMap).filter(ConceptMap.user_id.in_([a, b])).all()
+    assert [n.concept_map.user_id for n in remaining_nodes] == [b]
 
-    assert not (root / str(A)).exists()
+    assert not (root / str(a)).exists()
     assert not files_a["private_legacy"].exists()
     assert shared.exists(), "B's document still references the shared pre-G7 file"
     assert files_b["own"].exists() and files_b["private_legacy"].exists()
 
     query = np.ones(DIM, dtype=np.float32)
-    assert [m["user_id"] for _, m in store.search(query, top_k=5)] == [str(B)]
-    assert [r["metadata"]["user_id"] for r in bm25.search("recurrent", top_k=5)] == [str(B)]
-    assert semantic_cache.keys == {f"semantic_cache:{B}"}
-    assert list(l1.entries) == [(str(B), "q", 0)]
+    assert [m["user_id"] for _, m in store.search(query, top_k=5)] == [str(b)]
+    assert [r["metadata"]["user_id"] for r in bm25.search("recurrent", top_k=5)] == [str(b)]
+    assert semantic_cache.keys == {f"semantic_cache:{b}"}
+    assert list(l1.entries) == [(str(b), "q", 0)]
 
     assert summary.documents == 3
     assert summary.sessions == 1
@@ -149,16 +151,18 @@ def test_deleting_an_account_removes_everything_of_that_user_only(db: DbSession,
 
 
 def test_a_new_account_reusing_the_id_sees_no_old_chunks(db: DbSession, root: Path) -> None:
-    # SQLite hands out max(id)+1, so a deleted highest id comes back for the next sign-up.
+    # SQLite hands out max(id)+1, so a deleted highest id comes back for the next sign-up (the B1
+    # residual; Postgres sequences never reuse an id). The tombstones must hide the old chunks anyway.
     root.mkdir(parents=True)
-    _seed_user(db, root, A, str(root / "unused.pdf"))
-    store, bm25 = _indexes()
+    a, _ = _seed_user(db, root, str(root / "unused.pdf"))
+    other = a + 1
+    store, bm25 = _indexes(a, other)
     delete_user_account(
-        db, db.get(User, A), indexes=[store, bm25], semantic_cache=FakeSemanticCache(),
-        retrieval_cache=FakeL1Cache(), upload_root=root,
+        db, db.get(User, a), indexes=[store, bm25], semantic_cache=FakeSemanticCache(a),
+        retrieval_cache=FakeL1Cache(a), upload_root=root,
     )
 
-    filters = {"user_id": str(A)}
+    filters = {"user_id": str(a)}
     assert store.search(np.ones(DIM, dtype=np.float32), top_k=5, filters=filters) == []
     assert bm25.search("recurrent", top_k=5, filters=filters) == []
 

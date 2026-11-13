@@ -25,6 +25,24 @@ jobs:
     name: backend
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # The same Postgres as docker compose and production (pg17 + pgvector 0.8.2, as on Supabase):
+    # Day 13 proved the Alembic baseline here, and since Day 14 the whole pytest suite runs on it.
+    # The database is named rag_test because conftest only accepts (and wipes) a *_test database.
+    # Throwaway and only reachable from this job, so `trust` auth: no password lives in this file.
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rag_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d rag_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - uses: actions/checkout@v4
 
@@ -39,7 +57,7 @@ jobs:
       - name: Install system packages
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils
+          sudo apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils postgresql-client
 
       - name: Install Python dependencies
         run: |
@@ -53,10 +71,50 @@ jobs:
       - name: Ruff
         run: ruff check . --output-format github
 
-      # No secrets on purpose: tests/conftest.py supplies dummy keys, fakes Gemini, Tavily and
-      # Redis, and refuses network sockets.
-      - name: Pytest
-        run: python -m pytest -q
+      # Values only for this job, generated so no secret-looking literal sits in the repo:
+      # rag_app's password (the init script requires one), and the required Settings fields that
+      # alembic/env.py's `from app.core.config import settings` validates. Masked in the log.
+      - name: Postgres - generate throwaway credentials
+        run: |
+          for name in RAG_APP_PASSWORD GEMINI_API_KEY JWT_SECRET_KEY GOOGLE_CLIENT_SECRET; do
+            value=$(openssl rand -hex 24)
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+          echo "GOOGLE_CLIENT_ID=ci.apps.googleusercontent.com" >> "$GITHUB_ENV"
+          echo "GOOGLE_REDIRECT_URI=http://localhost:8000/auth/google/callback" >> "$GITHUB_ENV"
+
+      # Same script docker compose runs, so CI, local and Supabase share one shape: role rag_app
+      # owning schema rag, search_path = rag, extensions, pgvector in `extensions`.
+      - name: Postgres - create the rag schema and rag_app role
+        env:
+          PGHOST: localhost
+          POSTGRES_USER: postgres
+          POSTGRES_DB: rag_test
+        run: sh scripts/postgres/init-rag-schema.sh
+
+      # The timeline's Day 13 check: an empty database migrates to head, and autogenerate finds no
+      # difference between the models and the migrated schema. Connected as rag_app, so the
+      # current_schema() guard in app/db/migrations.py runs too.
+      - name: Postgres - alembic upgrade head and alembic check
+        env:
+          DATABASE_SCHEMA: rag
+        run: |
+          export DATABASE_URL="postgresql+psycopg://rag_app:${RAG_APP_PASSWORD}@localhost:5432/rag_test"
+          alembic upgrade head
+          alembic check
+
+      # The whole suite on Postgres (Day 14): production runs on it since v0.2.2, and it compares
+      # types strictly (a filter like Document.user_id == str(user.id) passes on SQLite and fails
+      # here). conftest wipes and re-migrates rag_test first; test_repositories.py uses it too.
+      # No secrets on purpose: conftest supplies dummy keys, fakes Gemini, Tavily and Redis, and
+      # refuses non-loopback sockets.
+      - name: Pytest (on Postgres)
+        env:
+          TEST_DATABASE_SCHEMA: rag
+        run: |
+          export TEST_DATABASE_URL="postgresql+psycopg://rag_app:${RAG_APP_PASSWORD}@localhost:5432/rag_test"
+          python -m pytest -q
 
   frontend:
     name: frontend

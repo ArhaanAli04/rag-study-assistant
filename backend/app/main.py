@@ -17,7 +17,8 @@ from app.api.routes import auth, chat, concepts, documents, feedback, health, qu
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.request_id import RequestIdMiddleware
-from app.db.database import init_db
+from app.db.migrations import assert_schema_at_head
+from app.db.session import engine
 from app.services.container import build_services
 
 logger = setup_logging()
@@ -27,8 +28,11 @@ ROUTERS = (health, auth, users, documents, chat, sessions, feedback, quiz, conce
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    init_db()
-    logger.info("Database initialized")
+    # Alembic owns the schema (T2): migrations run as their own step (`alembic upgrade head`, before
+    # uvicorn in Docker). The app never migrates; it refuses to start on a database that isn't at
+    # head, so a missing column is a clear startup error, not a 500 in someone's request.
+    assert_schema_at_head(engine)
+    logger.info("Database schema is at head")
     started = time.perf_counter()
     app.state.services = build_services()
     logger.info(f"Services built in {time.perf_counter() - started:.2f}s")

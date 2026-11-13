@@ -3,7 +3,7 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, get_services, get_user_from_query_token
-from app.db.database import User
+from app.db.models import User
 from app.services.container import Services
 
 router = APIRouter(tags=["Chat"])

@@ -5,7 +5,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
-from app.db.database import Document, User
+from app.db.models import User
+from app.db.repositories import documents as documents_repo
 from app.ingestion.upload_storage import UPLOAD_ROOT
 from app.schemas.users import ProfileUpdate
 from app.services.account_service import delete_user_account
@@ -52,11 +53,7 @@ async def get_user_stats(
 ) -> Dict[str, Any]:
     """Get user statistics for profile"""
 
-    # Count documents uploaded by user
-    document_count = db.query(Document).filter(
-        Document.user_id == str(current_user.id),
-        Document.is_active == True
-    ).count()
+    document_count = documents_repo.count_active(db, current_user.id)
 
     # Get account creation date
     created_at = current_user.created_at if hasattr(current_user, 'created_at') and current_user.created_at else None

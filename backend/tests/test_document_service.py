@@ -74,6 +74,26 @@ def test_reupload_into_own_directory_drops_the_new_copy(
     assert not Path(second).exists()
 
 
+def test_reupload_after_the_stored_file_vanished_moves_row_to_the_new_copy(
+    root: Path, session_factory: sessionmaker, users: Tuple[int, int]
+) -> None:
+    # Render (no disk) loses uploads on every restart, while the row survives in Postgres. The
+    # identical re-upload must restore the document, not delete the only copy left.
+    owner, _ = users
+    first = _store(root, owner, PDF_BYTES)
+    doc_id = _add_row(session_factory, owner, first, compute_file_hash(first))
+    Path(first).unlink()
+
+    second = _store(root, owner, PDF_BYTES)
+    doc = register_upload(owner, second, "notes.pdf", root, session_factory)
+
+    assert doc.id == doc_id
+    assert doc.file_path == second
+    assert Path(second).read_bytes() == PDF_BYTES
+    with session_factory() as db:
+        assert db.get(Document, doc_id).file_path == second
+
+
 def test_reupload_over_legacy_flat_path_moves_row_to_the_new_copy(
     root: Path, session_factory: sessionmaker, users: Tuple[int, int]
 ) -> None:

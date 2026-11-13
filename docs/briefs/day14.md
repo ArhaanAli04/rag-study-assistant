@@ -333,7 +333,7 @@ Steps marked **(you)** need the dashboard, secrets or git, which stay yours. **(
 7. **Local Docker data:** the `data` volume's SQLite (3 accounts) is abandoned, not deleted. The backups in `backend/data/` stay.
 9. **Found in Checkpoint 1 (2026-11-13): deleting a session that has a failed query returned 500 on Postgres.** The error was `ForeignKeyViolation` on `fk_failed_queries_session_id_sessions`, from `DELETE /sessions/{id}`; SQLite never enforced it.
    - **Fixed (owner: A):** `sessions_repo.delete_with_messages` sets the session's failed queries' `session_id` to `NULL` before deleting the session, with a new repository test.
-   - **Tracked for Day 15 (owner: B):** the same revision that creates `document_chunks` recreates the foreign key with `ON DELETE SET NULL` (noted in `docs/timeline.md` Day 15).
+   - **Tracked for Day 15 (owner: B):** the same revision that creates `document_chunks` recreates the foreign key with `ON DELETE SET NULL`. It also recreates the `user_id` foreign keys of sessions, documents, messages, failed_queries and concept_maps with `ON DELETE CASCADE`, following the delete-path audit (owner, 2026-11-13). Both are noted in `docs/timeline.md` Day 15.
 8. **Day 17 changes:** its release (v0.3.0) no longer does a data migration or a first `upgrade` on `rag`. Its CLAUDE.md bullet ("indexes now persist in Postgres") stays.
 
 ## Reference — if a SQLite → Postgres copy is ever needed

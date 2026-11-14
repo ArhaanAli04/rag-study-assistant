@@ -1,7 +1,11 @@
 """Make the whole suite hermetic: no API keys, no network, no Redis, no files in the repo.
 
+The one outside dependency is a Postgres *_test database (TEST_DATABASE_URL, Day 15: the schema
+needs pgvector and full-text search, so SQLite can't stand in for it). Locally that is the compose
+Postgres (CLAUDE.md, Key Commands); CI starts its own.
+
 Everything here is installed in pytest_configure, before any test module is collected: the
-engine is built from settings.DATABASE_URL at import, so the suite's own SQLite file must be set
+engine is built from settings.DATABASE_URL at import, so the suite's database must be set
 first. Since Day 9 the app's
 clients (Gemini, Redis) are built in the lifespan, which `with TestClient(app)` runs once per test,
 so each test gets fresh indexes; the fakes still sit at the SDK constructors, which covers the
@@ -16,7 +20,7 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Set, Tuple
 
 import pytest
 
@@ -54,6 +58,11 @@ class NetworkBlocked(RuntimeError):
 _state: Dict[str, Any] = {}
 redis_server = FakeRedisServer()
 
+# The suite's Postgres when it isn't on loopback: the compose service `postgres` for
+# `.\scripts\dev.ps1 test`. Only that host name, and only its addresses on the URL's port, pass.
+_database_hosts: Set[str] = set()
+_database_endpoints: Set[Tuple[str, int]] = set()
+
 
 def _is_loopback(host: str) -> bool:
     if host in ("localhost", "testserver"):
@@ -64,11 +73,23 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def _allow_database_host(host: str | None, port: int | None) -> None:
+    """Allow the suite's own database host; called before the socket guards are installed."""
+    if not host or _is_loopback(host):
+        return
+    port = port or 5432
+    _database_hosts.add(host)
+    for *_, sockaddr in socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP):
+        _database_endpoints.add((str(sockaddr[0]), port))
+
+
 def _guarded_connect(original: Any) -> Any:
     def connect(sock: socket.socket, address: Any) -> Any:
         # AF_INET / AF_INET6 addresses are tuples; anything else (AF_UNIX) is local by definition.
         if isinstance(address, tuple):
             host, port = str(address[0]), int(address[1])
+            if (host, port) in _database_endpoints:
+                return original(sock, address)
             if not _is_loopback(host):
                 raise NetworkBlocked(f"test tried to connect to {host}:{port}")
             if port in BLOCKED_LOOPBACK_PORTS:
@@ -80,25 +101,27 @@ def _guarded_connect(original: Any) -> Any:
 
 def _guarded_getaddrinfo(original: Any) -> Any:
     def getaddrinfo(host: Any, *args: Any, **kwargs: Any) -> List[Tuple[Any, ...]]:
-        if host is not None and not _is_loopback(host.decode() if isinstance(host, bytes) else str(host)):
+        name = host.decode() if isinstance(host, bytes) else str(host)
+        if host is not None and name not in _database_hosts and not _is_loopback(name):
             raise NetworkBlocked(f"test tried to resolve {host!r}")
         return original(host, *args, **kwargs)
 
     return getaddrinfo
 
 
-def _suite_database_env(workdir: Path) -> Dict[str, Optional[str]]:
-    """The database the whole suite runs against; None means "unset this variable".
+def _suite_database_env() -> Dict[str, Optional[str]]:
+    """The Postgres database the whole suite runs against, which it wipes and re-migrates.
 
-    Default: a SQLite file in the suite's temp dir. Since Day 13 the app's default database is an
-    absolute path (backend/data/app.db, the developer's real one), so the chdir below doesn't
-    isolate it. With TEST_DATABASE_URL (CI since Day 14), a Postgres database instead, which this
-    suite wipes and re-migrates; only a database named *_test is accepted, so a stray variable
-    can never point the reset at dev, staging or production.
+    Only a database named *_test is accepted, so a stray variable can never point the reset at
+    dev, staging or production.
     """
     url = os.environ.get("TEST_DATABASE_URL")
     if not url:
-        return {"DATABASE_URL": f"sqlite:///{(workdir / 'data' / 'app.db').as_posix()}", "DATABASE_SCHEMA": None}
+        raise pytest.UsageError(
+            "TEST_DATABASE_URL is not set. The suite runs on Postgres (Day 15): start the compose "
+            "Postgres and set TEST_DATABASE_URL / TEST_DATABASE_SCHEMA to its rag_test database "
+            "(CLAUDE.md, Key Commands)."
+        )
 
     from sqlalchemy.engine import make_url
 
@@ -111,6 +134,7 @@ def _suite_database_env(workdir: Path) -> Dict[str, Optional[str]]:
     schema = os.environ.get("TEST_DATABASE_SCHEMA")
     if not schema:
         raise pytest.UsageError("TEST_DATABASE_SCHEMA is required with TEST_DATABASE_URL (e.g. rag).")
+    _allow_database_host(parsed.host, parsed.port)
     return {"DATABASE_URL": url, "DATABASE_SCHEMA": schema}
 
 
@@ -118,7 +142,7 @@ def pytest_configure(config: pytest.Config) -> None:
     # data/, uploads/ and logs/ are resolved against the CWD at import time; keep them out of the repo.
     workdir = Path(tempfile.mkdtemp(prefix="rag-tests-"))
     # Set before settings is imported, so these also win over the real .env.
-    test_env: Dict[str, Optional[str]] = {**TEST_ENV, **_suite_database_env(workdir)}
+    test_env: Dict[str, Optional[str]] = {**TEST_ENV, **_suite_database_env()}
     for key, value in test_env.items():
         _state.setdefault("env", {})[key] = os.environ.get(key)
         if value is None:
@@ -154,15 +178,14 @@ def pytest_configure(config: pytest.Config) -> None:
     os.chdir(workdir)
 
     # The lifespan refuses a database that isn't at Alembic head (T2, Day 13), so the suite's own
-    # database is migrated first, through the same scripts production runs. A Postgres _test
-    # database outlives the run, so it is emptied first: every run starts from the same state, and
-    # the downgrade path runs on Postgres too.
+    # database is migrated first, through the same scripts production runs. The _test database
+    # outlives the run, so it is emptied first: every run starts from the same state, and the
+    # downgrade path runs too.
     from alembic import command
 
     from app.db.migrations import alembic_config
 
-    if os.environ.get("TEST_DATABASE_URL"):
-        command.downgrade(alembic_config(), "base")
+    command.downgrade(alembic_config(), "base")
     command.upgrade(alembic_config(), "head")
 
 
@@ -170,7 +193,7 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     if "cwd" not in _state:
         return
     os.chdir(_state["cwd"])
-    # Windows can't delete open files: release the SQLite file and the app's log handlers first.
+    # Windows can't delete open files: release the pooled connections and the app's log handlers first.
     db_module = sys.modules.get("app.db.session")
     if db_module is not None:
         db_module.engine.dispose()

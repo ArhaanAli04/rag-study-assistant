@@ -84,6 +84,7 @@ pandas==2.3.3
 passlib==1.7.4
 pdfminer.six==20251107
 pdfplumber==0.11.8
+pgvector==0.5.1
 pillow==12.0.0
 platformdirs==4.5.1
 pluggy==1.6.0

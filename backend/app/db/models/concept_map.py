@@ -16,7 +16,7 @@ class ConceptMap(Base):
     __tablename__ = "concept_maps"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # Links to User.id
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     topic = Column(String, nullable=False)  # User-defined topic (e.g., "Machine Learning")
     
     # JSON storage for map structure

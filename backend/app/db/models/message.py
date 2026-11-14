@@ -9,7 +9,7 @@ from app.db.base import Base
 class Message(Base):
     __tablename__ = "messages"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     session_id = Column(Integer, ForeignKey("sessions.id"))
     role = Column(String)  # 'user' or 'assistant'
     content = Column(Text)

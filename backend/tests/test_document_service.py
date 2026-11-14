@@ -166,7 +166,7 @@ def test_an_identical_reupload_without_chunks_is_reindexed(
     assert again.document.id == first.id
 
 
-def test_a_changed_file_is_a_new_version_and_the_old_versions_chunks_are_deleted(
+def test_a_changed_file_is_a_new_version_that_supersedes_the_old_one(
     storage: LocalFileStorage, session_factory: sessionmaker, users: Tuple[int, int]
 ) -> None:
     owner, _ = users
@@ -177,7 +177,10 @@ def test_a_changed_file_is_a_new_version_and_the_old_versions_chunks_are_deleted
 
     assert v2.status == "changed" and v2.needs_indexing
     assert v2.document.version == 2 and v2.document.file_path != v1.file_path
-    assert _chunk_count(session_factory, [v1.id]) == 0
+    # CO3 (Day 16): v1's chunks stay until indexing v2 has reused their vectors and replaces them in its
+    # commit (test_embedding_reuse); search already skips them, since v1 is inactive.
+    assert v2.superseded_document_ids == (v1.id,)
+    assert _chunk_count(session_factory, [v1.id]) == 2
     with session_factory() as db:
         assert db.get(Document, v1.id).is_active is False
 

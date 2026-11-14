@@ -229,3 +229,88 @@ Trade-off: a long transaction holds a pooled connection, and holding one open ac
   - So production can embed **about 1,000 texts per day across all users**: upload chunks and chat queries draw on the same budget. One 107-chunk lecture PDF is ~11% of a day.
   - Each chat turn currently embeds its question up to 3 times (the CO5 Day 16 finding in `docs/improvements.md`), so a turn costs up to 3 of those 1,000.
   - Not fixed today. CO3 (Checkpoint 2) cuts the upload side for re-uploads.
+
+### Checkpoint 2 — CO3 embedding reuse by content hash (2026-11-15)
+- **Files:**
+  - `alembic/versions/21f0595f83d5_document_chunks_user_content_hash_index.py`: one `create_index` (reviewed by hand: no drops). `backend/app/db/models/document_chunk.py`: the `Index`.
+  - `backend/app/db/repositories/chunks.py`: `embeddings_by_hash(db, user_id, hashes)`, one query, this user only, active and inactive versions alike.
+  - `backend/app/services/indexing_service.py`:
+    - hash → look up the stored vectors (before the delete, so re-indexing reuses the document's own vectors) → embed only the missing texts, each distinct text once → delete the chunks of the document *and its superseded versions* → insert
+    - `reuse_embeddings=False` forces a full re-embed (model change, reindex `--re-embed`)
+    - `IndexingResult` gains `embeddings_reused` and `texts_embedded` (logged, not in the API response)
+  - `backend/app/services/document_service.py`:
+    - `register_upload` no longer deletes old versions' chunks. `RegisteredUpload.superseded_document_ids` carries them to indexing.
+    - A `reindexed` re-upload also carries the earlier versions, so a failed changed upload's leftovers are cleared then.
+  - `backend/app/api/routes/documents.py`: passes `superseded_document_ids`.
+  - **Tests:**
+    - `test_embedding_reuse.py` (new, 7 tests):
+      - re-index identical → 0 calls
+      - `reuse=False` → all embedded
+      - duplicate text within a document embedded once
+      - **another user's identical text is not reused**
+      - **a changed upload embeds only its changed chunks and leaves no old chunks**
+      - **a changed upload whose embedding fails keeps the old chunks, unsearchable** (vector and keyword halves both empty)
+      - a re-upload after that failure clears the old chunks
+    - `test_document_service.py`: the changed-version test now expects superseded ids and v1's chunks kept until indexing.
+    - `test_chunk_store.py`: the failed-embedding test forces `reuse_embeddings=False` (the same file would otherwise make no call).
+    - `test_migrations.py`: the new index exists.
+- **Checks:**
+  - suite 336 → **343 passed**; `ruff check .` clean
+  - local `rag`: `alembic upgrade head` → `21f0595f83d5`, `alembic check` "No new upgrade operations detected"
+  - `rag_staging`: not touched (owner runs it)
+- **E4 baseline after CO3** (eval cache: 588 hits, **0 API calls**; `2026-11-15-baseline-after-co3.md`): Hit@5 **0.909 = 50/55** (unchanged), **MRR@5 0.808, not 0.806** (MRR@10 0.824 → 0.821, nDCG@10 0.853 → 0.851).
+  - **Cause: the order of exact ties.** 7 questions changed order (g-012, g-029, g-034, h-07, h-09, n-01, n-04). Every pair that swapped has **identical chunk text** (same `content_hash`, so the same vector and score; confidence equal to every decimal):
+    - HPC slides 88/89, 98/99, 86/87, 4/6, 110/111
+    - BCT pages 30/34/40/46
+  - `_VECTOR_SEARCH` orders by distance only. Postgres's sort is not stable, and the eval re-creates its user each run, so the physical row layout differs. Tied rows can then come back in either order.
+  - Only g-029 changes a metric: its relevant slide 98 swapped with its duplicate 99 (rank 4 → 3 served; rank 2 → 3 deep).
+  - 616 → 588 cache hits: the corpus has 28 chunks whose text repeats an earlier chunk's, and they are now embedded once per document.
+  - Not caused by a vector change. A deterministic fix would be `ORDER BY c.embedding <=> :q, c.id` (keyword search already breaks ties on `c.id`). **Not done: owner's call.**
+- **Live check** (venv backend on :8001, eval key, local `rag`; a throwaway account deleted afterwards). `co3-notes.pdf`: v1 = NLP Exp4 pages 1–3, v2 = the same with page 3 replaced by BDA Exp10's page 1 (built with pypdf):
+
+  | Upload | Status | Chunks | Reused | Texts embedded | Gemini requests | Time |
+  |---|---|---|---|---|---|---|
+  | v1 | new | 6 | 0 | 6 | 1 | 3.9 s |
+  | v2 (2 of 7 chunks changed) | changed | 7 | **5** | **2** | **1** | 3.0 s |
+  | v2 again | unchanged | 0 (skipped, I6) | — | 0 | 0 | 2.1 s |
+
+  - Requests counted as batches: one batch per upload, and no retry warning in the log.
+  - `GET /documents` listed only version 2, with 7 chunks.
+  - The account delete removed 2 document rows, 2 files and 7 chunks: v1's 6 chunks were already gone.
+- **Found:** the Docker backend (`rag-backend`) fails startup after the local migration: `SchemaNotAtHead: Database schema is at 21f0595f83d5, the code expects 500c410270f5`. Its `alembic/` directory is baked into the image (only `backend/app/` is bind-mounted). `docker compose build backend` fixes it; it is needed before Checkpoint 4's badge check.
+- **`rag_staging` commands for the owner** (repo root, PowerShell; nothing is printed but revisions):
+  ```powershell
+  $env:DATABASE_URL = ((Get-Content .env | Where-Object { $_ -match '^RAG_STAGING_DATABASE_URL=' }) -replace '^RAG_STAGING_DATABASE_URL=', '').Trim('"')
+  $env:DATABASE_SCHEMA = "rag_staging"
+  .\venv\Scripts\alembic.exe current        # expect 500c410270f5
+  .\venv\Scripts\alembic.exe upgrade head   # 500c410270f5 -> 21f0595f83d5
+  .\venv\Scripts\alembic.exe check          # expect "No new upgrade operations detected."
+  .\venv\Scripts\alembic.exe current        # expect 21f0595f83d5 (head)
+  Remove-Item Env:DATABASE_URL, Env:DATABASE_SCHEMA
+  ```
+- **Deterministic tie order (owner's Decision 1, 2026-11-15).**
+  - **Why not `ORDER BY distance, id` in one query:** pgvector's HNSW index serves only `ORDER BY <distance> LIMIT k`, so a second sort key would turn it into a full scan at scale (owner).
+  - **What changed:**
+    - `_VECTOR_SEARCH` (`db/repositories/chunks.py`) is now two levels. The inner query is unchanged in shape (top-k by distance, served by the index). The outer one orders those k rows by `(distance, id)`.
+    - Test: `test_exact_ties_in_vector_search_come_back_in_id_order` (`test_chunk_store.py`).
+    - Suite **344 passed**, ruff clean.
+  - **EXPLAIN** (`rag_eval`, 419 chunks, k = 10, a stored chunk's vector as the query, planner settings `SET LOCAL` in a rolled-back transaction):
+    - `enable_seqscan=off` alone: **neither** version uses HNSW. Before and after both pick a user_id btree (bitmap scan) + exact sort. Adding `enable_bitmapscan=off` gives the `(user_id, document_id)` btree + sort, again in both. At this size the planner prefers exact search, as on Day 15.
+    - With Day 15's settings (`enable_seqscan`, `enable_bitmapscan`, `enable_sort` off), both use the HNSW index under the `Limit`:
+      ```
+      BEFORE                                          AFTER
+      Limit                                           Incremental Sort
+        ->  Nested Loop                                 Sort Key: top.distance, top.id
+              ->  Index Scan using                      Presorted Key: top.distance
+                  ix_document_chunks_embedding_hnsw     ->  Subquery Scan on top
+                  Order By: (embedding <=> q)                 ->  Limit
+                  Filter: metadata @> {} AND user_id                ->  Nested Loop
+              ->  Memoize -> Index Scan pk_documents                    ->  Index Scan using ix_document_chunks_embedding_hnsw
+                                                                            Order By: (embedding <=> q)
+                                                                        ->  Memoize -> Index Scan pk_documents
+      ```
+      The inner plan is the same index scan; the outer `Incremental Sort` touches only the k rows, already sorted by distance.
+  - **E4 baseline, run twice after the change** (`2026-11-15-baseline-tiebreak-run1/2`; each 588 cache hits, **0 API calls**):
+    - **Every summary number is identical between the two runs:** Hit@5 **0.909 (50/55)**, **MRR@5 0.808**, Recall@5 0.897, Recall@10 0.964, MRR@10 0.824, nDCG@10 0.853.
+    - **MRR@5 0.808 is the recorded value.** It differs from Day 15's 0.806 only through g-029's tie: slide 98 and its identical slide 99 now come back in id order, so the relevant one ranks 3rd instead of 4th.
+    - **One per-question difference remains:** n-05 (out-of-corpus, no metric). Its 5th served chunk is BCT page 40 in run 1 and page 34 in run 2, two of the four identical BCT chunks (30/34/40/46). This is a tie **straddling the k-th place**: which tied rows the inner `LIMIT` admits is still up to the scan, and the outer sort can only order what it gets. It affects no metric today. Over-fetching (inner `LIMIT k + m`, outer `LIMIT k`) would cover up to m extra ties; not done.

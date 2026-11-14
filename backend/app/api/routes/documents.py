@@ -86,6 +86,7 @@ async def upload_file(
                 document_id=doc.id,
                 document_version=doc.version,
                 file_name=original_name,
+                superseded_document_ids=registered.superseded_document_ids,
             )
     except (EmbeddingError, StorageError):
         # Nothing was written: the row stays without chunks, and re-uploading the file indexes it.

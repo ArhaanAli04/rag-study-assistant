@@ -2,7 +2,7 @@
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Tuple
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,7 +23,8 @@ from app.ingestion.upload_storage import (
 logger = logging.getLogger("rag_assistant.documents")
 
 # new        — a file name this user never uploaded: index it.
-# changed    — a new version of an existing file name: index it; the old version's chunks are gone.
+# changed    — a new version of an existing file name: index it; indexing then replaces the earlier
+#              versions' chunks (they stay until then, so unchanged chunks reuse their vectors, CO3).
 # unchanged  — an identical re-upload that is already indexed: nothing to index, no doc_version bump.
 # reindexed  — an identical re-upload whose row has no chunks (indexing failed, or the row predates
 #              document_chunks, v0.2.2): index it again.
@@ -34,6 +35,8 @@ UploadStatus = Literal["new", "changed", "unchanged", "reindexed"]
 class RegisteredUpload:
     document: Document
     status: UploadStatus
+    # The same file name's earlier versions (inactive), whose chunks indexing deletes in its commit.
+    superseded_document_ids: Tuple[int, ...] = ()
 
     @property
     def needs_indexing(self) -> bool:
@@ -83,22 +86,27 @@ def register_upload(
                 storage.put(key, content)
                 existing.file_path = key
             existing.file_size = len(content)
+            # A changed upload whose indexing failed left the earlier versions' chunks behind; its
+            # identical re-upload ("reindexed") replaces them too.
+            earlier = tuple(
+                d.id for d in documents_repo.list_versions(db, user_id, file_name) if d.id != existing.id
+            ) if status == "reindexed" else ()
             db.commit()
             db.refresh(existing)
-            return RegisteredUpload(existing, status)
+            return RegisteredUpload(existing, status, earlier)
 
         key = new_upload_key(user_id, file_extension(file_name))
         storage.put(key, content)
         try:
             new_version = 1
+            superseded: Tuple[int, ...] = ()
             if existing:
                 existing.is_active = False
                 new_version = existing.version + 1
-                # I6: an old version's chunks would otherwise stay in the table forever. Search
-                # already skips inactive versions; this removes them in the same transaction.
-                chunks_repo.delete_for_documents(
-                    db, user_id, [d.id for d in documents_repo.list_versions(db, user_id, file_name)]
-                )
+                # Search skips inactive versions at once; their chunks are deleted by the indexing
+                # commit (after their vectors were offered for reuse), or by the next upload or reindex
+                # if indexing fails.
+                superseded = tuple(d.id for d in documents_repo.list_versions(db, user_id, file_name))
             doc = Document(
                 user_id=user_id,
                 file_name=file_name,
@@ -115,7 +123,7 @@ def register_upload(
             _delete_quietly(storage, key)
             raise
         db.refresh(doc)
-        return RegisteredUpload(doc, "changed" if existing else "new")
+        return RegisteredUpload(doc, "changed" if existing else "new", superseded)
 
 
 @dataclass(frozen=True)

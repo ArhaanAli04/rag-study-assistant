@@ -9,6 +9,7 @@ from app.api.deps import get_current_user, get_db, get_services
 from app.db.models import User
 from app.db.repositories import documents as documents_repo
 from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
+from app.retrieval.embeddings import EmbeddingError
 from app.schemas.documents import SearchRequest
 from app.services.container import Services
 from app.services.document_service import register_upload
@@ -67,20 +68,30 @@ async def upload_file(
 
     doc = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT)
 
-    num_chunks = services.indexing_pipeline.index_document(
-        doc.file_path,
-        user_id=str(current_user.id),
-        subject_tags=None,
-        document_id=doc.id,
-        file_name=original_name,
-    )
+    try:
+        indexed = services.indexing_service.index_document(
+            db,
+            file_path=doc.file_path,
+            user_id=current_user.id,
+            document_id=doc.id,
+            document_version=doc.version,
+            file_name=original_name,
+        )
+    except EmbeddingError:
+        # Nothing was written: the row stays without chunks, and re-uploading the file indexes it.
+        db.rollback()
+        logger.warning("Indexing document %s of user %s failed", doc.id, current_user.id, exc_info=True)
+        raise HTTPException(
+            status_code=502, detail="The file was saved but could not be indexed. Please upload it again."
+        )
 
+    # One commit for the chunks and the version bump: caches never see the new version without them.
     current_user.doc_version += 1
     db.commit()
     return {
         "filename": original_name,
         "document_id": doc.id,
-        "chunks_indexed": num_chunks,
+        "chunks_indexed": indexed.chunks_indexed,
         "doc_version": current_user.doc_version
     }
 
@@ -138,18 +149,17 @@ async def semantic_search(
     current_user: User = Depends(get_current_user),
     services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    # Build filters from request metadata
-    filters: Dict[str, Any] = {"user_id": str(current_user.id)}
+    # The user filter is part of the query itself; these narrow it further (jsonb containment).
+    metadata_filter: Dict[str, Any] = {}
     if body.subject:
-        filters["subject_tags"] = body.subject
+        metadata_filter["subject_tags"] = body.subject
     if body.file_type:
-        filters["doc_type"] = body.file_type
-    # For now, we ignore start_doc_id/end_doc_id or handle them at DB level later.
+        metadata_filter["doc_type"] = body.file_type
 
     results = services.retrieval_service.semantic_search(
         query=body.query,
         user_id=str(current_user.id),
         top_k=body.top_k,
-        filters=filters
+        metadata_filter=metadata_filter,
     )
     return {"results": results}

@@ -285,3 +285,50 @@ Backend-only, with no user-visible change:
 9. **`DELETE /documents/{id}` removing all versions** is a behaviour change. Today only the active row goes, and older versions silently linger with their files. If you prefer "delete this version only, re-activate the previous one", say so.
 10. **Semantic-cache replay (CO5 finding).** A hit replays stored `sources`, but entries are matched on the exact `doc_version` (`semantic_cache.py:84`), so the bump on delete is enough. No change needed.
 11. **`dev.ps1 test`** must point the container's test run at the compose Postgres (`rag_test`) after Decision 2A. It is in Checkpoint 1's scope (one line in the override or script).
+12. **Found in Checkpoint 2: `concept_map_nodes.map_id` had no ON DELETE rule.**
+    - With every `user_id` FK cascading, a user delete cascades to `concept_maps`, whose nodes then blocked it (`ForeignKeyViolation`, found by `test_account_service`'s new schema-cascade test).
+    - The timeline's goal ("deleting a user can't leave or block on child rows whatever the code path") needs it, and Day 14's list missed it.
+    - Fixed by its own revision `500c410270f5`: `9e72706d7449` had already run on `rag_staging` and is never edited.
+13. **`DELETE /user/delete`'s `index_entries_removed` keeps its name** (in the account-deletion summary). It now counts `document_chunks` rows. The frontend doesn't render it (only the test fixtures name it), so renaming it to `chunks` would be churn for no user-visible gain. This replaces the brief's UI-table row.
+14. **`PgChunkSearch` is one class, not `PgVectorStore` + `PgKeywordIndex`.** The owner's CO6 change requires one session per `hybrid_retrieve`, so one object runs both queries in one session behind a `ChunkSearch` protocol.
+15. **`POST /search` (`semantic_search`) now returns cosine similarity**, which ends B8's residual. `subject` / `file_type` filters are applied in SQL (jsonb `@>`), not after the search. The endpoint still has no frontend caller (unchanged since Day 11).
+16. **A failed query embedding now fails the request** instead of searching with a zero vector. For chat that is a 500 before streaming starts (steps 1–6), like any retrieval failure.
+
+## Outcome
+
+_Written during the day; completed at the end._
+
+### Checkpoint 1 — schema, Postgres-only suite (commit `de45311`, PR #21, CI green)
+
+- **`rag_staging` migrated** (owner's request, 2026-11-14): `7cb8829683ab` → `9e72706d7449` → `500c410270f5`, and `alembic check` reports no diff.
+  - MCP catalog check: `document_chunks.embedding` is `extensions.halfvec(3072)`; there are HNSW (`extensions.halfvec_cosine_ops`), GIN (`tsv`) and btree `(user_id, document_id)` indexes, plus both CHECKs.
+  - FK rules: every `user_id` is `c`, `failed_queries.session_id` is `n`, `messages.session_id` is `a`.
+  - pgvector 0.8.2 is in `extensions`, and no permission or extension-schema issue came up.
+
+### Checkpoint 2 + E4 parity (2026-11-14)
+
+**E4 on pgvector + Postgres full-text vs the FAISS + BM25 baseline (`2026-11-09-*-after-b8`).**
+- Same dataset (`retrieval_v1`, 55 answerable questions) and same cached vectors: halfvec(3072) keeps the cache key, so the runs made 0 embedding API calls.
+- Corpus: 419 chunks. The HPC deck's 3 blank chunks are now skipped (B10).
+
+| Config | Hit@5 | MRR@5 | Questions that flipped (Hit@5) |
+|---|---|---|---|
+| vector_only | 52/55 → 52/55 (0.945) | 0.833 → 0.830 (−0.003) | none; one rank move (g-029 2→3) |
+| **baseline (hybrid)** | **50/55 → 50/55 (0.909)** | **0.801 → 0.806 (+0.005)** | lost g-012, gained g-021 |
+| keyword_only | 47/55 → 49/55 (0.855 → 0.891) | 0.602 → 0.559 (−0.043) | lost g-012; gained g-015, g-040, g-042 |
+
+- **Parity rule (owner): met.**
+  - vector_only is within 1 question (0 flips).
+  - Hybrid lost 1 question, the most allowed, and gained 1. MRR is +0.005, so no loss.
+  - keyword_only finds more pages but ranks them lower (`ts_rank_cd` has no IDF); recorded, and the judgement is on hybrid.
+- **Decision 4A carried out:** `vector_store.py`, `index_builder.py` and `keyword_index.py` are deleted, and `faiss-cpu` and `rank-bm25` are out of `requirements.in`. The regenerated lock drops exactly those two. `tqdm` stays in the lock as another package's dependency, but is no longer a direct one.
+- **Query plans, `rag_eval` (419 chunks, one user):**
+  - The planner's default is a **Seq Scan + exact sort**; at this size HNSW isn't chosen.
+  - With seq scan, bitmap scan *and* sort turned off, it uses `Index Scan using ix_document_chunks_embedding_hnsw` (10 rows read). Seq and bitmap off alone still picked the `(user_id, document_id)` btree plus a sort.
+- **HNSW recall@10 vs exact search** (index scans off): **1.000** (61/61 queries identical, none short). The default plan is also 1.000, since it *is* exact.
+- **`hnsw.iterative_scan` was not set.** With one user, the filter never discards anything, and nothing measured today needs it. Revisit when a large user's filtered query returns fewer than k rows.
+- **CO6, round trips per request after today** (local, fake Gemini; counts statements + BEGIN + COMMIT/ROLLBACK + pool pre-pings):
+  - `/me` = **4**: ping, BEGIN, SELECT, ROLLBACK. Day 14 counted 3, without the ping.
+  - **A chat turn = 33**: 6 pings, 6 BEGIN, 15 statements, 4 COMMIT, 2 ROLLBACK.
+  - Retrieval's share is 5: one session holding both search queries.
+  - At ~63 ms each (Render Singapore → Supabase Mumbai), that is ≈ 2.1 s of network per turn. This is Day 16's before number. Its targets are the 6 pings (`pool_pre_ping`) and the 6 separate transactions.

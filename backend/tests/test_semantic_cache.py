@@ -41,7 +41,7 @@ def redis_stub() -> FakeRedis:
 
 @pytest.fixture
 def cache(redis_stub: FakeRedis) -> SemanticCache:
-    return SemanticCache(index_builder=FakeEmbedder(), redis_client=redis_stub)
+    return SemanticCache(embedding_service=FakeEmbedder(), redis_client=redis_stub)
 
 
 def test_query_cached_for_user_a_misses_for_user_b(cache: SemanticCache) -> None:

@@ -4,7 +4,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Protocol, Sequence
+from typing import Optional, Protocol
 
 import redis
 from sqlalchemy.exc import SQLAlchemyError
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.core.security import verify_password
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
-from app.db.models import Document, FailedQuery, Message, User, Session as ChatSession
+from app.db.models import Chunk, Document, FailedQuery, Message, User, Session as ChatSession
 from app.ingestion.upload_storage import UnsafeUploadPath, ensure_inside_root, user_upload_dir
 
 logger = logging.getLogger("rag_assistant.account")
@@ -26,10 +26,6 @@ def authenticate_user(db: DbSession, email: str, password: str) -> Optional[User
     if not verify_password(password, user.hashed_password):
         return None
     return user
-
-
-class UserScopedIndex(Protocol):
-    def mark_deleted_by_user(self, user_id: str) -> int: ...
 
 
 class UserScopedCache(Protocol):
@@ -48,6 +44,7 @@ class AccountDeletionSummary:
     concept_maps: int
     failed_queries: int
     files_removed: int
+    # document_chunks rows (Day 15). The name predates them: FAISS / BM25 entries until then.
     index_entries_removed: int
 
 
@@ -55,12 +52,11 @@ def delete_user_account(
     db: DbSession,
     user: User,
     *,
-    indexes: Sequence[UserScopedIndex],
     semantic_cache: UserScopedCache,
     retrieval_cache: RetrievalL1Cache,
     upload_root: Path,
 ) -> AccountDeletionSummary:
-    """Delete the user's rows in one transaction, then their files, index entries and caches.
+    """Delete the user's rows (search chunks included) in one transaction, then files and caches.
 
     The database goes first because it is the source of truth: once the commit succeeds the
     account is unreachable through the API, and a failure in a later step leaves only an
@@ -72,7 +68,9 @@ def delete_user_account(
     try:
         session_ids = db.query(ChatSession.id).filter(ChatSession.user_id == user_id)
         map_ids = db.query(ConceptMap.id).filter(ConceptMap.user_id == user_id)
-        # Bulk deletes skip ORM cascades and SQLite runs without foreign keys, so children go first.
+        # Children first and counted for the summary. ON DELETE CASCADE on every user_id (Day 15)
+        # is the safety net for a child this list forgets, not the mechanism.
+        chunks = db.query(Chunk).filter(Chunk.user_id == user_id).delete(synchronize_session=False)
         db.query(ConceptMapNode).filter(ConceptMapNode.map_id.in_(map_ids)).delete(
             synchronize_session=False
         )
@@ -98,7 +96,6 @@ def delete_user_account(
         raise
 
     files_removed = _remove_legacy_files(legacy_files) + _remove_user_dir(upload_root, user_id)
-    index_entries_removed = sum(index.mark_deleted_by_user(str(user_id)) for index in indexes)
     retrieval_cache.l1_cache_purge_user(str(user_id))
     try:
         semantic_cache.clear_user(user_id)
@@ -112,7 +109,7 @@ def delete_user_account(
         concept_maps=concept_maps,
         failed_queries=failed_queries,
         files_removed=files_removed,
-        index_entries_removed=index_entries_removed,
+        index_entries_removed=chunks,
     )
     logger.info("Deleted account %s: %s", user_id, summary)
     return summary

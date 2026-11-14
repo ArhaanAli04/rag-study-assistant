@@ -29,10 +29,9 @@ redis==7.1.0                   # query, web and semantic caches
 
 # --- LLM, embeddings, retrieval --------------------------------------------------------------
 google-genai==1.52.0           # Gemini generation + embeddings (core/gemini.py)
-faiss-cpu==1.13.0              # vector index (retrieval/vector_store.py)
-rank-bm25==0.2.2               # keyword index (retrieval/keyword_index.py)
+# Vector and keyword search run in Postgres since Day 15 (pgvector + full-text, document_chunks);
+# faiss-cpu, rank-bm25 and tqdm were removed after the E4 parity run.
 numpy==2.2.6
-tqdm==4.67.1                   # progress bar in retrieval/index_builder.py
 tavily-python==0.7.13          # web search (retrieval/web/search_client.py)
 requests==2.32.5               # page fetches (retrieval/web/scraper.py)
 beautifulsoup4==4.14.2         # HTML parsing (retrieval/web/scraper.py)

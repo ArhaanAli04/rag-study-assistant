@@ -53,7 +53,8 @@ class ConceptMapNode(Base):
     __tablename__ = "concept_map_nodes"
     
     id = Column(Integer, primary_key=True, index=True)
-    map_id = Column(Integer, ForeignKey("concept_maps.id"), nullable=False)
+    # CASCADE (Day 15): a user delete cascades to concept_maps, and nodes must not block it.
+    map_id = Column(Integer, ForeignKey("concept_maps.id", ondelete="CASCADE"), nullable=False)
     node_id = Column(String, nullable=False)  # Unique ID within the map
     label = Column(String, nullable=False)  # Concept name
     definition = Column(Text, nullable=True)  # Concept definition

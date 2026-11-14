@@ -20,11 +20,12 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, Set
 from app.retrieval import confidence as conf
 from app.retrieval.context_assembly import RERANK_TOP_K, AssembledContext, assemble_context
 from app.retrieval.context_compressor import SimpleContextCompressor
+from app.retrieval.pg_chunk_search import PgChunkSearch
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
 from eval.retrieval import metrics
 from eval.retrieval.configs import DEEP_TOP_K, SERVED_TOP_K, RetrievalConfig
-from eval.retrieval.corpus import EVAL_USER_ID, IndexedCorpus, sha256_of
+from eval.retrieval.corpus import IndexedCorpus, sha256_of
 from eval.retrieval.dataset import EvalQuestion
 from eval.retrieval.metrics import PageKey
 
@@ -61,8 +62,8 @@ class MemoryWebCache:
 
 def build_retrieval_service(config: RetrievalConfig, corpus: IndexedCorpus) -> RetrievalService:
     return RetrievalService(
-        index_builder=corpus.index_builder,
-        bm25_index=corpus.bm25_index,
+        embedding_service=corpus.embedding_service,
+        chunk_search=PgChunkSearch(corpus.session_factory),
         query_cache=NoQueryCache(),
         web_cache=MemoryWebCache(),
         web_search_enabled=config.web_search_enabled,
@@ -136,16 +137,16 @@ def _first_relevant_rank(ranked: Sequence[PageKey], relevant: Set[PageKey]) -> O
     return next((rank for rank, page in enumerate(ranked, start=1) if page in relevant), None)
 
 
-def evaluate_question(service: RetrievalService, question: EvalQuestion) -> QuestionResult:
+def evaluate_question(service: RetrievalService, question: EvalQuestion, user_id: str) -> QuestionResult:
     served = service.hybrid_retrieve(
-        question.question, EVAL_USER_ID, doc_version=0, top_k=SERVED_TOP_K, rerank_top_k=RERANK_TOP_K
+        question.question, user_id, doc_version=0, top_k=SERVED_TOP_K, rerank_top_k=RERANK_TOP_K
     )
     deep = service.hybrid_retrieve(
-        question.question, EVAL_USER_ID, doc_version=0, top_k=DEEP_TOP_K, rerank_top_k=DEEP_TOP_K
+        question.question, user_id, doc_version=0, top_k=DEEP_TOP_K, rerank_top_k=DEEP_TOP_K
     )
     context = assemble_context(
         service, QueryDecomposer(), SimpleContextCompressor(),
-        query=question.question, user_id=EVAL_USER_ID, doc_version=0, top_k=SERVED_TOP_K,
+        query=question.question, user_id=user_id, doc_version=0, top_k=SERVED_TOP_K,
     )
 
     served_pages = [page_key(r) for r in served["results"]]
@@ -306,7 +307,7 @@ def run(
     rows: List[QuestionResult] = []
     by_document: Dict[str, List[QuestionResult]] = {}
     for number, question in enumerate(questions, start=1):
-        row = evaluate_question(service, question)
+        row = evaluate_question(service, question, corpus.user_id)
         rows.append(row)
         if question.relevant:
             by_document.setdefault(question.relevant[0].file_name, []).append(row)

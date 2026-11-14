@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from typing import Any, Deque, Dict, Iterator, List, Optional, Union
 
 import numpy as np
+from google.genai import errors as genai_errors
 
 FAKE_EMBEDDING_DIM = 768
 DEFAULT_REPLY = "Computer Science"
@@ -102,6 +103,8 @@ class FakeGemini:
     prompts: List[Any] = field(default_factory=list)
     embed_calls: int = 0
     stream_calls: int = 0
+    # Fail the Nth embed call from now on (1 = the next one), like a 429 mid-upload; None = never.
+    fail_embedding_at: Optional[int] = None
 
     def reset(self) -> None:
         self.replies.clear()
@@ -109,6 +112,7 @@ class FakeGemini:
         self.prompts.clear()
         self.embed_calls = 0
         self.stream_calls = 0
+        self.fail_embedding_at = None
 
 
 class _FakeModels:
@@ -117,6 +121,11 @@ class _FakeModels:
 
     def embed_content(self, model: str, contents: Any, config: Any = None, **kwargs: Any) -> _EmbedResponse:
         self._gemini.embed_calls += 1
+        if self._gemini.fail_embedding_at is not None:
+            self._gemini.fail_embedding_at -= 1
+            if self._gemini.fail_embedding_at == 0:
+                self._gemini.fail_embedding_at = None
+                raise genai_errors.ClientError(429, {"error": {"code": 429, "message": "fake quota exhausted"}})
         texts = contents if isinstance(contents, list) else [contents]
         # Like the real API: the requested size wins, so the app's EMBEDDING_DIM contract is exercised.
         dim = getattr(config, "output_dimensionality", None) or FAKE_EMBEDDING_DIM
@@ -132,6 +141,37 @@ class _FakeModels:
         self._gemini.stream_calls += 1
         pieces =self._gemini.streams.popleft() if self._gemini.streams else self._gemini.default_stream
         return iter([_TextResponse(p) for p in pieces])
+
+
+class FakeEmbedder:
+    """Any vector will do for retrieval unit tests whose candidates come from FakeChunkSearch."""
+
+    def embed_texts(self, texts: List[str]) -> np.ndarray:
+        return np.ones((len(texts), 2), dtype=np.float32) / np.sqrt(2)
+
+
+class FakeChunkSearch:
+    """Scripted candidate lists for RetrievalService unit tests (no database); counts searches."""
+
+    def __init__(self, vector: Optional[List[Dict[str, Any]]] = None, keyword: Optional[List[Dict[str, Any]]] = None) -> None:
+        self.vector = vector or []
+        self.keyword = keyword or []
+        self.searches = 0
+
+    def search(self, query_embedding: np.ndarray, keyword_query: str, user_id: str, top_k: int) -> Any:
+        from app.retrieval.pg_chunk_search import Candidates
+
+        self.searches += 1
+        # Fresh dicts per call: hybrid_retrieve annotates metadata in place.
+        return Candidates(
+            vector=[{**r, "metadata": dict(r["metadata"])} for r in self.vector[:top_k]],
+            keyword=[{**r, "metadata": dict(r["metadata"])} for r in self.keyword[:top_k]],
+        )
+
+    def vector_only(
+        self, query_embedding: np.ndarray, user_id: str, top_k: int, metadata_filter: Optional[Dict[str, Any]] = None
+    ) -> List[Dict[str, Any]]:
+        return self.vector[:top_k]
 
 
 class FakeTavilyClient:

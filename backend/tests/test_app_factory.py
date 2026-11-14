@@ -24,7 +24,9 @@ def test_startup_builds_exactly_one_shared_gemini_client() -> None:
         assert FakeGenaiClient.instances == before + 1
         shared = services.gemini_client
         assert services.llm_client.client is shared
-        assert services.index_builder.embedding_service.client is shared
+        assert services.embedding_service.client is shared
+        assert services.retrieval_service.embedding_service is services.embedding_service
+        assert services.indexing_service.embedding_service is services.embedding_service
         assert services.chat_pipeline.topic_classifier.client is shared
         assert services.concept_map_service.extractor.client is shared
         # B9: the three generation roles all use the one Settings model.
@@ -37,7 +39,7 @@ def test_startup_builds_exactly_one_shared_gemini_client() -> None:
 
 
 def test_startup_makes_no_embedding_call() -> None:
-    # The FAISS dimension comes from EMBEDDING_DIM, not from embedding "hello world" at boot.
+    # The vector size comes from EMBEDDING_DIM, not from embedding "hello world" at boot.
     FakeGenaiClient.gemini.reset()
 
     with TestClient(create_app()):

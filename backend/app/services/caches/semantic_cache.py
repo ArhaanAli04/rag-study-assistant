@@ -8,7 +8,7 @@ logger = setup_logging()
 import numpy as np
 import redis
 
-from app.retrieval.index_builder import IndexBuilder  # to reuse same embedding model
+from app.retrieval.embeddings import EmbeddingService  # the same model as the stored chunks
 
 SEM_CACHE_KEY_PREFIX = "semantic_cache"
 
@@ -46,9 +46,9 @@ class SemanticCache:
     Not production-grade, but enough to demonstrate the idea.
     """
 
-    def __init__(self, index_builder: IndexBuilder, redis_client: Optional[redis.Redis] = None):
+    def __init__(self, embedding_service: EmbeddingService, redis_client: Optional[redis.Redis] = None) -> None:
         self.r = redis_client if redis_client is not None else redis.from_url(settings.semantic_cache_redis_url)
-        self.index_builder = index_builder
+        self.embedding_service = embedding_service
 
     def _load_entries(self, user_id: int) -> List[Dict[str, Any]]:
         val = self.r.get(_cache_key(user_id))
@@ -87,7 +87,7 @@ class SemanticCache:
         if not relevant_entries:
             return None
 
-        q_emb = np.array(self.index_builder.embed_texts([query])[0])
+        q_emb = np.array(self.embedding_service.embed_texts([query])[0])
         best_sim = -1.0
         best_entry = None
         for e in relevant_entries:
@@ -115,7 +115,7 @@ class SemanticCache:
         mode: str,
         max_entries: int = 64,
     ) -> None:
-        q_emb = self.index_builder.embed_texts([query])[0]
+        q_emb = self.embedding_service.embed_texts([query])[0]
         entries = self._load_entries(user_id)
         safe_value = _to_json_safe(value)
 

@@ -135,6 +135,36 @@ def test_traversal_filename_is_stored_inside_the_users_directory(client: Any, ac
     assert stored.is_file()
 
 
+def test_an_upload_whose_embedding_fails_is_refused_and_a_reupload_indexes_it(
+    client: Any, account: Account, gemini: FakeGemini
+) -> None:
+    gemini.fail_embedding_at = 2  # mid-document, like a 429 halfway through a lecture deck
+
+    failed = upload(client, account)
+
+    assert failed.status_code == 502
+    assert "upload it again" in failed.json()["detail"]
+    assert client.get("/me", headers=account.headers).json()["id"]  # the account is fine
+    retried = upload(client, account)
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["chunks_indexed"] > 0
+    assert retried.json()["document_id"] == client.get("/documents", headers=account.headers).json()[0]["id"]
+
+
+def test_documents_are_still_retrieved_after_a_restart(app: Any) -> None:
+    # I4: until Day 15 the indexes lived in process memory, so every restart or deploy emptied them.
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as before_restart:
+        account = register_and_login(before_restart)
+        assert upload(before_restart, account).status_code == 200
+
+    with TestClient(app) as after_restart:  # a new lifespan: new services, nothing kept in memory
+        sources = assert_contract(chat(after_restart, account))["metadata"]["sources"]
+
+    assert "samples.pdf" in file_names(sources)
+
+
 # --- Chat ------------------------------------------------------------------------------------
 
 def test_chat_stream_follows_the_event_contract(client: Any, account: Account, gemini: FakeGemini) -> None:

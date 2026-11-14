@@ -75,6 +75,7 @@ def test_user_foreign_keys_cascade_and_failed_queries_detach_from_sessions() -> 
     for table in ("sessions", "documents", "messages", "failed_queries", "concept_maps", "document_chunks"):
         assert rules[f"fk_{table}_user_id_users"] == "c", table
     assert rules["fk_document_chunks_document_id_documents"] == "c"
+    assert rules["fk_concept_map_nodes_map_id_concept_maps"] == "c"
     assert rules["fk_failed_queries_session_id_sessions"] == "n"
     # Unchanged on purpose: messages go with their session in code (sessions_repo), not by the schema.
     assert rules["fk_messages_session_id_sessions"] == "a"

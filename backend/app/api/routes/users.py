@@ -77,7 +77,6 @@ async def delete_account(
     summary = delete_user_account(
         db,
         current_user,
-        indexes=[services.index_builder.get_index(), services.bm25_index],
         semantic_cache=services.semantic_cache,
         retrieval_cache=services.retrieval_service,
         upload_root=UPLOAD_ROOT,

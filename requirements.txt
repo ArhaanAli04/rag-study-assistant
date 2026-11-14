@@ -36,7 +36,6 @@ docstring_parser==0.17.0
 ecdsa==0.19.1
 email-validator==2.3.0
 et_xmlfile==2.0.0
-faiss-cpu==1.13.0
 fastapi==0.122.0
 filelock==3.20.0
 frozenlist==1.8.0
@@ -115,7 +114,6 @@ python-multipart==0.0.20
 python-pptx==1.0.2
 pytz==2025.2
 PyYAML==6.0.3
-rank-bm25==0.2.2
 redis==7.1.0
 regex==2025.11.3
 requests==2.32.5

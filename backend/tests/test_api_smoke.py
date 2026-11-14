@@ -169,13 +169,14 @@ def test_traversal_filename_is_stored_inside_the_users_directory(client: Any, ac
 def test_an_upload_whose_embedding_fails_is_refused_and_a_reupload_indexes_it(
     client: Any, account: Account, gemini: FakeGemini
 ) -> None:
-    gemini.fail_embedding_at = 2  # mid-document, like a 429 halfway through a lecture deck
+    gemini.embeddings_down = True  # an outage outlasting the retries (Day 16: one 429 is retried)
 
     failed = upload(client, account)
 
     assert failed.status_code == 502
     assert "upload it again" in failed.json()["detail"]
     assert client.get("/me", headers=account.headers).json()["id"]  # the account is fine
+    gemini.embeddings_down = False
     retried = upload(client, account)
     assert retried.status_code == 200, retried.text
     assert retried.json()["chunks_indexed"] > 0

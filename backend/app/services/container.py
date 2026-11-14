@@ -21,7 +21,7 @@ from app.generation.topic_classifier import TopicClassifier
 from app.ingestion.upload_storage import FileStorage, LocalFileStorage, S3FileStorage
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
 from app.retrieval.context_compressor import SimpleContextCompressor
-from app.retrieval.embeddings import EmbeddingService
+from app.retrieval.embeddings import QUERY_MAX_ATTEMPTS, EmbeddingService
 from app.retrieval.pg_chunk_search import PgChunkSearch
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
@@ -55,7 +55,9 @@ class Services:
     redis_client: redis.Redis
     semantic_cache_redis_client: redis.Redis
     file_storage: FileStorage
+    # Two embedders on the one client: uploads retry, the chat path doesn't (Day 16).
     embedding_service: EmbeddingService
+    query_embedding_service: EmbeddingService
     indexing_service: IndexingService
     retrieval_service: RetrievalService
     llm_client: LLMClient
@@ -74,15 +76,17 @@ def build_services() -> Services:
     semantic_cache_redis_client = redis.from_url(settings.semantic_cache_redis_url)
 
     embedding_service = EmbeddingService(gemini_client)
+    # The chat path gets one attempt (Day 16): see QUERY_MAX_ATTEMPTS.
+    query_embedding_service = EmbeddingService(gemini_client, max_attempts=QUERY_MAX_ATTEMPTS)
     retrieval_service = RetrievalService(
-        embedding_service=embedding_service,
+        embedding_service=query_embedding_service,
         chunk_search=PgChunkSearch(SessionLocal),
         query_cache=QueryCache(redis_client),
         web_cache=WebCache(redis_client),
     )
     generation_model = settings.GEMINI_GENERATION_MODEL
     llm_client = LLMClient(gemini_client, generation_model)
-    semantic_cache = SemanticCache(embedding_service=embedding_service, redis_client=semantic_cache_redis_client)
+    semantic_cache = SemanticCache(embedding_service=query_embedding_service, redis_client=semantic_cache_redis_client)
 
     return Services(
         gemini_client=gemini_client,
@@ -90,6 +94,7 @@ def build_services() -> Services:
         semantic_cache_redis_client=semantic_cache_redis_client,
         file_storage=build_file_storage(),
         embedding_service=embedding_service,
+        query_embedding_service=query_embedding_service,
         indexing_service=IndexingService(embedding_service),
         retrieval_service=retrieval_service,
         llm_client=llm_client,

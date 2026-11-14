@@ -216,6 +216,16 @@ def pytest_unconfigure(config: pytest.Config) -> None:
     shutil.rmtree(_state["workdir"], ignore_errors=True)
 
 
+@pytest.fixture(autouse=True)
+def instant_embedding_backoff(monkeypatch: pytest.MonkeyPatch) -> Iterator[List[float]]:
+    """Upload embeddings retry with backoff (Day 16); the suite records the waits instead of sleeping."""
+    from app.retrieval import embeddings
+
+    waits: List[float] = []
+    monkeypatch.setattr(embeddings, "_sleep", waits.append)
+    yield waits
+
+
 @pytest.fixture
 def gemini() -> Iterator[FakeGemini]:
     """Script Gemini for one test: queue `replies` / `streams`; inspect `prompts`."""

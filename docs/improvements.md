@@ -580,6 +580,26 @@ longer indexed.
 - When reworking the cache: validate a hit's cited sources against what is currently retrievable,
   or key entries on an index epoch as well as `doc_version`.
 
+**Day 16 finding (2026-11-14): one chat turn still embeds the same question up to three times.** Not
+fixed on Day 16 (owner's call); it is why the chat path gets no embedding retries.
+- `SemanticCache.lookup` (`services/caches/semantic_cache.py`) embeds the question whenever the user
+  has at least one entry with the same `doc_version` and `mode`, i.e. on most repeat-mode turns.
+- `RetrievalService.hybrid_retrieve` (`retrieval/retrieval_service.py`, the `_embed_texts([vec_query])`
+  call) embeds it again (once per sub-query; for a single-part question the text is identical).
+- `SemanticCache.store` embeds it a third time after the answer has streamed.
+- None of them share a vector, so a miss costs up to 3 embedding requests of the same text: ~3× the
+  embedding latency and quota of a turn.
+- **Interaction with retries (Day 16):** uploads retry embeddings up to 3 attempts (1 s / 2 s backoff,
+  or a 429's `retryDelay` up to 60 s). Doing the same on the chat path would wait ~3 s per call during
+  an outage, ~9 s per turn across the three calls, before keyword-only search and a cache miss. So
+  `QUERY_MAX_ATTEMPTS = 1` (`retrieval/embeddings.py`) for retrieval and the semantic cache.
+- **Direction:** embed the question once at the top of `ChatPipeline.answer` and pass the vector to the
+  cache lookup, retrieval (when the sub-query equals the question) and the store. Then one retry on the
+  chat path costs one wait, not three.
+- **It is a quota issue, not only a latency one:** production's key is on the free tier, where requests count
+  per text (measured Day 16: a 100-text batch used the whole 100 RPM window). So ~1,000 embedded texts a
+  day are shared by all users' upload chunks and chat queries, and every turn spends up to 3 of them.
+
 ### CO6 — Every database round trip now crosses regions, and a chat turn makes many (P1)
 Found Day 14 (2026-11-13), measuring release v0.2.2. Render runs in Singapore, and Supabase is in
 `ap-south-1` (Mumbai), so **each round trip costs ~63 ms**.

@@ -275,7 +275,7 @@ def test_a_failed_embedding_writes_nothing_and_keeps_the_old_chunks(
     service = _indexing()
     before = _index(service, doc, str(SAMPLES_DIR / "samples.pdf"))
 
-    gemini.fail_embedding_at = 2
+    gemini.embeddings_down = True  # past every retry, unlike one 429 (Day 16)
     with pytest.raises(EmbeddingError), SessionLocal() as db:
         service.index_document(
             db, file_path=str(SAMPLES_DIR / "samples.pdf"), user_id=doc.user_id, document_id=doc.id,
@@ -288,5 +288,5 @@ def test_a_failed_embedding_writes_nothing_and_keeps_the_old_chunks(
 def test_embedding_service_raises_instead_of_returning_a_zero_vector(gemini: FakeGemini) -> None:
     gemini.fail_embedding_at = 1
 
-    with pytest.raises(EmbeddingError, match="1 of 2"):
-        EmbeddingService(FakeGenaiClient()).embed_texts(["a", "b"])  # type: ignore[arg-type]
+    with pytest.raises(EmbeddingError, match="batch 1 of 1"):
+        EmbeddingService(FakeGenaiClient(), max_attempts=1).embed_texts(["a", "b"])  # type: ignore[arg-type]

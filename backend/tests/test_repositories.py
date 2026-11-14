@@ -1,26 +1,19 @@
 """T2 (Day 13): the repositories, above all their ownership scoping.
 
-Runs on two databases:
-- default: a temporary SQLite file migrated through Alembic, like the rest of the suite.
-- TEST_DATABASE_URL set (the suite's Postgres _test database since Day 14, which conftest has
-  already migrated to head): the same tests on Postgres, which compares types strictly. A filter
-  like `Document.user_id == str(user.id)` passes on SQLite and fails there, so CI catches it
-  instead of production.
+Runs on the suite's Postgres _test database (conftest has already migrated it to head), which
+compares types strictly: a filter like `Document.user_id == str(user.id)` passed on SQLite and
+fails there.
 
 Each test runs inside one transaction that is rolled back afterwards. Repositories only flush,
-never commit, so nothing persists between tests on either backend.
+never commit, so nothing persists between tests.
 """
 import datetime
-import os
-from pathlib import Path
 from typing import Iterator, Tuple
 
 import pytest
-from alembic import command
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
-from app.db.migrations import alembic_config
 from app.db.models import Document, Message, Session as ChatSession, User
 from app.db.repositories import (
     documents as documents_repo,
@@ -29,25 +22,14 @@ from app.db.repositories import (
     sessions as sessions_repo,
     users as users_repo,
 )
-from app.db.session import build_engine
+from app.db.session import engine as suite_engine
 
-POSTGRES_URL = os.environ.get("TEST_DATABASE_URL")
 T0 = datetime.datetime(2026, 11, 11, 12, 0, 0)
 
 
 @pytest.fixture(scope="module")
-def engine(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Engine]:
-    if POSTGRES_URL:
-        engine = build_engine(POSTGRES_URL)
-    else:
-        path: Path = tmp_path_factory.mktemp("repositories") / "repositories.db"
-        engine = create_engine(f"sqlite:///{path.as_posix()}")
-        config = alembic_config()
-        with engine.begin() as connection:
-            config.attributes["connection"] = connection
-            command.upgrade(config, "head")
-    yield engine
-    engine.dispose()
+def engine() -> Engine:
+    return suite_engine
 
 
 @pytest.fixture
@@ -72,7 +54,7 @@ def two_users(db: Session) -> Tuple[User, User]:
 
 def test_backend_under_test(engine: Engine) -> None:
     # Makes the CI log say which database this module actually ran against.
-    assert engine.dialect.name == ("postgresql" if POSTGRES_URL else "sqlite")
+    assert engine.dialect.name == "postgresql"
 
 
 # --- users ----------------------------------------------------------------------------------------

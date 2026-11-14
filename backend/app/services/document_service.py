@@ -1,95 +1,157 @@
-#versioning logic
-import os
-from pathlib import Path
+"""Uploaded documents: storing, versioning, re-upload decisions (I6) and deletion (I5)."""
+import hashlib
+import logging
+from dataclasses import dataclass
+from typing import Literal, Optional
 
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.models import Document
+from app.db.repositories import chunks as chunks_repo
+from app.db.repositories import documents as documents_repo
 from app.db.session import SessionLocal
-from app.ingestion.upload_storage import is_inside_user_dir
-from app.ingestion.file_hash import compute_file_hash
+from app.ingestion.upload_storage import (
+    FileStorage,
+    StorageError,
+    UnsafeUploadPath,
+    file_extension,
+    is_user_key,
+    new_upload_key,
+)
+
+logger = logging.getLogger("rag_assistant.documents")
+
+# new        — a file name this user never uploaded: index it.
+# changed    — a new version of an existing file name: index it; the old version's chunks are gone.
+# unchanged  — an identical re-upload that is already indexed: nothing to index, no doc_version bump.
+# reindexed  — an identical re-upload whose row has no chunks (indexing failed, or the row predates
+#              document_chunks, v0.2.2): index it again.
+UploadStatus = Literal["new", "changed", "unchanged", "reindexed"]
 
 
-def register_document(
-    user_id: int,
-    file_path: str,
-    file_name: str,
-    session_factory: sessionmaker = SessionLocal,
-) -> Document:
-    """Return the existing row for an identical re-upload, else a new version of ``file_name``.
+@dataclass(frozen=True)
+class RegisteredUpload:
+    document: Document
+    status: UploadStatus
 
-    ``file_name`` is the client's display name, passed explicitly because stored paths are
-    server-generated (G7) and say nothing about what the user called the file.
+    @property
+    def needs_indexing(self) -> bool:
+        return self.status != "unchanged"
+
+
+def _stored_copy_is_usable(storage: FileStorage, user_id: int, key: str) -> bool:
+    """The row's file is this user's own (not a pre-G7 shared flat path) and still exists.
+
+    Before Day 15 Render's disk was wiped on every restart while the row survived in Postgres;
+    an identical re-upload must then restore the file, not trust the row.
     """
-    db = session_factory()
+    if not is_user_key(user_id, key):
+        return False
     try:
-        file_hash = compute_file_hash(file_path)
-
-        existing = (
-            db.query(Document)
-            .filter(Document.user_id == user_id, Document.file_name == file_name)
-            .order_by(Document.version.desc())
-            .first()
-        )
-
-        if existing and existing.file_hash == file_hash:
-            return existing
-
-        new_version = 1
-        if existing:
-            existing.is_active = False
-            db.add(existing)
-            new_version = existing.version + 1
-
-        doc = Document(
-            user_id=user_id,
-            file_name=file_name,
-            file_path=file_path,
-            file_hash=file_hash,
-            version=new_version,
-            is_active=True,
-        )
-        db.add(doc)
-        db.commit()
-        db.refresh(doc)
-        return doc
-    finally:
-        db.close()
+        return storage.exists(key)
+    except UnsafeUploadPath:
+        return False
 
 
 def register_upload(
     user_id: int,
-    stored_path: str,
+    content: bytes,
     file_name: str,
-    upload_root: Path,
+    storage: FileStorage,
     session_factory: sessionmaker = SessionLocal,
-) -> Document:
-    """Register a freshly stored upload; the returned row always points at a file this user owns.
+) -> RegisteredUpload:
+    """Store an upload (if needed) and record it; the returned row always points at a stored file
+    this user owns.
 
-    On an identical re-upload the existing row wins. If that row still points at a file in the
-    user's own directory, the new copy is redundant and removed. Otherwise the row is moved to
-    the new per-user copy:
-    - a legacy flat path (pre-G7) may since have been overwritten by another user's upload of
-      the same name; that file is left alone, since another user's row may still reference it.
-    - the row's file may be gone: rows live in Postgres since Day 14, but Render's disk is
-      ephemeral, so a restart deletes the file and keeps the row. Keeping the row's path would
-      make the upload index a missing file, every time.
+    ``file_name`` is the client's display name, passed explicitly because stored keys are
+    server-generated (G7) and say nothing about what the user called the file. The object is
+    written before its row is committed: a crash in between leaves an orphan object (cheap to
+    sweep), never a row pointing at nothing.
     """
-    doc = register_document(user_id, stored_path, file_name, session_factory)
-    if doc.file_path == stored_path:
-        return doc
+    file_hash = hashlib.sha256(content).hexdigest()
+    with session_factory() as db:
+        existing = documents_repo.latest_version(db, user_id, file_name)
 
-    existing_path = Path(doc.file_path)
-    if is_inside_user_dir(upload_root, user_id, existing_path) and existing_path.is_file():
-        os.remove(stored_path)
-        return doc
+        if existing and existing.file_hash == file_hash:
+            indexed = chunks_repo.count_by_document(db, user_id).get(existing.id, 0) > 0
+            status: UploadStatus = "unchanged" if indexed else "reindexed"
+            if not _stored_copy_is_usable(storage, user_id, existing.file_path):
+                # The row's file is gone, or it is a legacy flat path that another user's upload may
+                # have overwritten (that file is left alone: another row may still use it).
+                key = new_upload_key(user_id, file_extension(file_name))
+                storage.put(key, content)
+                existing.file_path = key
+            existing.file_size = len(content)
+            db.commit()
+            db.refresh(existing)
+            return RegisteredUpload(existing, status)
 
-    db = session_factory()
+        key = new_upload_key(user_id, file_extension(file_name))
+        storage.put(key, content)
+        try:
+            new_version = 1
+            if existing:
+                existing.is_active = False
+                new_version = existing.version + 1
+                # I6: an old version's chunks would otherwise stay in the table forever. Search
+                # already skips inactive versions; this removes them in the same transaction.
+                chunks_repo.delete_for_documents(
+                    db, user_id, [d.id for d in documents_repo.list_versions(db, user_id, file_name)]
+                )
+            doc = Document(
+                user_id=user_id,
+                file_name=file_name,
+                file_path=key,
+                file_hash=file_hash,
+                file_size=len(content),
+                version=new_version,
+                is_active=True,
+            )
+            db.add(doc)
+            db.commit()
+        except SQLAlchemyError:
+            db.rollback()
+            _delete_quietly(storage, key)
+            raise
+        db.refresh(doc)
+        return RegisteredUpload(doc, "changed" if existing else "new")
+
+
+@dataclass(frozen=True)
+class DeletedDocument:
+    versions: int
+    chunks: int
+    files_removed: int
+
+
+def delete_document(db: Session, user_id: int, document_id: int, storage: FileStorage) -> Optional[DeletedDocument]:
+    """Delete a document with every version of its file name (I5): rows, chunks and stored files.
+
+    None if the user owns no such document. The rows go first and are committed (the database is
+    the source of truth; ON DELETE CASCADE takes the chunks); files are removed afterwards, and a
+    failure there is logged, never surfaced: the document is already gone for the user. The
+    caller bumps doc_version.
+    """
+    doc = documents_repo.get_owned(db, document_id, user_id)
+    if doc is None:
+        return None
+    versions = documents_repo.list_versions(db, user_id, doc.file_name)
+    chunk_counts = chunks_repo.count_by_document(db, user_id)
+    chunks = sum(chunk_counts.get(v.id, 0) for v in versions)
+    keys = [v.file_path for v in versions]
+    for version in versions:
+        db.delete(version)
+    db.commit()
+
+    # Pre-G7 flat keys may be shared with another user's row, so only the user's own are removed.
+    removed = sum(1 for key in keys if is_user_key(user_id, key) and _delete_quietly(storage, key))
+    return DeletedDocument(versions=len(versions), chunks=chunks, files_removed=removed)
+
+
+def _delete_quietly(storage: FileStorage, key: str) -> bool:
     try:
-        row = db.get(Document, doc.id)
-        row.file_path = stored_path
-        db.commit()
-        db.refresh(row)
-        return row
-    finally:
-        db.close()
+        return storage.delete(key)
+    except (StorageError, UnsafeUploadPath):
+        logger.warning("Could not delete stored file %s", key, exc_info=True)
+        return False

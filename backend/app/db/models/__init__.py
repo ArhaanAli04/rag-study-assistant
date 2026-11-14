@@ -6,8 +6,9 @@ autogenerate sees every table; a model missing here would look deleted and get a
 from app.db.models.chat_session import Session
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
 from app.db.models.document import Document
+from app.db.models.document_chunk import Chunk
 from app.db.models.failed_query import FailedQuery
 from app.db.models.message import Message
 from app.db.models.user import User
 
-__all__ = ["ConceptMap", "ConceptMapNode", "Document", "FailedQuery", "Message", "Session", "User"]
+__all__ = ["Chunk", "ConceptMap", "ConceptMapNode", "Document", "FailedQuery", "Message", "Session", "User"]

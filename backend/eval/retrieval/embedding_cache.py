@@ -1,7 +1,9 @@
-"""On-disk embedding cache for the eval only (Decision 5A).
+"""On-disk embedding cache for the eval only (Decision 5A, Day 11).
 
-Every eval run re-indexes the corpus because nothing persists (I4); with one Gemini call per text
-(I3) that is ~250 calls a run. Cached vectors make later runs free and reproducible.
+Every eval run re-indexes the corpus (Day 15: into its own rag_eval database, under a fresh eval
+user); with one Gemini call per text (I3) that is ~250 calls a run. Cached vectors make later runs
+free and reproducible. The key includes the dimension, so halfvec(3072) (Day 15, Decision 1B)
+reuses every vector cached since Day 11.
 """
 import hashlib
 import sqlite3
@@ -11,15 +13,15 @@ from typing import Dict, List, Optional
 import numpy as np
 from google import genai
 
-from app.retrieval.embeddings import EmbeddingService
+from app.retrieval.embeddings import EmbeddingError, EmbeddingService
 from eval.retrieval.rate_limit import RateLimiter, estimate_tokens
 
 DEFAULT_CACHE_PATH = Path(__file__).resolve().parent.parent / ".cache" / "embeddings.sqlite"
 
 
 class EmbeddingFailure(RuntimeError):
-    """EmbeddingService turns API errors into zero vectors; caching one would poison every later
-    run, and indexing one would silently corrupt the eval, so the run stops instead."""
+    """A failed or impossible embedding stops the run: indexing a missing vector would silently
+    corrupt the eval, and caching one would poison every later run."""
 
 
 class CachedEmbeddingService(EmbeddingService):
@@ -33,7 +35,6 @@ class CachedEmbeddingService(EmbeddingService):
         self._db.execute("CREATE TABLE IF NOT EXISTS embeddings (key TEXT PRIMARY KEY, vector BLOB NOT NULL)")
         self.hits = 0
         self.api_calls = 0
-        self.blank_texts = 0
 
     def _key(self, text: str) -> str:
         return hashlib.sha256(f"{self.model_name}|{self.dimension}|{text}".encode("utf-8")).hexdigest()
@@ -41,17 +42,12 @@ class CachedEmbeddingService(EmbeddingService):
     def embed_texts(self, texts: List[str]) -> np.ndarray:
         if not texts:
             return np.zeros((0, self.dimension), dtype=np.float32)
+        if any(not t.strip() for t in texts):
+            raise EmbeddingFailure("blank text: the API rejects it, and indexing skips blank chunks")
 
         keys = [self._key(t) for t in texts]
         found: Dict[str, np.ndarray] = {}
-        # The API rejects empty content (400), and production's EmbeddingService then indexes a zero
-        # vector. The PPTX chunker emits a few empty chunks (3 in the Day 11 corpus), so the eval
-        # indexes the same zero vector without spending a request on a certain 400.
-        for key, text in zip(keys, texts):
-            if not text.strip() and key not in found:
-                found[key] = np.zeros(self.dimension, dtype=np.float32)
-                self.blank_texts += 1
-        for key in set(keys) - set(found):
+        for key in set(keys):
             row = self._db.execute("SELECT vector FROM embeddings WHERE key = ?", (key,)).fetchone()
             if row is not None:
                 found[key] = np.frombuffer(row[0], dtype=np.float32)
@@ -66,12 +62,13 @@ class CachedEmbeddingService(EmbeddingService):
             if self.limiter is not None:
                 self.limiter.acquire(estimate_tokens(text))
             self.api_calls += 1
-            vector = super().embed_texts([text])[0]
-            if not np.any(vector):
+            try:
+                vector = super().embed_texts([text])[0]
+            except EmbeddingError as error:
                 raise EmbeddingFailure(
-                    f"embedding call failed after {self.api_calls - 1} successful calls this run (zero vector; "
-                    "a 429 here may be the daily limit). Cached vectors are kept: re-run to resume."
-                )
+                    f"embedding call failed after {self.api_calls - 1} successful calls this run (a 429 here "
+                    "may be the daily limit). Cached vectors are kept: re-run to resume."
+                ) from error
             found[key] = vector.astype(np.float32)
             self._db.execute("INSERT OR REPLACE INTO embeddings (key, vector) VALUES (?, ?)", (key, found[key].tobytes()))
             self._db.commit()

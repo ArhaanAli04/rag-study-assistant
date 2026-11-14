@@ -7,9 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
 from app.db.models import User
+from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
-from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
+from app.ingestion.upload_storage import StorageError, UnsafeUploadPath, display_name
+from app.retrieval.embeddings import EmbeddingError
 from app.schemas.documents import SearchRequest
+from app.services import document_service
 from app.services.container import Services
 from app.services.document_service import register_upload
 
@@ -53,34 +56,54 @@ async def upload_file(
 ) -> Dict[str, Any]:
     await validate_upload(file)
     original_name = display_name(file.filename)
-    try:
-        stored_path = new_upload_path(UPLOAD_ROOT, current_user.id, file_extension(original_name))
-    except UnsafeUploadPath:
-        logger.error(f"Refused upload path for user {current_user.id}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Could not store the file.")
-    file_location = str(stored_path)
     content = await file.read()
-    with open(file_location, "wb") as f:
-        f.write(content)
+    try:
+        registered = register_upload(current_user.id, content, original_name, services.file_storage)
+    except (StorageError, UnsafeUploadPath):
+        logger.error("Could not store an upload of user %s", current_user.id, exc_info=True)
+        raise HTTPException(status_code=503, detail="Could not store the file right now. Please try again.")
+    doc = registered.document
+    logger.info("Upload %s by user %s: %s, stored as %s", original_name, current_user.id, registered.status, doc.file_path)
+    if not registered.needs_indexing:
+        # I6: an identical re-upload that is already indexed. Re-indexing would re-embed every chunk,
+        # and a doc_version bump would empty the user's caches for nothing.
+        return {
+            "filename": original_name,
+            "document_id": doc.id,
+            "status": registered.status,
+            "version": doc.version,
+            "chunks_indexed": 0,
+            "doc_version": current_user.doc_version,
+        }
 
-    logger.info(f"Uploaded file saved: {original_name} as {file_location} by user {current_user.id}")
+    try:
+        # Parsers read a file: the stored one locally, a temporary download from object storage.
+        with services.file_storage.local_copy(doc.file_path) as local_path:
+            indexed = services.indexing_service.index_document(
+                db,
+                file_path=str(local_path),
+                user_id=current_user.id,
+                document_id=doc.id,
+                document_version=doc.version,
+                file_name=original_name,
+            )
+    except (EmbeddingError, StorageError):
+        # Nothing was written: the row stays without chunks, and re-uploading the file indexes it.
+        db.rollback()
+        logger.warning("Indexing document %s of user %s failed", doc.id, current_user.id, exc_info=True)
+        raise HTTPException(
+            status_code=502, detail="The file was saved but could not be indexed. Please upload it again."
+        )
 
-    doc = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT)
-
-    num_chunks = services.indexing_pipeline.index_document(
-        doc.file_path,
-        user_id=str(current_user.id),
-        subject_tags=None,
-        document_id=doc.id,
-        file_name=original_name,
-    )
-
+    # One commit for the chunks and the version bump: caches never see the new version without them.
     current_user.doc_version += 1
     db.commit()
     return {
         "filename": original_name,
         "document_id": doc.id,
-        "chunks_indexed": num_chunks,
+        "status": registered.status,
+        "version": doc.version,
+        "chunks_indexed": indexed.chunks_indexed,
         "doc_version": current_user.doc_version
     }
 
@@ -90,20 +113,23 @@ async def delete_document(
     doc_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    doc = documents_repo.get_owned(db, doc_id, current_user.id)
-    if not doc:
+    deleted = document_service.delete_document(db, current_user.id, doc_id, services.file_storage)
+    if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # remove from DB
-    db.delete(doc)
-    db.commit()
-
-    # bump doc_version for this user to invalidate caches
+    # The document set changed: every cache keyed on doc_version stops matching, so the deleted
+    # file is never cited again, not even from a cached answer.
     current_user.doc_version += 1
     db.commit()
 
-    return {"status": "deleted", "document_id": doc_id, "doc_version": current_user.doc_version}
+    return {
+        "status": "deleted",
+        "document_id": doc_id,
+        "versions_deleted": deleted.versions,
+        "doc_version": current_user.doc_version,
+    }
 
 
 @router.get("/documents")
@@ -111,22 +137,24 @@ async def get_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
-    """Get all documents for current user"""
-
+    """The user's current documents, each with its size and how many searchable chunks it has."""
+    chunk_counts = chunks_repo.count_by_document(db, current_user.id)  # one grouped query (CO6)
     result = []
     for doc in documents_repo.list_active(db, current_user.id):
-        # Get file size if file exists
-        file_size = None
-        if doc.file_path and os.path.exists(doc.file_path):
+        file_size = doc.file_size
+        # Rows from before Day 15 have no stored size; their local file may still say.
+        if file_size is None and doc.file_path and os.path.isfile(doc.file_path):
             file_size = os.path.getsize(doc.file_path)
 
         result.append({
             "id": doc.id,
             "filename": doc.file_name,
             "path": doc.file_path,
-            "created_at": None,  # No timestamp field in your model
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "file_size": file_size,
             "version": doc.version,
+            # 0 = listed but not searchable (indexing failed, or a pre-Day 15 row): re-upload it.
+            "chunks": chunk_counts.get(doc.id, 0),
         })
 
     return result
@@ -138,18 +166,17 @@ async def semantic_search(
     current_user: User = Depends(get_current_user),
     services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    # Build filters from request metadata
-    filters: Dict[str, Any] = {"user_id": str(current_user.id)}
+    # The user filter is part of the query itself; these narrow it further (jsonb containment).
+    metadata_filter: Dict[str, Any] = {}
     if body.subject:
-        filters["subject_tags"] = body.subject
+        metadata_filter["subject_tags"] = body.subject
     if body.file_type:
-        filters["doc_type"] = body.file_type
-    # For now, we ignore start_doc_id/end_doc_id or handle them at DB level later.
+        metadata_filter["doc_type"] = body.file_type
 
     results = services.retrieval_service.semantic_search(
         query=body.query,
         user_id=str(current_user.id),
         top_k=body.top_k,
-        filters=filters
+        metadata_filter=metadata_filter,
     )
     return {"results": results}

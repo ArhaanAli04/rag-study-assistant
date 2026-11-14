@@ -103,17 +103,48 @@ def test_upload_list_and_delete_a_document(client: Any, account: Account) -> Non
     assert uploaded.status_code == 200, uploaded.text
     body = uploaded.json()
     assert body["filename"] == "samples.pdf"
+    assert (body["status"], body["version"]) == ("new", 1)
     assert body["chunks_indexed"] > 0
     assert body["doc_version"] == 1
 
     listed = client.get("/documents", headers=account.headers).json()
     assert [d["filename"] for d in listed] == ["samples.pdf"]
     assert listed[0]["id"] == body["document_id"]
+    assert listed[0]["chunks"] == body["chunks_indexed"]
+    assert listed[0]["file_size"] == SAMPLE_PDF.stat().st_size
+    assert listed[0]["created_at"]
 
     deleted = client.delete(f"/documents/{body['document_id']}", headers=account.headers)
     assert deleted.status_code == 200
     assert deleted.json()["doc_version"] == 2
+    assert deleted.json()["versions_deleted"] == 1
     assert client.get("/documents", headers=account.headers).json() == []
+
+
+def test_an_identical_reupload_is_already_indexed_and_keeps_the_caches(client: Any, account: Account) -> None:
+    # I6: re-embedding every chunk and bumping doc_version (emptying the caches) bought nothing.
+    first = upload(client, account).json()
+
+    again = upload(client, account)
+
+    assert again.status_code == 200
+    assert again.json()["status"] == "unchanged"
+    assert again.json()["document_id"] == first["document_id"]
+    assert again.json()["doc_version"] == first["doc_version"]
+    listed = client.get("/documents", headers=account.headers).json()
+    assert [(d["id"], d["chunks"]) for d in listed] == [(first["document_id"], first["chunks_indexed"])]
+
+
+def test_a_deleted_document_is_never_cited_again(client: Any, account: Account, gemini: FakeGemini) -> None:
+    # I5: until Day 15 its chunks stayed in FAISS and BM25 until the next restart.
+    document_id = upload(client, account).json()["document_id"]
+    assert "samples.pdf" in file_names(assert_contract(chat(client, account))["metadata"]["sources"])
+
+    assert client.delete(f"/documents/{document_id}", headers=account.headers).status_code == 200
+
+    # The same question: no semantic-cache replay (doc_version moved) and no chunks left to find.
+    sources = assert_contract(chat(client, account))["metadata"]["sources"]
+    assert "samples.pdf" not in file_names(sources)
 
 
 def test_disallowed_file_type_is_rejected(client: Any, account: Account) -> None:
@@ -135,6 +166,36 @@ def test_traversal_filename_is_stored_inside_the_users_directory(client: Any, ac
     assert stored.is_file()
 
 
+def test_an_upload_whose_embedding_fails_is_refused_and_a_reupload_indexes_it(
+    client: Any, account: Account, gemini: FakeGemini
+) -> None:
+    gemini.fail_embedding_at = 2  # mid-document, like a 429 halfway through a lecture deck
+
+    failed = upload(client, account)
+
+    assert failed.status_code == 502
+    assert "upload it again" in failed.json()["detail"]
+    assert client.get("/me", headers=account.headers).json()["id"]  # the account is fine
+    retried = upload(client, account)
+    assert retried.status_code == 200, retried.text
+    assert retried.json()["chunks_indexed"] > 0
+    assert retried.json()["document_id"] == client.get("/documents", headers=account.headers).json()[0]["id"]
+
+
+def test_documents_are_still_retrieved_after_a_restart(app: Any) -> None:
+    # I4: until Day 15 the indexes lived in process memory, so every restart or deploy emptied them.
+    from fastapi.testclient import TestClient
+
+    with TestClient(app) as before_restart:
+        account = register_and_login(before_restart)
+        assert upload(before_restart, account).status_code == 200
+
+    with TestClient(app) as after_restart:  # a new lifespan: new services, nothing kept in memory
+        sources = assert_contract(chat(after_restart, account))["metadata"]["sources"]
+
+    assert "samples.pdf" in file_names(sources)
+
+
 # --- Chat ------------------------------------------------------------------------------------
 
 def test_chat_stream_follows_the_event_contract(client: Any, account: Account, gemini: FakeGemini) -> None:
@@ -151,6 +212,20 @@ def test_chat_stream_follows_the_event_contract(client: Any, account: Account, g
     messages = client.get(f"/sessions/{session_id}/messages", headers=account.headers).json()
     assert [(m["role"], m["content"]) for m in messages] == [("user", QUESTION), ("assistant", result["answer"])]
     assert messages[1]["id"] == result["message_id"]
+
+
+def test_an_embedding_outage_degrades_chat_to_keyword_search_instead_of_failing(
+    client: Any, account: Account, gemini: FakeGemini
+) -> None:
+    # Day 15: the query embedding (semantic cache + vector search) fails, the chat still answers from
+    # keyword search. QUESTION's words are in samples.pdf, so full-text search alone finds it.
+    upload(client, account)
+    gemini.embeddings_down = True
+
+    result = assert_contract(chat(client, account))
+
+    assert result["answer"]
+    assert "samples.pdf" in {s.get("file_name") for s in result["metadata"]["sources"]}
 
 
 def test_repeated_question_is_replayed_from_the_semantic_cache(

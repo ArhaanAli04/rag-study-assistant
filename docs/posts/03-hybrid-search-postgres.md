@@ -71,3 +71,27 @@ per-user filtering in one move.
   - [ ] Diagram: what survives a restart now (rows: Postgres) vs. what doesn't yet (files, vectors: Days 15–16)
 - Lesson / quote: "Moving to a real database made the app keep its memory and cost 190 ms a request. The database work itself takes under a tenth of a millisecond; the rest is three trips between Singapore and Mumbai."
 - Concept source: docs/briefs/day14.md#the-concept
+
+### Day 15 — 2026-11-14 — Search moves into Postgres (pgvector + full-text), files into Supabase Storage
+- Takeaway: until today the app's search index lived in the server's memory, so every restart made uploaded notes unsearchable, and deleting a file didn't stop it from being quoted. Now the searchable pieces of every document live in the database next to the document itself, and the original files live in cloud storage. A restart forgets nothing, and a delete is final.
+- Numbers:
+  - E4 retrieval eval, FAISS + BM25 (2026-11-09) → pgvector + Postgres full-text, the same 55 answerable questions and the same cached vectors (0 embedding calls):
+    - hybrid Hit@5 50/55 → 50/55 (one question lost, one gained), MRR@5 0.801 → 0.806;
+    - vector-only 52/55 → 52/55, with no question flipped;
+    - keyword-only Hit@5 47 → 49/55 but MRR@5 0.602 → 0.559 (Postgres ranking has no rare-word weighting).
+  - HNSW recall@10 vs exact search on the 419-chunk eval corpus: 1.000 (61/61 queries). At that size the planner chooses an exact scan anyway.
+  - Embedding storage: halfvec(3072), the same 6 KB per vector as vector(1536), without truncating dimensions.
+  - Database round trips per chat turn, counted after the move: 33 (6 pool pings, 6 BEGIN, 15 statements, 6 COMMIT/ROLLBACK), ≈ 2.1 s at ~63 ms each on Render → Supabase. Retrieval's share is 5. Day 16 cuts it.
+  - Restart checks: Docker stack, and `rag_staging` + the `rag-staging` bucket. After a restart a new question still cites the PDF; an identical re-upload returns `unchanged` with 3 chunks either way; a delete leaves 0 files.
+  - Tests: 271 → 325 (backend), 11 → 19 (frontend).
+- Capture now (only what depends on today's app state and can't be recreated later):
+  - nothing today. The live checks ran on demo data that was deleted afterwards, and production gets this at the Day 17 release, where the screenshots belong (the "already indexed" notice and the "Not searchable yet" badge on a real v0.2.2 row).
+- Make when writing the post (recreatable any time from git, the brief or this log):
+  - [ ] Table card: the E4 FAISS + BM25 vs pgvector + full-text table above, with flipped questions
+  - [ ] Diagram: before (vectors in RAM, files on a wiped disk, rows in Postgres) vs after (all three durable; chunks deleted with their document by ON DELETE CASCADE)
+  - [ ] Code card: `plainto_tsquery` ANDs every word → `replace(... ' & ', ' | ')` gives OR semantics, with the "How do neural networks in the brain learn?" example
+  - [ ] Code card: the two CHECKs that make a zero vector or blank chunk impossible to store
+  - [ ] Terminal card: the HNSW-forced EXPLAIN (`Index Scan using ix_document_chunks_embedding_hnsw`) next to recall@10 = 1.000
+  - [ ] Table card: the four upload statuses (new / changed / unchanged / reindexed) and what each one does
+- Lesson / quote: "The parity test I feared was the vector search; it matched to the question. The surprise was elsewhere: Supabase's S3 refuses boto3's batch delete, so deleting a user's files is now one request per file, and a test makes sure nobody 'optimizes' it back."
+- Concept source: docs/briefs/day15.md#the-concept

@@ -2,14 +2,16 @@
 import logging
 from typing import Any, Dict, List, Optional, Protocol, Tuple
 
+import numpy as np
+
 from app.retrieval import confidence as conf
+from app.retrieval.embeddings import EmbeddingError
+from app.retrieval.pg_chunk_search import Candidates
 from app.retrieval.query_preprocessor import (
     preprocess_query_for_vector,
     preprocess_query_for_keyword,
 )
-from app.retrieval.keyword_index import BM25KeywordIndex
 from app.retrieval.reranker import CrossEncoderReranker
-from app.retrieval.index_builder import IndexBuilder
 from app.retrieval.web.search_client import WebSearchClient
 from app.retrieval.web.scraper import fetch_and_extract_text
 from app.retrieval.context_compressor import SimpleContextCompressor
@@ -34,11 +36,27 @@ class WebResultCache(Protocol):
     def set(self, query: str, results: List[Dict[str, Any]]) -> None: ...
 
 
+class TextEmbedder(Protocol):
+    def embed_texts(self, texts: List[str]) -> np.ndarray: ...
+
+
+class ChunkSearch(Protocol):
+    """The user's chunks as two candidate lists (Day 15: PgChunkSearch over document_chunks)."""
+
+    def search(
+        self, query_embedding: np.ndarray | None, keyword_query: str, user_id: str, top_k: int
+    ) -> Candidates: ...
+
+    def vector_only(
+        self, query_embedding: np.ndarray, user_id: str, top_k: int, metadata_filter: Dict[str, Any] | None = None
+    ) -> List[Dict[str, Any]]: ...
+
+
 class RetrievalService:
     def __init__(
         self,
-        index_builder: IndexBuilder,
-        bm25_index: Optional[BM25KeywordIndex],
+        embedding_service: TextEmbedder,
+        chunk_search: ChunkSearch,
         query_cache: QueryResultCache,
         web_cache: WebResultCache,
         web_search_enabled: bool = True,
@@ -46,8 +64,8 @@ class RetrievalService:
         vector_weight: float = 0.6,
         keyword_weight: float = 0.4,
     ) -> None:
-        self.index_builder = index_builder
-        self.bm25_index = bm25_index
+        self.embedding_service = embedding_service
+        self.chunk_search = chunk_search
         self.query_cache = query_cache
         self.web_cache = web_cache
         self.reranker = CrossEncoderReranker()
@@ -63,12 +81,9 @@ class RetrievalService:
         # Per instance: a class-level dict was shared by every RetrievalService in the process.
         self._l1_cache: Dict[Tuple[str, str, int], Dict[str, Any]] = {}
 
-    def _embed_texts(self, texts: List[str]) -> List[List[float]]:
-        """
-        Use the same embedding model as FAISS so local and web scores are comparable.
-        Assumes IndexBuilder exposes embed_texts().
-        """
-        return self.index_builder.embed_texts(texts)
+    def _embed_texts(self, texts: List[str]) -> np.ndarray:
+        """The same embedding model as the stored chunks, so local and web scores are comparable."""
+        return self.embedding_service.embed_texts(texts)
 
     # -------- L1 exact-match cache (per process) --------
     def l1_cache_lookup(self, user_id: str, query: str, doc_version: int) -> Optional[Dict[str, Any]]:
@@ -87,18 +102,21 @@ class RetrievalService:
             del self._l1_cache[key]
         return len(stale)
 
-    # -------- Existing semantic_search (vector only) can stay if you use it elsewhere --------
-    def semantic_search(self, query: str, user_id: str | None = None, top_k: int = 5,filters: dict | None = None, doc_version: int = 0):
+    # -------- semantic_search: the vector half alone (POST /search) --------
+    def semantic_search(
+        self,
+        query: str,
+        user_id: str,
+        top_k: int = 5,
+        metadata_filter: Dict[str, Any] | None = None,
+        doc_version: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """Cosine-scored results (higher = closer; FAISS's raw distances until Day 15, B8 residual)."""
         cached = self.query_cache.get(user_id, query, doc_version)
         if cached is not None:
             return cached
-        
-        # Merge user_id into filters
-        if user_id is not None:
-            filters = filters.copy() if filters else {}
-            filters["user_id"] = user_id
-
-        results = self.index_builder.search(query, top_k=top_k, filters=filters)
+        query_embedding = self._embed_texts([query])[0]
+        results = self.chunk_search.vector_only(query_embedding, user_id, top_k, metadata_filter)
         self.query_cache.set(user_id, query, doc_version, results)
         return results
 
@@ -207,8 +225,7 @@ class RetrievalService:
         """
         Full retrieval pipeline for chat:
         - L1 exact cache
-        - L2 Redis cache (through underlying index_builder if you wire it)
-        - Vector + BM25 hybrid
+        - Vector (pgvector) + keyword (Postgres full-text) hybrid
         - Confidence scoring
         - Optional web fallback flag
         - Cross-encoder reranking
@@ -223,41 +240,18 @@ class RetrievalService:
         vec_query = preprocess_query_for_vector(query)
         kw_query = preprocess_query_for_keyword(query)
 
-        filters = {"user_id": user_id}
-
-        # 3. Vector search via existing index_builder
-        # vector_results: list of {"score": float, "text": str, "metadata": {...}}
-        raw_vector_results = self.index_builder.search(vec_query, top_k=top_k, filters=filters)
-
-        vector_results = []
-        for item in raw_vector_results:
-            if isinstance(item, dict):
-                # Already a higher-is-better score.
-                vector_results.append(item)
-                continue
-            # FaissVectorStore returns (squared L2 distance, metadata): lower is closer. Fusion and
-            # confidence need higher = better, so convert to cosine similarity. For unit vectors
-            # (EmbeddingService L2-normalizes) d² = 2 − 2·cos, so cos = 1 − d²/2. Fusing the raw
-            # distance ranked the vector half backwards (B8).
-            distance, metadata = item
-            vector_results.append(
-                {"score": 1.0 - float(distance) / 2.0, "text": metadata.get("text", ""), "metadata": metadata}
-            )
-
-
-        # 4. BM25 search
-        keyword_results = []
-        if self.bm25_index is not None:
-            keyword_results_raw = self.bm25_index.search(kw_query, top_k=top_k, filters=filters)
-            # Convert to unified structure (BM25 scores are positive; higher is better).
-            for r in keyword_results_raw:
-                keyword_results.append(
-                    {
-                        "score": float(r["score"]),
-                        "text": r["metadata"].get("text", ""),
-                        "metadata": r["metadata"],
-                    }
-                )
+        # 3–4. Vector (cosine similarity) and keyword (ts_rank_cd) candidates, both higher = better
+        # and both filtered to this user inside the query (I1), in one database session (CO6).
+        # A failed query embedding (a Gemini outage or quota) degrades to keyword-only search for this
+        # query instead of failing the chat; the answer is still grounded in what keyword search finds.
+        try:
+            query_embedding: Optional[np.ndarray] = self._embed_texts([vec_query])[0]
+        except EmbeddingError:
+            logger.warning("Query embedding failed; keyword-only retrieval for this query", exc_info=True)
+            query_embedding = None
+        candidates = self.chunk_search.search(query_embedding, kw_query, user_id, top_k)
+        vector_results = candidates.vector
+        keyword_results = candidates.keyword
 
         # 5. Score normalization (min-max per list)
         def normalize_scores(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -447,7 +441,9 @@ class RetrievalService:
             
         }
 
-        if self.l1_cache_enabled:
+        # A degraded (keyword-only) result isn't cached: the same question should get full retrieval
+        # once embeddings work again, not a replay of the degraded ranking until the next upload.
+        if self.l1_cache_enabled and query_embedding is not None:
             self.l1_cache_store(user_id, query, doc_version, result_payload)
 
         return result_payload

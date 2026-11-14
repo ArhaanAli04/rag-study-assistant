@@ -293,7 +293,7 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Branch: feature/day16-batch-embeddings
 - embed_texts sends batches (embed_content accepts a list) with bounded concurrency and retry
 - CO3: look up content_hash in document_chunks and reuse an existing embedding before calling the API
-- CO6 (found Day 14): cut database round trips per request — every one crosses Render Singapore → Supabase Mumbai (~63 ms); `/me` = 3 round trips = +190 ms, a chat turn ≈ 10–15 ≈ +1 s. Count statements per chat turn locally (SQLAlchemy `before_cursor_execute` counter, fake Gemini, compose Postgres — includes Day 15's retrieval queries), one transaction per chat step, drop `pool_pre_ping` (pool_recycle covers idle drops); re-measure with the Day 14 script (n = 30 `/me`, n ≥ 15 chat turns) before and after
+- CO6 (found Day 14): cut database round trips per request — every one crosses Render Singapore → Supabase Mumbai (~63 ms); `/me` = 3 round trips = +190 ms. Counted on Day 15 (fake Gemini, compose Postgres, after the move to pgvector): a chat turn = 33 round trips — 6 pool pre-pings, 6 BEGIN, 15 statements, 6 COMMIT/ROLLBACK ≈ 2.1 s on Render (retrieval's share: 5); `/me` = 4 with the pre-ping. Cut them: one transaction per chat step, drop `pool_pre_ping` (pool_recycle covers idle drops); re-measure with the Day 14 script (n = 30 `/me`, n ≥ 15 chat turns) before and after
 - scripts/reindex_all.py: re-embeds every user's documents from Supabase Storage into document_chunks (needed once — FAISS only ever lived in memory)
 - Remove FAISS / BM25 code and the faiss-cpu and rank-bm25 dependencies once parity is confirmed
 - B7: measure img2table's `borderless_tables=True` on the Day 11 corpus's slide decks (tables found vs. expected, false positives on pictures and diagrams); enable it in extract_tables_from_image only if the false positives are acceptable, and record both numbers in the tracker
@@ -306,7 +306,12 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Test: a document indexed through the pipeline is returned by the concept-map retriever
 - UI: CreateMapForm's existing "use documents" toggle now works; ConceptNodeDetails shows the source document and page for document-derived nodes
 - Update CLAUDE.md Data & State: indexes now persist in Postgres, files in Supabase Storage
-- Release: develop → master; alembic upgrade runs on production through the image's CMD (Day 15's document_chunks revision); run the reindex (Day 16) on production; tag v0.3.0. No data migration: production has been on Postgres since v0.2.2 (Day 14)
+- Release: develop → master; alembic upgrade runs on production through the image's CMD (Day 15's revisions 9e72706d7449 document_chunks + FK rules and 500c410270f5 concept-map-node cascade; both already proven on rag_staging); run the reindex (Day 16) on production; tag v0.3.0. No data migration: production has been on Postgres since v0.2.2 (Day 14)
+- Release runbook notes from Day 15:
+  - Render env vars, set before the deploy: STORAGE_BACKEND=supabase, STORAGE_BUCKET=rag-prod, SUPABASE_S3_ENDPOINT, SUPABASE_S3_REGION, SUPABASE_S3_ACCESS_KEY_ID, SUPABASE_S3_SECRET_ACCESS_KEY (the same S3 key as rag-staging; values from the owner's .env, never pasted anywhere else). Without them Render falls back to local storage on its wiped disk
+  - No Redis flush this time: user ids aren't reset (Postgres sequences since v0.2.2), so no cached answer can reach another user (G9's condition doesn't apply)
+  - v0.2.2 documents have rows but no chunks and no files (Render had no disk): they show "Not searchable yet — upload it again" until the user re-uploads; the reindex can't help them, since their files are gone. Say so in the release notes
+  - Live check after the deploy: upload → cite → restart the Render service → a new question still cites it → delete → the object is gone from rag-prod (Supabase dashboard → Storage)
 - Verify: generate a concept map with "use documents" on — nodes cite the uploaded material
 
 ---

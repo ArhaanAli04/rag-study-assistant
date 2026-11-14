@@ -10,8 +10,10 @@ from google.genai import errors as genai_errors
 
 from app.retrieval.embeddings import (
     EMBED_BATCH_SIZE,
+    EMBED_TEXTS_PER_MINUTE,
     EMBEDDING_DIM,
     MAX_RETRY_DELAY_SECONDS,
+    RATE_WINDOW_SECONDS,
     EmbeddingError,
     EmbeddingService,
     server_retry_delay,
@@ -86,24 +88,66 @@ def test_texts_are_sent_in_batches_and_come_back_in_input_order() -> None:
     assert np.allclose(np.linalg.norm(vectors, axis=1), 1.0)
 
 
-def test_a_429_is_retried_after_the_servers_retry_delay(instant_embedding_backoff: List[float]) -> None:
+def test_a_429_waits_the_whole_window_even_when_the_hint_is_shorter(instant_embedding_backoff: List[float]) -> None:
+    # Day 16, HPC deck: hints of 27 s, then 0 s, then 59 s, and the upload failed after 3 attempts.
     service, models = _service()
-    models.errors.append(_rate_limited("37s"))
+    models.errors.extend([_rate_limited("27s"), _rate_limited("0s")])
 
     vectors = service.embed_texts(["1", "2"])
 
     assert len(vectors) == 2
-    assert len(models.batches) == 2
-    assert instant_embedding_backoff == [37.0]
+    assert len(models.batches) == 3
+    assert instant_embedding_backoff == [RATE_WINDOW_SECONDS, RATE_WINDOW_SECONDS]
 
 
-def test_the_servers_retry_delay_is_capped(instant_embedding_backoff: List[float]) -> None:
+def test_a_429_without_a_hint_also_waits_the_window(instant_embedding_backoff: List[float]) -> None:
+    service, models = _service()
+    models.errors.append(_rate_limited())
+
+    service.embed_texts(["1"])
+
+    assert instant_embedding_backoff == [RATE_WINDOW_SECONDS]
+
+
+def test_a_longer_hint_is_capped(instant_embedding_backoff: List[float]) -> None:
     service, models = _service()
     models.errors.append(_rate_limited("3600s"))
 
     service.embed_texts(["1"])
 
     assert instant_embedding_backoff == [MAX_RETRY_DELAY_SECONDS]
+
+
+def test_an_upload_paces_itself_under_the_per_minute_text_limit(instant_embedding_backoff: List[float]) -> None:
+    # The HPC deck: 217 distinct texts → batches of 100 / 100 / 17. Each full batch uses the whole
+    # minute, so batches 2 and 3 wait for it, and no request is rejected.
+    client = _ScriptedClient()
+    service = EmbeddingService(client, texts_per_minute=EMBED_TEXTS_PER_MINUTE)  # type: ignore[arg-type]
+
+    vectors = service.embed_texts([str(i) for i in range(217)])
+
+    assert [len(b) for b in client.models.batches] == [100, 100, 17]
+    assert instant_embedding_backoff == pytest.approx([RATE_WINDOW_SECONDS, RATE_WINDOW_SECONDS])
+    assert len(vectors) == 217 and not client.models.errors
+
+
+def test_small_batches_share_the_minute_without_waiting(instant_embedding_backoff: List[float]) -> None:
+    client = _ScriptedClient()
+    service = EmbeddingService(client, texts_per_minute=EMBED_TEXTS_PER_MINUTE)  # type: ignore[arg-type]
+
+    service.embed_texts([str(i) for i in range(45)])
+    service.embed_texts([str(i) for i in range(45)])  # a new call (upload) starts a fresh window
+
+    assert instant_embedding_backoff == []
+
+
+def test_the_chat_path_is_not_paced(instant_embedding_backoff: List[float]) -> None:
+    service, models = _service(max_attempts=1)
+
+    service.embed_texts([str(i) for i in range(250)])
+
+    assert [len(b) for b in models.batches] == [100, 100, 50]
+    assert instant_embedding_backoff == []
 
 
 def test_without_a_hint_the_backoff_doubles(instant_embedding_backoff: List[float]) -> None:

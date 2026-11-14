@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 
 from app.core.config import settings
 from app.main import create_app
-from app.retrieval.embeddings import INDEXING_MAX_ATTEMPTS, QUERY_MAX_ATTEMPTS
+from app.retrieval.embeddings import EMBED_TEXTS_PER_MINUTE, INDEXING_MAX_ATTEMPTS, QUERY_MAX_ATTEMPTS
 from tests.fakes import FakeGenaiClient
 
 
@@ -33,6 +33,9 @@ def test_startup_builds_exactly_one_shared_gemini_client() -> None:
         assert services.retrieval_service.embedding_service is services.query_embedding_service
         assert services.semantic_cache.embedding_service is services.query_embedding_service
         assert services.query_embedding_service.max_attempts == QUERY_MAX_ATTEMPTS
+        # Only uploads pace themselves under the free tier's per-text limit; chat calls embed one text.
+        assert services.embedding_service.texts_per_minute == EMBED_TEXTS_PER_MINUTE
+        assert services.query_embedding_service.texts_per_minute is None
         assert services.chat_pipeline.topic_classifier.client is shared
         assert services.concept_map_service.extractor.client is shared
         # B9: the three generation roles all use the one Settings model.

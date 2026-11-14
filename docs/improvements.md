@@ -796,6 +796,11 @@ indexed as a table, silently.
 **Direction:** measure `borderless_tables=True` on real slide decks (the Day 11 corpus) for recall
 and false positives — pictures and diagrams detected as tables would index junk text — before
 enabling it. Scheduled Day 16.
+**Day 16 (2026-11-15): measured, not enabled.** `HPC Lecture.pptx` has 11 pictures and none is a
+real table: default 0 detections, `borderless_tables=True` 9 detections, all 9 false positives
+(diagrams, photo collages, a network tree; crops viewed). The same day showed that slide-image
+tables are never indexed at all (B13), and their extraction is now skipped. Revisit both together
+on a corpus with real borderless tables.
 
 ### B8 — The vector half of hybrid retrieval is ranked backwards (P0)
 `FaissVectorStore` is an `IndexFlatL2` and `search` returns `(squared L2 distance, metadata)`
@@ -938,6 +943,26 @@ chip list that disagrees with the answer's own "Page N" undermines trust in both
   parent-expanded blocks.
 - Backend + `ChatWindow.js` the same day (UI rule). Pairs naturally with the Day 50 PDF citation
   viewer.
+
+### B13 — PPTX slide-image tables are extracted but never indexed (P2)
+Found Day 16 (2026-11-15), measuring B7.
+- **What happened:** `process_pptx` (`ingestion/parsers/pptx_pipeline.py`) ran
+  `extract_tables_from_pptx_slides` (img2table on every picture of every slide) and returned the
+  result under `"tables"`. But `build_chunks_from_pptx` (`ingestion/chunk_builder.py`) reads only
+  `"slides"`. Nothing else read the key, apart from one test checking it existed. So no table from a
+  slide image ever became a chunk or could be retrieved.
+- **What it cost** (`HPC Lecture.pptx`, 11 pictures, **0 real tables**): 11.4 s of a 143.3 s upload in
+  a fresh process (img2table's first import included), **49%** of the upload's working time once
+  the free tier's 120 s of embedding pacing is left out; 2.8 s warm.
+- **Status: extraction skipped since Day 16.** `process_pptx` no longer calls it or returns
+  `"tables"`. `tables.py` and `extract_tables_from_pptx_slides` are kept as they are.
+  `test_pptx_utils.py` records img2table's `extract_tables` calls (where every path ends; the
+  callers swallow exceptions) and asserts none on a deck with a picture, both for `process_pptx`
+  and for `POST /upload`. A control test shows the old call does reach img2table on that deck. The
+  HPC deck's working time without pacing went 23.3 s → **12.3 s** (parse 12.1 s → 0.7 s).
+- **Direction:** re-enable when tables become chunks (e.g. a table's CSV text as a chunk of its
+  slide, with `doc_type`/metadata saying so). Then measure with E4 on a corpus that has real
+  slide-image tables (this one has none), and decide `borderless_tables` (B7) on that data.
 
 ---
 

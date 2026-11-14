@@ -218,11 +218,19 @@ def pytest_unconfigure(config: pytest.Config) -> None:
 
 @pytest.fixture(autouse=True)
 def instant_embedding_backoff(monkeypatch: pytest.MonkeyPatch) -> Iterator[List[float]]:
-    """Upload embeddings retry with backoff (Day 16); the suite records the waits instead of sleeping."""
+    """Upload embeddings retry with backoff and pace themselves per minute (Day 16); the suite records
+    the waits instead of sleeping, and each recorded wait moves a fake clock forward by that much."""
     from app.retrieval import embeddings
 
     waits: List[float] = []
-    monkeypatch.setattr(embeddings, "_sleep", waits.append)
+    now = [0.0]
+
+    def record(seconds: float) -> None:
+        waits.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(embeddings, "_sleep", record)
+    monkeypatch.setattr(embeddings, "_clock", lambda: now[0])
     yield waits
 
 

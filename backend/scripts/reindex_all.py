@@ -29,7 +29,7 @@ from app.db.models import User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
 from app.ingestion.upload_storage import FileStorage, StorageError
-from app.retrieval.embeddings import EmbeddingError, EmbeddingService
+from app.retrieval.embeddings import EMBED_TEXTS_PER_MINUTE, EmbeddingError, EmbeddingService
 from app.services.document_service import stored_copy_is_usable
 from app.services.indexing_service import IndexingService
 
@@ -190,7 +190,8 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Names only, never the URL: it carries the password.
     logger.info("Database %s, schema %s, storage %s", target.database, settings.DATABASE_SCHEMA, settings.STORAGE_BACKEND)
     counting = _CountingClient(build_gemini_client())
-    indexing = IndexingService(EmbeddingService(counting))  # type: ignore[arg-type]
+    # Paced like /upload (per document); between documents the 429 safety net (≥ 60 s) covers the rest.
+    indexing = IndexingService(EmbeddingService(counting, texts_per_minute=EMBED_TEXTS_PER_MINUTE))  # type: ignore[arg-type]
     report = reindex(
         SessionLocal, build_file_storage(), indexing,
         user_id=args.user, all_documents=args.all_documents, re_embed=args.re_embed, apply=args.apply,

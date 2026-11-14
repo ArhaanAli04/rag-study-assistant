@@ -410,3 +410,136 @@ Trade-off: a long transaction holds a pooled connection, and holding one open ac
   - Regression test for the closed-client bug: `test_the_request_counter_keeps_the_whole_client_alive` (`test_reindex.py`). Its fake client closes its `.models` when garbage-collected, like `genai.Client`, and the test asserts that a call through the counter still works after `gc.collect()`. Checked against the pre-fix wrapper (models only): the same fake fails with the live run's exact error. Suite **357 passed**.
   - Step 4 recorded as new B2 evidence for Day 26 in `docs/improvements.md` (B2, "Day 16 evidence").
 - `rag_staging` and production: not touched. Day 17: production gets a dry run only (owner).
+
+### Checkpoint 5 — B7 measurement (2026-11-15; measure only, Decision 5A; `tables.py` unchanged)
+- **Account check first:** the reindex throwaway account is gone from local `rag` (0 rows for user 26; `backend/uploads/26` doesn't exist).
+- **Tables in `HPC Lecture.pptx`** (242 slides, **11 pictures**). Same preprocessing as `extract_tables_from_image`, then img2table `extract_tables()` with the default vs `borderless_tables=True`. Each detection was outlined and viewed:
+
+  | Picture (slide) | What it is | Default | Borderless | Verdict |
+  |---|---|---|---|---|
+  | 1 (4) | `do_payroll()` → instruction stream → processor diagram | 0 | 1 (5×14) | false positive |
+  | 2 (6) | parallel payroll diagram (4 rows of instruction blocks) | 0 | 1 (8×6) | false positive: a grid-like diagram, not data |
+  | 3 (9) | photo collage (galaxy, planets, hurricane) | 0 | 1 (3×5) | false positive |
+  | 4 (9) | photo collage (traffic, plate tectonics, tornado) | 0 | 1 (2×5) | false positive |
+  | 5 (71) | SISD diagram + instruction stack | 0 | 1 (8×4) | false positive |
+  | 6 (72) | SIMD diagram + per-processor instruction stacks + vector add | 0 | 1 (9×9) | false positive |
+  | 7 (73) | MISD diagram + instruction stacks | 0 | 1 (7×5) | false positive |
+  | 8 (74) | MIMD diagram + instruction stacks | 0 | 1 (8×6) | false positive |
+  | 9 (167) | mesh network diagram | 0 | 0 | correct |
+  | 10 (169) | hypercube diagram | 0 | 0 | correct |
+  | 11 (171) | tree network diagram | 0 | 1 (2×5) | false positive |
+
+  - **No picture in the deck is a real table**, so recall can't be measured on this corpus.
+  - Default: 0 detections, all correct.
+  - Borderless: **9 detections, 9 false positives, 0 true positives.** Enabling it would index junk "tables" from diagrams and photos, if tables were indexed at all (they aren't; Scope 5).
+  - Day 10's samples still stand: `tableimage2.jpg` 0 → 1 real table.
+  - **Recommendation: keep the default.** Revisit with real borderless-table slides, together with the decision to index tables at all.
+- **Time spent on table extraction** (`extract_tables_from_pptx_slides`, whose output is discarded):
+
+  | Run | Parse (`build_chunks_for_file`) | Of which table extraction | Share |
+  |---|---|---|---|
+  | first in a fresh process (includes img2table's slow first import) | 10.80 s | **10.16 s** | **94.1%** |
+  | warm | 3.42 s | **2.85 s** | **83.2%** |
+
+  - The deck parses to 245 chunks: 242 non-blank, 217 distinct texts (25 repeats, embedded once per document since CO3).
+  - **Share of the total upload: not measured.** The full-upload timing run failed at embedding (next finding), so there is no successful upload to divide by. It needs re-running after the retry decision.
+- **Finding: Checkpoint 1's retry doesn't survive a full-size second batch on the free tier.**
+  - Log, embedding 217 texts in batches of 100: batch 2 → 429 with `retryDelay` **27 s** (waited) → 429 again with `retryDelay` **0 s** (retried at once) → 429 with `retryDelay` **59 s**, after 3 attempts → `EmbeddingError`. `/upload` would answer 502.
+  - The quota is per text (`embed_content_free_tier_requests`, limit 100 per minute).
+  - `retryDelay` says when *a* request may succeed, not when 100 slots are free for a 100-text batch. Checkpoint 1's DL run passed only because its second batch had 7 texts.
+  - The throwaway `rag_eval` user was deleted (in `finally`). Fix decision pending with the owner.
+- **Owner's fix (2026-11-15), replacing both options offered:**
+  - `backend/app/retrieval/embeddings.py`:
+    - `EMBED_TEXTS_PER_MINUTE = 100` (the free tier's limit, counted per text) and `RATE_WINDOW_SECONDS = 60`.
+    - `EmbeddingService(texts_per_minute=…)` paces each `embed_texts` call: before a batch, if the texts sent in the last 60 s plus this batch exceed 100, it sleeps until the oldest batch is 60 s old. The window is local to the call (no state shared across requests, no new setting). Sleep and clock are module functions the suite replaces.
+    - A 429 now waits `min(max(retryDelay, 60 s), 60 s)` = 60 s, with 3 attempts.
+    - The chat-path embedder has no pacing and 1 attempt (unchanged).
+  - `backend/app/services/container.py`: the upload embedder gets `texts_per_minute=EMBED_TEXTS_PER_MINUTE`.
+  - `backend/scripts/reindex_all.py`: the same pacing, per document. Between documents the 429 safety net covers it.
+  - `backend/tests/conftest.py`: the autouse fixture now also patches the clock, and each recorded wait advances it.
+  - `backend/tests/test_embeddings.py`:
+    - 217 texts → batches 100/100/17 with recorded waits [60, 60] and no 429
+    - a 429 waits 60 s even with `retryDelay` 27 s and then 0 s
+    - a 429 with no hint waits 60 s; a 3600 s hint is capped at 60 s
+    - two 45-text uploads don't wait
+    - the chat path isn't paced
+  - `test_app_factory.py`: only the upload embedder is paced.
+  - **UI:** `frontend/src/components/DocumentUpload.js` shows a spinner and "Large files can take a few minutes to index." (`role="note"`) under the buttons while an upload runs. `frontend/src/pages/DocumentsPage.test.js`: shown while the upload is pending, gone after it finishes.
+- **HPC deck re-timed live** (eval key, `rag_eval`, throwaway user deleted; the app's paced upload embedder):
+
+  | | Seconds | Share |
+  |---|---|---|
+  | **Total upload** (242 chunks, 3 blank skipped, 217 texts embedded) | **143.3** | 100% |
+  | parse (`build_chunks_for_file`, fresh process) | 12.1 | 8.4% |
+  | of which **table extraction** (output discarded) | **11.4** | **8.0%** of the total; **49.1%** of the 23.3 s left once the 120 s of pacing is excluded |
+  | embedding | 128.7 | of which **120.0 s pacing** (two 60 s waits before batches 2 and 3) |
+  | database writes etc. | 2.5 | |
+
+  - **Rejected batches (429): 0.**
+  - A warm parse rerun: 3.6 s, of which tables 2.8 s (76.3%).
+  - **Quota:** this one deck used 217 of the free tier's ~1,000 embedded texts a day, **about 22%**. That is an argument for the CO5 fix (the question embedded up to 3 times per chat turn) and for checking a paid tier before real usage.
+- **B7 recommendation, for the owner to decide (not acted on):** table extraction is about half of an HPC upload's working time when the free-tier waits are excluded (11.4 of 23.3 s in a fresh process; 2.8 s warm). Its output is never indexed (Scope 5), and on this deck it finds no real tables. **Skip `extract_tables_from_pptx_slides` in `process_pptx` until tables are indexed.** That would also skip img2table's ~4 s import on the first PPTX upload after each start. Keep `borderless_tables` off either way (9/9 false positives).
+- **Suite:** 357 → **361 passed** (backend); `DocumentsPage.test.js` 8 → **9 passed**; `ruff check .` clean; frontend `CI=true npm run build` passes (as Vercel builds it).
+
+## Day 16 summary
+
+### Files changed (whole day)
+- **I3, embeddings:** `backend/app/retrieval/embeddings.py`; `backend/app/services/container.py`; tests `test_embeddings.py` (new), `conftest.py`, `test_app_factory.py`, `test_chunk_store.py`, `test_api_smoke.py`
+- **CO3, reuse:** `alembic/versions/21f0595f83d5_document_chunks_user_content_hash_index.py`; `backend/app/db/models/document_chunk.py`; `backend/app/db/repositories/chunks.py` (also the two-level vector query); `backend/app/services/indexing_service.py`; `backend/app/services/document_service.py`; `backend/app/api/routes/documents.py`; tests `test_embedding_reuse.py` (new), `test_document_service.py`, `test_migrations.py`, `test_chunk_store.py`; E4 summaries `backend/eval/results/2026-11-15-baseline-{after-co3,tiebreak-run1,tiebreak-run2}.md`
+- **CO6, round trips:** `backend/app/db/session.py`; `backend/app/db/repositories/sessions.py`; `backend/app/services/session_service.py`; `backend/app/services/chat_pipeline.py`; `backend/app/services/container.py`; tests `test_round_trips.py` (new), `test_chat_writes.py` (new)
+- **Reindex:** `backend/scripts/__init__.py`, `backend/scripts/reindex_all.py` (new); `backend/app/db/repositories/documents.py`; tests `test_reindex.py` (new)
+- **UI:** `frontend/src/components/DocumentUpload.js`; `frontend/src/pages/DocumentsPage.test.js`
+- **Docs:** this brief; `docs/improvements.md` (CO5 triple-embedding finding + quota note; B2 Day 16 evidence); `docs/posts/03-hybrid-search-postgres.md`, `docs/posts/09-launch-recap.md` (material logs); `docs/learning/ai-concepts.md` (gitignored; concepts 1, 4, 11)
+
+### UI integration
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| Upload embeddings paced under 100 texts per minute (a large file can take minutes) | `components/DocumentUpload.js` | While an upload runs: a spinner and "Large files can take a few minutes to index." (tested in `DocumentsPage.test.js`) |
+| I3 batching, CO3 reuse (`IndexingResult.embeddings_reused` / `texts_embedded`) | — | backend-only: logged, not in the API response. Uploads are faster; the existing notice and statuses are unchanged |
+| CO6 transactions, no pre-ping, autocommit reads | — | backend-only: same endpoints and SSE frames (order guarded by `test_api_smoke.py`); the topic tag is committed before `message_id`, so the sidebar refresh at `[DONE]` sees it |
+| Deterministic tie order in vector search | — | backend-only: the same results, in a stable order |
+| Reindex script | `components/DocumentList.js` (existing) | an operator tool; its effect goes through the existing "Not searchable yet" badge (`chunks === 0`), which disappears after `--apply` (checked live) |
+| Index `(user_id, content_hash)` | — | backend-only: a migration |
+
+### Timeline bullets deferred or dropped
+- "Remove FAISS / BM25 + their dependencies" and "E4 re-run vs the FAISS baseline": done on Day 15.
+- "Upload time for a 50-page PDF before vs after": done with `BCT mod2,3,6.pdf` (63 pages) and `DL_Unit5_RNN.pdf` (107 pages), plus the HPC deck after the pacing fix.
+- CO6 "re-measure n = 30 `/me`, n ≥ 15 chat turns": on Render only after v0.3.0 (Day 17). Today's numbers are local round-trip counts.
+- B7: measured only (Decision 5A). Not enabled: 9/9 false positives.
+- `reindex_all.py` against production: not run (Day 17, dry run only).
+
+### Numbers for the tracker's Notes column
+- **I3:**
+  - BCT 45 calls / 24.1 s → 1 / 3.7 s; DL 107 / 69.5 s → 2 batches / 29.3 s.
+  - HPC deck (217 texts) 143.3 s with 0 rejected batches (pacing 100 texts / 60 s; a 429 waits 60 s).
+  - Batch vs single cosine 1.000000.
+  - The free tier counts per text.
+- **CO3:** changed re-upload with 2 of 7 chunks changed: 5 reused, 2 embedded, 1 call. Reindex `--all`: 0 calls. Index `21f0595f83d5`.
+- **CO6:** chat turn 33 → 11, follow-up 23 → 11, `/me` 4 → 3 round trips (test = server log). Render latency pending (Day 17).
+- **B7:** HPC deck 11 pictures, 0 real tables; default 0 detections, borderless 9 (9 false positives). Not enabled. Table extraction is 11.4 s of a 143.3 s upload (8.0%; 49.1% without free-tier waits).
+- **E4:** Hit@5 50/55, MRR@5 0.808 (deterministic; was 0.806 through unstable tie order).
+
+### Day 17 release checklist (Day 16's part)
+`rag_staging` is already at `21f0595f83d5` (the owner ran it); production gets the migration through the image's CMD (`alembic upgrade head`); measure CO6 on Render with n = 30 `/me` and n ≥ 15 chat turns after re-creating the latency script (the Day 14 one was a scratchpad file); run `python -m scripts.reindex_all` against production as a **dry run only**, and expect v0.2.2's rows to be reported "skipped: file missing".
+
+### Owner's decision: B13 (2026-11-15)
+- **Skip PPTX table extraction until tables are indexed.** `backend/app/ingestion/parsers/pptx_pipeline.py`:
+  - `process_pptx` no longer calls `extract_tables_from_pptx_slides` or returns `"tables"`. Nothing else read the key, apart from one test asserting it existed.
+  - Dropped rather than returned empty: an empty list would claim "no tables found".
+  - The docstring says why (11.4 s / 49%, 0 real tables) and when to re-enable.
+  - Type hints added; the docstring's old "OCR" step, which never ran here, removed.
+  - `tables.py` and `extract_tables_from_pptx_slides` unchanged.
+- **Tests (`backend/tests/test_pptx_utils.py`):**
+  - A fixture records img2table's `Image.extract_tables` calls, where every path to slide-image tables ends. The callers swallow exceptions, so a raising fake would go unnoticed.
+  - A deck built in the test with a picture (`sampleimg1.png`). `sample2.pptx` has **no pictures**, so a test on it would have passed with or without extraction (checked: 0 calls either way).
+  - Control: called directly, the old extraction reaches img2table once on that deck.
+  - `process_pptx` returns only `metadata` + `slides` and makes 0 detection calls.
+  - `POST /upload` of the deck returns 200 with chunks and makes 0 detection calls.
+  - The old `"tables"`-key test was replaced.
+- **Re-timed live** (eval key, `rag_eval`, throwaway user deleted): HPC deck working time without pacing **23.3 s → 12.3 s**. Total 132.3 s, of which 120.0 s pacing; parse 12.1 s → 0.7 s; table timer 0.0 s; 0 rejected batches.
+- **Recorded:**
+  - `docs/improvements.md` B13 (P2), plus a B7 Day 16 status note.
+  - Tracker: B13 new (Not Started: "extraction skipped since Day 16, re-enable when tables become chunks"); I3, CO3, CO6, B7 → Done with today's numbers.
+  - CLAUDE.md: Current Status, the Embeddings row, the Ingestion row, the partial / not-present lists (CO3 gone), Known Issues B7 / B13 / CO6, the reindex commands, `backend/scripts/` in the repo structure.
+- **Checks:** suite **363 passed**, ruff clean.
+- **More files changed today:** `backend/app/ingestion/parsers/pptx_pipeline.py`, `backend/tests/test_pptx_utils.py`, `docs/improvement-tracker.md`, `CLAUDE.md`.

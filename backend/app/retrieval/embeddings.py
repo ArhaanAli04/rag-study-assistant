@@ -2,7 +2,8 @@ import logging
 import random
 import re
 import time
-from typing import Any, List
+from collections import deque
+from typing import Any, Deque, List, Optional, Tuple
 
 import httpx
 import numpy as np
@@ -28,9 +29,13 @@ EMBED_BATCH_SIZE = 100
 INDEXING_MAX_ATTEMPTS = 3
 QUERY_MAX_ATTEMPTS = 1
 RETRY_BASE_DELAY_SECONDS = 1.0
-# A 429 carries the server's retryDelay; the free tier's per-minute token budget (30K TPM, about one
-# 100-chunk batch) refills within a minute, so the wait is honoured up to that and no longer: the
-# upload request is held open meanwhile.
+# The free tier's embedding limit, counted per text, not per request: a 100-text batch uses the whole
+# minute (measured Day 16). The upload embedder paces itself under it within one embed_texts call.
+EMBED_TEXTS_PER_MINUTE = 100
+RATE_WINDOW_SECONDS = 60.0
+# A 429 on the upload path waits max(retryDelay, the window): the hint says when *a* request may
+# succeed, not when a 100-text batch fits (Day 16, HPC deck: hints of 27 s, 0 s, then 59 s, and the
+# upload failed). Also the cap: a longer hint means a daily quota, not worth holding the request for.
 MAX_RETRY_DELAY_SECONDS = 60.0
 
 _RETRY_DELAY = re.compile(r"^(\d+(?:\.\d+)?)s$")
@@ -42,8 +47,13 @@ class EmbeddingError(RuntimeError):
 
 
 def _sleep(seconds: float) -> None:
-    # A module function, looked up at call time, so the test suite can make backoff instant.
+    # Module functions, looked up at call time, so the test suite can make waits instant and the
+    # clock move with them.
     time.sleep(seconds)
+
+
+def _clock() -> float:
+    return time.monotonic()
 
 
 def _is_retryable(error: Exception) -> bool:
@@ -73,13 +83,19 @@ class EmbeddingService:
         client: genai.Client,
         model_name: str = EMBEDDING_MODEL,
         max_attempts: int = INDEXING_MAX_ATTEMPTS,
+        texts_per_minute: Optional[int] = None,
     ) -> None:
+        """``texts_per_minute``: pace each embed_texts call under this many texts per window (the
+        upload embedder); None sends at once (the chat path: one text per call)."""
         if max_attempts < 1:
             raise ValueError("max_attempts must be at least 1")
+        if texts_per_minute is not None and texts_per_minute < EMBED_BATCH_SIZE:
+            raise ValueError("texts_per_minute must allow at least one full batch")
         self.client = client
         self.model_name = model_name
         self.dimension = EMBEDDING_DIM
         self.max_attempts = max_attempts
+        self.texts_per_minute = texts_per_minute
         self._config = genai_types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM)
 
     def embed_texts(self, texts: List[str]) -> np.ndarray:
@@ -94,16 +110,35 @@ class EmbeddingService:
 
         batch_count = (len(texts) + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
         vectors: List[List[float]] = []
+        # (sent at, texts) for this call only: no state is shared across requests.
+        sent: Deque[Tuple[float, int]] = deque()
         for batch_number, start in enumerate(range(0, len(texts), EMBED_BATCH_SIZE), start=1):
             batch = texts[start:start + EMBED_BATCH_SIZE]
             where = f"batch {batch_number} of {batch_count} (texts {start + 1}-{start + len(batch)} of {len(texts)})"
+            self._pace(sent, len(batch), where)
             vectors.extend(self._embed_batch(batch, where))
+            sent.append((_clock(), len(batch)))
 
         embeddings = np.array(vectors, dtype=np.float32)
         norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
         if np.any(norms == 0):
             raise EmbeddingError("the API returned a zero vector")
         return embeddings / norms
+
+    def _pace(self, sent: Deque[Tuple[float, int]], batch_size: int, where: str) -> None:
+        """Sleep until this batch fits in the last window's per-text budget (the upload embedder)."""
+        if self.texts_per_minute is None:
+            return
+        while True:
+            now = _clock()
+            while sent and now - sent[0][0] >= RATE_WINDOW_SECONDS:
+                sent.popleft()
+            if sum(n for _, n in sent) + batch_size <= self.texts_per_minute:
+                return
+            wait = RATE_WINDOW_SECONDS - (now - sent[0][0])
+            logger.info("Embedding %s: pacing under %d texts per minute, waiting %.1f s",
+                        where, self.texts_per_minute, wait)
+            _sleep(wait)
 
     def _embed_batch(self, batch: List[str], where: str) -> List[List[float]]:
         for attempt in range(1, self.max_attempts + 1):
@@ -131,8 +166,8 @@ class EmbeddingService:
 
     @staticmethod
     def _retry_delay(error: Exception, attempt: int) -> float:
-        hinted = server_retry_delay(error)
-        if hinted is not None:
-            return min(hinted, MAX_RETRY_DELAY_SECONDS)
+        if isinstance(error, genai_errors.ClientError) and error.code == 429:
+            hinted = server_retry_delay(error) or 0.0
+            return min(max(hinted, RATE_WINDOW_SECONDS), MAX_RETRY_DELAY_SECONDS)
         backoff = RETRY_BASE_DELAY_SECONDS * 2 ** (attempt - 1)
         return backoff + random.uniform(0, backoff / 4)

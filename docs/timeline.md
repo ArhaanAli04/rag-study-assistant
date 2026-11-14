@@ -306,7 +306,12 @@ Focus: Postgres, Alembic (T2), persistent per-user search (I4, I5, I6, I1, I2), 
 - Test: a document indexed through the pipeline is returned by the concept-map retriever
 - UI: CreateMapForm's existing "use documents" toggle now works; ConceptNodeDetails shows the source document and page for document-derived nodes
 - Update CLAUDE.md Data & State: indexes now persist in Postgres, files in Supabase Storage
-- Release: develop → master; alembic upgrade runs on production through the image's CMD (Day 15's document_chunks revision); run the reindex (Day 16) on production; tag v0.3.0. No data migration: production has been on Postgres since v0.2.2 (Day 14)
+- Release: develop → master; alembic upgrade runs on production through the image's CMD (Day 15's revisions 9e72706d7449 document_chunks + FK rules and 500c410270f5 concept-map-node cascade; both already proven on rag_staging); run the reindex (Day 16) on production; tag v0.3.0. No data migration: production has been on Postgres since v0.2.2 (Day 14)
+- Release runbook notes from Day 15:
+  - Render env vars, set before the deploy: STORAGE_BACKEND=supabase, STORAGE_BUCKET=rag-prod, SUPABASE_S3_ENDPOINT, SUPABASE_S3_REGION, SUPABASE_S3_ACCESS_KEY_ID, SUPABASE_S3_SECRET_ACCESS_KEY (the same S3 key as rag-staging; values from the owner's .env, never pasted anywhere else). Without them Render falls back to local storage on its wiped disk
+  - No Redis flush this time: user ids aren't reset (Postgres sequences since v0.2.2), so no cached answer can reach another user (G9's condition doesn't apply)
+  - v0.2.2 documents have rows but no chunks and no files (Render had no disk): they show "Not searchable yet — upload it again" until the user re-uploads; the reindex can't help them, since their files are gone. Say so in the release notes
+  - Live check after the deploy: upload → cite → restart the Render service → a new question still cites it → delete → the object is gone from rag-prod (Supabase dashboard → Storage)
 - Verify: generate a concept map with "use documents" on — nodes cite the uploaded material
 
 ---

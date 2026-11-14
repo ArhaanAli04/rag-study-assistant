@@ -1,6 +1,6 @@
 # Backend package layout
 
-Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07); Days 9–10 applied (2026-11-08).**
+Status: **approved Day 7 (2026-11-06); Days 7–8 applied (2026-11-07); Days 9–10 applied (2026-11-08); Day 15 closed the last two rule-1 exceptions (2026-11-14).**
 Days 7–10 (Phase 3) moved the backend from 62 flat modules in `src/` into the package below. This
 file is the map for those moves: each module has one target path and one day. Nothing is flat in
 `backend/app/` any more; Day 9 deferred two rows to Days 13 and 15 (marked below), and Day 10
@@ -41,7 +41,7 @@ rag-study-assistant/
    - **`core` imports nothing from `app`.**
    - **No lower layer imports `api` or `main`.** That ends "eval code must `import main`".
    - **`retrieval`, `generation` and `ingestion` don't import each other.** The exceptions are explicit and listed here as they arise.
-2. **Absolute imports only:** `from app.retrieval.vector_store import FaissVectorStore`.
+2. **Absolute imports only:** `from app.retrieval.pg_chunk_search import PgChunkSearch`.
    - **No relative imports** (`from .x import`).
    - **No `sys.path` edits.** `backend/` is the only root: `pytest.ini`'s `pythonpath`, uvicorn's CWD and the Dockerfile's `WORKDIR`.
 3. **Routers are thin:** parse the request → call a service → shape the response. No retrieval, LLM or SQL logic in `api/`.
@@ -55,8 +55,8 @@ Each has an owner day that removes it. Add new ones here, never silently.
 | Edge | Why it exists | Removed on |
 |---|---|---|
 | ~~`retrieval/retrieval_service.py` → `services/caches/{query_cache,web_cache}` (upward)~~ | `RetrievalService` called the Redis cache helpers directly | **Removed Day 9:** `QueryCache` / `WebCache` are injected from `services/container.py`; `RetrievalService` types them with `Protocol`s of its own |
-| `ingestion/indexing_pipeline.py` → `retrieval/{index_builder,keyword_index}` (sideways) | the pipeline writes chunks into the indexes itself | **Day 15** (deferred on Day 9): indexing orchestration moves into a `services/` use case when the indexes are rewritten for pgvector |
-| `retrieval/{vector_store,index_builder}.py` → `ingestion/models.py` (`DocumentChunk`, sideways) | the chunk dataclass is shared by both layers | Day 15: the pgvector chunk model replaces `DocumentChunk` (said Day 13 until Day 13 corrected it: the chunks table is Day 15) |
+| ~~`ingestion/indexing_pipeline.py` → `retrieval/{index_builder,keyword_index}` (sideways)~~ | the pipeline wrote chunks into the indexes itself | **Removed Day 15:** `services/indexing_service.py` (`IndexingService`) parses (ingestion), embeds (retrieval) and stores (`db/repositories/chunks.py`); `indexing_pipeline.py` is deleted |
+| ~~`retrieval/{vector_store,index_builder}.py` → `ingestion/models.py` (`DocumentChunk`, sideways)~~ | the chunk dataclass was shared by both layers | **Removed Day 15:** FAISS / BM25 are deleted; retrieval reads `document_chunks` through `db/repositories/chunks.py`. `DocumentChunk` stays ingestion's parser output, imported only by ingestion and `services/` |
 | ~~`core/security.py` → `db/database.py` (upward from `core`)~~ | `get_db` and `get_current_user*` lived in `security` | **Removed Day 9:** they are in `api/deps.py`; `authenticate_user` is in `services/account_service.py` |
 | ~~`api/routes/{sessions,documents,users,feedback}.py` hold CRUD SQL (rule 3)~~ | Day 9 moved handlers body-for-body; only chat and quiz got service layers | **Removed Day 13:** the queries are in `db/repositories/` (`auth.py` and `deps.py` too); routers keep HTTP checks, response shapes and `db.commit()` |
 
@@ -82,17 +82,18 @@ where each module ends up, and "Day" is when it gets there. A module whose targe
 | `db.py` | `db/database.py` (pure move, Day 8), **deleted Day 13**: split into `db/base.py` (`Base` + naming convention), `db/session.py` (`build_engine`, `engine`, `SessionLocal`), `db/migrations.py` (Alembic head check, schema guard) and `db/models/{user,chat_session,message,document,failed_query}.py`. Its startup `ALTER`s went with it; Alembic replaces them | 8 / 13 ✓ |
 | `concept_models.py` | `db/models/concept_map.py` | 8 |
 | — | `db/repositories/{users,sessions,documents,messages,failed_queries}.py` | 13 ✓ |
+| — | `db/models/document_chunk.py` (`Chunk`: halfvec(3072) + HNSW, generated tsvector + GIN) and `db/repositories/chunks.py` (insert, delete, per-document counts, vector and keyword search with the user filter in the query) | 15 ✓ |
 
 ### ingestion
 | Current | Target | Day |
 |---|---|---|
-| `indexing_pipeline.py` | `ingestion/indexing_pipeline.py` | 8 |
+| `indexing_pipeline.py` | `ingestion/indexing_pipeline.py` (Day 8), **deleted Day 15**: replaced by `services/indexing_service.py`; its extension dispatch became `chunk_builder.build_chunks_for_file` | 8 / 15 ✓ |
 | `chunk_builder.py` | `ingestion/chunk_builder.py` | 8 |
 | `chunking.py` | `ingestion/chunking.py` | 8 |
 | `models.py` (`DocumentChunk`) | `ingestion/models.py` | 8 |
 | `text_preprocessing.py` | `ingestion/text_preprocessing.py` | 8 |
-| `utils_file.py` (`compute_file_hash`) | `ingestion/file_hash.py` | 8 |
-| `upload_storage.py` | `ingestion/upload_storage.py` | 8 |
+| `utils_file.py` (`compute_file_hash`) | `ingestion/file_hash.py` (Day 8), **deleted Day 15**: the hash is taken from the uploaded bytes | 8 / 15 ✓ |
+| `upload_storage.py` | `ingestion/upload_storage.py`; Day 15: object keys + `FileStorage` (`LocalFileStorage`, `S3FileStorage` for Supabase Storage) | 8 / 15 ✓ |
 | `pdf_utils.py` | `ingestion/parsers/pdf.py` | 8 |
 | `pptx_utils.py` | `ingestion/parsers/pptx.py` | 8 |
 | `pptx_pipeline.py` | `ingestion/parsers/pptx_pipeline.py` | 8 |
@@ -108,10 +109,8 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 ### retrieval
 | Current | Target | Day |
 |---|---|---|
-| `embedding_service.py` | `retrieval/embeddings.py` | 8 |
-| `index_builder.py` | `retrieval/index_builder.py` | 8 |
-| `vector_store.py` | `retrieval/vector_store.py` | 8 |
-| `keyword_index.py` | `retrieval/keyword_index.py` | 8 |
+| `embedding_service.py` | `retrieval/embeddings.py`; Day 15: raises `EmbeddingError` instead of returning zero vectors | 8 / 15 |
+| `index_builder.py`, `vector_store.py` (FAISS), `keyword_index.py` (BM25) | `retrieval/…` (Day 8), **deleted Day 15** after the E4 parity run; replaced by `retrieval/pg_chunk_search.py` (`PgChunkSearch`: both candidate lists from Postgres in one session) | 8 / 15 ✓ |
 | `retrieval_service.py` | `retrieval/retrieval_service.py` (fusion stays inside it until R4, Day 29) | 8 |
 | `reranker.py` | `retrieval/reranker.py` | 8 |
 | `query_decomposer.py` | `retrieval/query_decomposer.py` | 8 |
@@ -136,7 +135,8 @@ The Day 8 lazy-loading of OCR and table libraries happens in these files, as its
 | `chat_guards.py` | `services/chat_guards.py`; Day 9 merged the two keyword safety lists into `UNSAFE_KEYWORDS` | 8 / 9 |
 | quiz logic in `main.py` | `services/quiz_service.py` | 9 |
 | singletons in `main.py`, `topic_classifier.py`, `concept_map_service.py` | `services/container.py`: `Services` + `build_services()`, called by the lifespan | 9 |
-| `document_service.py` | `services/document_service.py` | 8 |
+| `document_service.py` | `services/document_service.py`; Day 15: `register_upload` statuses (I6), `delete_document` (I5), storage through `FileStorage` | 8 / 15 |
+| — | `services/indexing_service.py` (`IndexingService`: parse → embed → `document_chunks`) | 15 ✓ |
 | `session_service.py` | `services/session_service.py` | 8 |
 | `account_service.py` | `services/account_service.py` | 8 |
 | `concept_map_service.py` | `services/concept_map_service.py` | 8 |

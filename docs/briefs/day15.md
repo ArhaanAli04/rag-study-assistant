@@ -389,3 +389,37 @@ _Written during the day; completed at the end._
   - **First run:** exists (False before, True after), put, a `local_copy` round trip (`.pdf` suffix, identical bytes) and delete (True, then False) passed. `delete_prefix` failed (Risk 17).
   - **After option A:** the same steps plus `delete_prefix` on a 2-object test prefix passed (2 deleted, **0 left**).
   - Test objects lived only under `uploads/0/`, a user id that never exists; the earlier run's two leftovers were removed. No configuration value was printed.
+
+### Checkpoint 5 — verification and docs (2026-11-14)
+
+- **`rag_staging`:** `alembic upgrade head` + `alembic check` → at `500c410270f5 (head)`, the code's head; no diff.
+- **Manual check, Docker stack** (real Gemini, compose Postgres, local storage volume; demo file `backend/tests/samples/samples.pdf`):
+  - upload → `new`, 3 chunks, 1 stored file;
+  - Q1 cites `samples.pdf`;
+  - **I4:** `docker compose restart backend`, then a *new* question → still cites `samples.pdf`;
+  - **I6:** the same file again → `unchanged`, `doc_version` stays 1, 3 chunks, 1 stored file;
+  - **I5:** delete → `versions_deleted` 1, list empty, **0 stored files**; a new question cites nothing.
+- **The same run against `rag_staging` + the `rag-staging` bucket** (venv backend, `STORAGE_BACKEND=supabase` for that process only; restart = process stop + start): identical results, **0 objects** under the user's prefix after the delete. The test account was then removed with `DELETE /user/delete`.
+- **Docs:**
+  - `docs/architecture/layout.md`: both rule-1 exceptions closed, module map updated.
+  - `.claude/hooks/guard_commands.py`: wording only (local `rag` is disposable dev data; no SQLite default). The downgrade decisions were re-checked.
+  - `docs/timeline.md`: Day 17 runbook notes.
+  - CLAUDE.md: everything outside Current Status.
+
+### UI integration
+
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| `POST /upload` → `status`, `version` | `pages/DocumentsPage.js` + `utils/uploadNotice.js` | a green notice: indexed N passages / version N indexed / already indexed / searchable again / no text found |
+| `POST /upload` → 502 (indexing failed), 503 (storage failed) | `pages/DocumentsPage.js` (existing error banner) | the server's message, e.g. "…could not be indexed. Please upload it again." |
+| `GET /documents` → `chunks`, `file_size` from the row, real `created_at` | `components/DocumentList.js` | amber "Not searchable yet — upload it again" when `chunks === 0`; the size and the upload date |
+| `DELETE /documents/{id}` → `versions_deleted` (all versions, chunks, files) | `pages/DocumentsPage.js` | "Deleted notes.pdf (all N versions). New answers won't cite it." |
+| `document_chunks`, FK rules, Postgres-only suite, `IndexingService`, `PgChunkSearch`, `FileStorage`, query-embedding degradation | — | backend-only (schema / refactor / storage / resilience); the user sees only that documents survive restarts and deletes are final |
+
+### Wrap-up
+- **Post material:** post 3 (Day 15 Material log) and post 9 (one line).
+- **Learning notes** (`docs/learning/ai-concepts.md`, gitignored): Day 15 updates to 1 (embeddings), 3 (hybrid search), 4 (vector indexes and multi-tenant filtering), 11 (retrieval evaluation) and 14 (semantic caching).
+- **CLAUDE.md Current Status:** updated at the end, as on Days 12–14.
+- **Tracker:** I4, I5, I6, I1, I2 and B10 set to Done, with the E4 numbers in the I2 and I4 notes (owner's request, in the Checkpoint 5 commit).
+- **Left for the owner:** commit and merge PR #21.
+- **Deferred:** the E4 `--config web` run and a `--mode detailed` generation run (both carried over since Day 12).

@@ -52,11 +52,16 @@ class PgChunkSearch:
     def __init__(self, session_factory: sessionmaker) -> None:
         self.session_factory = session_factory
 
-    def search(self, query_embedding: np.ndarray, keyword_query: str, user_id: str, top_k: int) -> Candidates:
-        """Top-k by cosine similarity and top-k by ts_rank_cd, among this user's chunks only."""
+    def search(
+        self, query_embedding: np.ndarray | None, keyword_query: str, user_id: str, top_k: int
+    ) -> Candidates:
+        """Top-k by cosine similarity and top-k by ts_rank_cd, among this user's chunks only.
+
+        ``query_embedding=None`` (the embedding call failed) runs the keyword half alone.
+        """
         owner = int(user_id)
         with self.session_factory() as db:
-            vector = chunks_repo.vector_search(db, owner, query_embedding, top_k)
+            vector = [] if query_embedding is None else chunks_repo.vector_search(db, owner, query_embedding, top_k)
             keyword = chunks_repo.keyword_search(db, owner, keyword_query, top_k)
         return Candidates(
             vector=[result_dict(h, owner) for h in vector],

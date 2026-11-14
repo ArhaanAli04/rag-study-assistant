@@ -7,10 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
 from app.db.models import User
+from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
 from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
 from app.retrieval.embeddings import EmbeddingError
 from app.schemas.documents import SearchRequest
+from app.services import document_service
 from app.services.container import Services
 from app.services.document_service import register_upload
 
@@ -66,7 +68,19 @@ async def upload_file(
 
     logger.info(f"Uploaded file saved: {original_name} as {file_location} by user {current_user.id}")
 
-    doc = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT)
+    registered = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT, file_size=len(content))
+    doc = registered.document
+    if not registered.needs_indexing:
+        # I6: an identical re-upload that is already indexed. Re-indexing would re-embed every chunk,
+        # and a doc_version bump would empty the user's caches for nothing.
+        return {
+            "filename": original_name,
+            "document_id": doc.id,
+            "status": registered.status,
+            "version": doc.version,
+            "chunks_indexed": 0,
+            "doc_version": current_user.doc_version,
+        }
 
     try:
         indexed = services.indexing_service.index_document(
@@ -91,6 +105,8 @@ async def upload_file(
     return {
         "filename": original_name,
         "document_id": doc.id,
+        "status": registered.status,
+        "version": doc.version,
         "chunks_indexed": indexed.chunks_indexed,
         "doc_version": current_user.doc_version
     }
@@ -102,19 +118,21 @@ async def delete_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    doc = documents_repo.get_owned(db, doc_id, current_user.id)
-    if not doc:
+    deleted = document_service.delete_document(db, current_user.id, doc_id, UPLOAD_ROOT)
+    if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    # remove from DB
-    db.delete(doc)
-    db.commit()
-
-    # bump doc_version for this user to invalidate caches
+    # The document set changed: every cache keyed on doc_version stops matching, so the deleted
+    # file is never cited again, not even from a cached answer.
     current_user.doc_version += 1
     db.commit()
 
-    return {"status": "deleted", "document_id": doc_id, "doc_version": current_user.doc_version}
+    return {
+        "status": "deleted",
+        "document_id": doc_id,
+        "versions_deleted": deleted.versions,
+        "doc_version": current_user.doc_version,
+    }
 
 
 @router.get("/documents")
@@ -122,22 +140,24 @@ async def get_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
-    """Get all documents for current user"""
-
+    """The user's current documents, each with its size and how many searchable chunks it has."""
+    chunk_counts = chunks_repo.count_by_document(db, current_user.id)  # one grouped query (CO6)
     result = []
     for doc in documents_repo.list_active(db, current_user.id):
-        # Get file size if file exists
-        file_size = None
-        if doc.file_path and os.path.exists(doc.file_path):
+        file_size = doc.file_size
+        # Rows from before Day 15 have no stored size; their local file may still say.
+        if file_size is None and doc.file_path and os.path.isfile(doc.file_path):
             file_size = os.path.getsize(doc.file_path)
 
         result.append({
             "id": doc.id,
             "filename": doc.file_name,
             "path": doc.file_path,
-            "created_at": None,  # No timestamp field in your model
+            "created_at": doc.created_at.isoformat() if doc.created_at else None,
             "file_size": file_size,
             "version": doc.version,
+            # 0 = listed but not searchable (indexing failed, or a pre-Day 15 row): re-upload it.
+            "chunks": chunk_counts.get(doc.id, 0),
         })
 
     return result

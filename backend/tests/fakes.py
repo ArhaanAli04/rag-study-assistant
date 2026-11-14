@@ -105,6 +105,8 @@ class FakeGemini:
     stream_calls: int = 0
     # Fail the Nth embed call from now on (1 = the next one), like a 429 mid-upload; None = never.
     fail_embedding_at: Optional[int] = None
+    # Every embed call fails (an embedding outage or exhausted daily quota) until reset.
+    embeddings_down: bool = False
 
     def reset(self) -> None:
         self.replies.clear()
@@ -113,6 +115,7 @@ class FakeGemini:
         self.embed_calls = 0
         self.stream_calls = 0
         self.fail_embedding_at = None
+        self.embeddings_down = False
 
 
 class _FakeModels:
@@ -121,6 +124,8 @@ class _FakeModels:
 
     def embed_content(self, model: str, contents: Any, config: Any = None, **kwargs: Any) -> _EmbedResponse:
         self._gemini.embed_calls += 1
+        if self._gemini.embeddings_down:
+            raise genai_errors.ServerError(503, {"error": {"code": 503, "message": "fake embedding outage"}})
         if self._gemini.fail_embedding_at is not None:
             self._gemini.fail_embedding_at -= 1
             if self._gemini.fail_embedding_at == 0:
@@ -158,13 +163,15 @@ class FakeChunkSearch:
         self.keyword = keyword or []
         self.searches = 0
 
-    def search(self, query_embedding: np.ndarray, keyword_query: str, user_id: str, top_k: int) -> Any:
+    def search(self, query_embedding: Optional[np.ndarray], keyword_query: str, user_id: str, top_k: int) -> Any:
         from app.retrieval.pg_chunk_search import Candidates
 
         self.searches += 1
-        # Fresh dicts per call: hybrid_retrieve annotates metadata in place.
+        # Fresh dicts per call: hybrid_retrieve annotates metadata in place. Like PgChunkSearch, no
+        # embedding (the call failed) means no vector half.
+        vector = [] if query_embedding is None else self.vector[:top_k]
         return Candidates(
-            vector=[{**r, "metadata": dict(r["metadata"])} for r in self.vector[:top_k]],
+            vector=[{**r, "metadata": dict(r["metadata"])} for r in vector],
             keyword=[{**r, "metadata": dict(r["metadata"])} for r in self.keyword[:top_k]],
         )
 

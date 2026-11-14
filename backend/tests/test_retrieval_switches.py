@@ -6,6 +6,7 @@ import pytest
 
 from app.retrieval.context_assembly import assemble_context
 from app.retrieval.context_compressor import SimpleContextCompressor
+from app.retrieval.embeddings import EmbeddingError
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
 from app.services.caches.query_cache import QueryCache
@@ -89,6 +90,37 @@ def test_one_search_call_per_retrieval_returns_both_halves() -> None:
 
     assert chunk_search.searches == 1
     assert 9 in {c["metadata"]["chunk_index"] for c in result["all_candidates"]}
+
+
+class FailingEmbedder:
+    def embed_texts(self, texts: Any) -> Any:
+        raise EmbeddingError("embedding text 1 of 1 failed: ClientError")
+
+
+class RecordingChunkSearch(FakeChunkSearch):
+    def __init__(self, **lists: Any) -> None:
+        super().__init__(**lists)
+        self.embeddings: list = []
+
+    def search(self, query_embedding: Any, keyword_query: str, user_id: str, top_k: int) -> Any:
+        self.embeddings.append(query_embedding)
+        return super().search(query_embedding, keyword_query, user_id, top_k)
+
+
+def test_a_failed_query_embedding_degrades_to_keyword_only_and_is_not_cached() -> None:
+    keyword_hit = {"score": 2.0, "text": TEXT, "metadata": {"file_name": "notes.pdf", "chunk_index": 7}}
+    chunk_search = RecordingChunkSearch(vector=counting_search().vector, keyword=[keyword_hit])
+    redis_stub = FakeRedis()
+    service = RetrievalService(
+        FailingEmbedder(), chunk_search, QueryCache(redis_stub), WebCache(redis_stub),  # type: ignore[arg-type]
+        web_search_enabled=False,
+    )
+
+    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+
+    assert chunk_search.embeddings == [None]  # the vector half is skipped, not searched with zeros
+    assert [r["metadata"]["chunk_index"] for r in result["results"]] == [7]
+    assert service.l1_cache_lookup("1", QUERY, 0) is None
 
 
 def test_fusion_weights_are_applied() -> None:

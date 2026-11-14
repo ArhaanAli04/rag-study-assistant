@@ -332,3 +332,24 @@ _Written during the day; completed at the end._
   - **A chat turn = 33**: 6 pings, 6 BEGIN, 15 statements, 4 COMMIT, 2 ROLLBACK.
   - Retrieval's share is 5: one session holding both search queries.
   - At ~63 ms each (Render Singapore → Supabase Mumbai), that is ≈ 2.1 s of network per turn. This is Day 16's before number. Its targets are the 6 pings (`pool_pre_ping`) and the 6 separate transactions.
+  - Recorded in the tracker's CO6 notes and the Day 16 timeline bullet (owner, replacing "10–15").
+
+### Checkpoint 3 — I5, I6, query-embedding degradation, UI (2026-11-14)
+
+- **A failed query embedding degrades instead of failing the chat** (owner's change; replaces Risk 16).
+  - `hybrid_retrieve` logs the error and runs keyword-only search for that query (`ChunkSearch.search(None, …)` skips the vector half). Web search runs as usual, though it embeds too, so in a full outage it adds nothing.
+  - A degraded result is not written to the L1 cache.
+  - `SemanticCache.lookup` treats the failure as a miss. `store` skips it too: it runs after the answer has streamed, and raising there would break the stream's end.
+  - A failed embedding during **upload** still returns 502.
+- **I6 — `register_upload` returns a `RegisteredUpload(document, status)`.**
+  - `new` and `changed` index the file. `changed` makes the previous version inactive and deletes its chunks in the same transaction.
+  - `unchanged` (same hash, chunks exist) skips indexing and the `doc_version` bump.
+  - **`reindexed`**, a fourth status beyond the brief: same hash but no chunks (a v0.2.2 row, or a failed earlier indexing). It indexes again, so those files can always be made searchable.
+  - The upload stores `file_size`.
+- **I5 — `document_service.delete_document`** deletes every version of the file name for that user, their chunks (ON DELETE CASCADE, counted for the response) and the user's own stored files, after the commit. A failure there is logged, never surfaced. The route then bumps `doc_version`.
+  - The response adds `versions_deleted` and `chunks_deleted`.
+  - Pre-G7 flat paths are left alone, because another user's row may share them.
+- **`GET /documents`:**
+  - `chunks` comes from one grouped query (`count_by_document`).
+  - `file_size` comes from the row, falling back to the local file for older rows.
+  - `created_at` is now returned. It was hard-coded to `None` with a stale "no timestamp field" comment, although the column has always existed, so the list showed "Recently uploaded" for every file.

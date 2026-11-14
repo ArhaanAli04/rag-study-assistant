@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 import numpy as np
 
 from app.retrieval import confidence as conf
+from app.retrieval.embeddings import EmbeddingError
 from app.retrieval.pg_chunk_search import Candidates
 from app.retrieval.query_preprocessor import (
     preprocess_query_for_vector,
@@ -42,7 +43,9 @@ class TextEmbedder(Protocol):
 class ChunkSearch(Protocol):
     """The user's chunks as two candidate lists (Day 15: PgChunkSearch over document_chunks)."""
 
-    def search(self, query_embedding: np.ndarray, keyword_query: str, user_id: str, top_k: int) -> Candidates: ...
+    def search(
+        self, query_embedding: np.ndarray | None, keyword_query: str, user_id: str, top_k: int
+    ) -> Candidates: ...
 
     def vector_only(
         self, query_embedding: np.ndarray, user_id: str, top_k: int, metadata_filter: Dict[str, Any] | None = None
@@ -239,7 +242,13 @@ class RetrievalService:
 
         # 3–4. Vector (cosine similarity) and keyword (ts_rank_cd) candidates, both higher = better
         # and both filtered to this user inside the query (I1), in one database session (CO6).
-        query_embedding = self._embed_texts([vec_query])[0]
+        # A failed query embedding (a Gemini outage or quota) degrades to keyword-only search for this
+        # query instead of failing the chat; the answer is still grounded in what keyword search finds.
+        try:
+            query_embedding: Optional[np.ndarray] = self._embed_texts([vec_query])[0]
+        except EmbeddingError:
+            logger.warning("Query embedding failed; keyword-only retrieval for this query", exc_info=True)
+            query_embedding = None
         candidates = self.chunk_search.search(query_embedding, kw_query, user_id, top_k)
         vector_results = candidates.vector
         keyword_results = candidates.keyword
@@ -432,7 +441,9 @@ class RetrievalService:
             
         }
 
-        if self.l1_cache_enabled:
+        # A degraded (keyword-only) result isn't cached: the same question should get full retrieval
+        # once embeddings work again, not a replay of the degraded ranking until the next upload.
+        if self.l1_cache_enabled and query_embedding is not None:
             self.l1_cache_store(user_id, query, doc_version, result_payload)
 
         return result_payload

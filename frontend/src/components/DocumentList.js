@@ -1,4 +1,4 @@
-import { Trash2, Calendar, FileType } from "lucide-react";
+import { Trash2, Calendar, FileType, AlertTriangle } from "lucide-react";
 
 export default function DocumentList({ documents, onDelete }) {
   
@@ -67,6 +67,14 @@ export default function DocumentList({ documents, onDelete }) {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <FileType className="w-3 h-3" />
                 <span>Version {doc.version} </span>
+              </div>
+            )}
+            {/* chunks === 0: listed but not searchable (indexing failed, or uploaded before
+                search moved to the database). Re-uploading the same file indexes it. */}
+            {doc.chunks === 0 && (
+              <div className="flex items-center gap-2 text-xs text-amber-400" title="Upload the same file again to make it searchable">
+                <AlertTriangle className="w-3 h-3" />
+                <span>Not searchable yet — upload it again</span>
               </div>
             )}
           </div>

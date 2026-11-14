@@ -8,7 +8,7 @@ logger = setup_logging()
 import numpy as np
 import redis
 
-from app.retrieval.embeddings import EmbeddingService  # the same model as the stored chunks
+from app.retrieval.embeddings import EmbeddingError, EmbeddingService  # the same model as the stored chunks
 
 SEM_CACHE_KEY_PREFIX = "semantic_cache"
 
@@ -87,7 +87,12 @@ class SemanticCache:
         if not relevant_entries:
             return None
 
-        q_emb = np.array(self.embedding_service.embed_texts([query])[0])
+        try:
+            q_emb = np.array(self.embedding_service.embed_texts([query])[0])
+        except EmbeddingError:
+            # A cache is an optimization: when it can't compare, it misses and the chat answers anyway.
+            logger.warning("Semantic cache lookup skipped: query embedding failed (user_id=%s)", user_id)
+            return None
         best_sim = -1.0
         best_entry = None
         for e in relevant_entries:
@@ -115,7 +120,12 @@ class SemanticCache:
         mode: str,
         max_entries: int = 64,
     ) -> None:
-        q_emb = self.embedding_service.embed_texts([query])[0]
+        try:
+            q_emb = self.embedding_service.embed_texts([query])[0]
+        except EmbeddingError:
+            # Called after the answer has streamed: failing here would only break the stream's end.
+            logger.warning("Semantic cache store skipped: query embedding failed (user_id=%s)", user_id)
+            return
         entries = self._load_entries(user_id)
         safe_value = _to_json_safe(value)
 

@@ -1,9 +1,6 @@
 """Delete everything the app holds about one user (B1)."""
 import logging
-import os
-import shutil
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Optional, Protocol
 
 import redis
@@ -13,7 +10,7 @@ from sqlalchemy.orm import Session as DbSession
 from app.core.security import verify_password
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
 from app.db.models import Chunk, Document, FailedQuery, Message, User, Session as ChatSession
-from app.ingestion.upload_storage import UnsafeUploadPath, ensure_inside_root, user_upload_dir
+from app.ingestion.upload_storage import FileStorage, StorageError, UnsafeUploadPath, is_user_key, user_prefix
 
 logger = logging.getLogger("rag_assistant.account")
 
@@ -54,7 +51,7 @@ def delete_user_account(
     *,
     semantic_cache: UserScopedCache,
     retrieval_cache: RetrievalL1Cache,
-    upload_root: Path,
+    storage: FileStorage,
 ) -> AccountDeletionSummary:
     """Delete the user's rows (search chunks included) in one transaction, then files and caches.
 
@@ -63,7 +60,7 @@ def delete_user_account(
     orphaned file or cache entry (logged), never an account whose files are already gone.
     """
     user_id = user.id
-    legacy_files = _legacy_files_to_remove(db, user_id, upload_root)
+    legacy_keys = _legacy_keys_to_remove(db, user_id)
 
     try:
         session_ids = db.query(ChatSession.id).filter(ChatSession.user_id == user_id)
@@ -95,7 +92,7 @@ def delete_user_account(
         db.rollback()
         raise
 
-    files_removed = _remove_legacy_files(legacy_files) + _remove_user_dir(upload_root, user_id)
+    files_removed = _remove_files(storage, user_id, legacy_keys)
     retrieval_cache.l1_cache_purge_user(str(user_id))
     try:
         semantic_cache.clear_user(user_id)
@@ -115,55 +112,33 @@ def delete_user_account(
     return summary
 
 
-def _legacy_files_to_remove(db: DbSession, user_id: int, upload_root: Path) -> list[Path]:
-    """Pre-G7 flat-path files of this user that no other user's row still references.
+def _legacy_keys_to_remove(db: DbSession, user_id: int) -> list[str]:
+    """Pre-G7 flat keys (uploads/<name>) of this user that no other user's row still references.
 
-    Before G7 two users uploading the same filename shared one file on disk, so deleting
-    one account must not delete the other's document.
+    Before G7 two users uploading the same filename shared one file, so deleting one account
+    must not delete the other's document. Called before the rows are deleted.
     """
-    own_paths = {
-        path for (path,) in db.query(Document.file_path).filter(Document.user_id == user_id)
-    }
-    shared_paths = {
-        path
-        for (path,) in db.query(Document.file_path).filter(
-            Document.file_path.in_(own_paths), Document.user_id != user_id
+    own_keys = {key for (key,) in db.query(Document.file_path).filter(Document.user_id == user_id)}
+    shared_keys = {
+        key
+        for (key,) in db.query(Document.file_path).filter(
+            Document.file_path.in_(own_keys), Document.user_id != user_id
         )
     }
-    own_dir = user_upload_dir(upload_root, user_id).resolve()
-    legacy: list[Path] = []
-    for path in sorted(own_paths - shared_paths):
-        try:
-            resolved = ensure_inside_root(upload_root, Path(path))
-        except UnsafeUploadPath:
-            logger.warning("Not deleting %s of user %s: outside the upload root", path, user_id)
-            continue
-        if not resolved.is_relative_to(own_dir):
-            legacy.append(resolved)
-    return legacy
+    return sorted(key for key in own_keys - shared_keys if not is_user_key(user_id, key))
 
 
-def _remove_legacy_files(paths: list[Path]) -> int:
+def _remove_files(storage: FileStorage, user_id: int, legacy_keys: list[str]) -> int:
+    """The user's whole uploads/<id>/ prefix, then their unshared legacy keys. Failures are logged:
+    the account is already gone, and an orphaned file must not turn that into an error."""
     removed = 0
-    for path in paths:
-        try:
-            path.unlink()
-            removed += 1
-        except FileNotFoundError:
-            continue
-        except OSError:
-            logger.warning("Could not delete uploaded file %s", path, exc_info=True)
-    return removed
-
-
-def _remove_user_dir(upload_root: Path, user_id: int) -> int:
-    user_dir = user_upload_dir(upload_root, user_id)
-    if not user_dir.is_dir():
-        return 0
-    file_count = sum(len(files) for _, _, files in os.walk(user_dir))
     try:
-        shutil.rmtree(user_dir)
-    except OSError:
-        logger.warning("Could not delete upload directory %s", user_dir, exc_info=True)
-        return 0
-    return file_count
+        removed += storage.delete_prefix(user_prefix(user_id))
+    except (StorageError, UnsafeUploadPath):
+        logger.warning("Could not delete the stored files of deleted user %s", user_id, exc_info=True)
+    for key in legacy_keys:
+        try:
+            removed += 1 if storage.delete(key) else 0
+        except (StorageError, UnsafeUploadPath):
+            logger.warning("Could not delete legacy file %s of deleted user %s", key, user_id, exc_info=True)
+    return removed

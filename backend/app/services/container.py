@@ -7,7 +7,9 @@ Since Day 15 the search indexes live in Postgres (document_chunks), not in this 
 """
 from dataclasses import dataclass
 
+import boto3
 import redis
+from botocore.config import Config as BotoConfig
 from google import genai
 
 from app.core.config import settings
@@ -16,6 +18,7 @@ from app.db.session import SessionLocal
 from app.generation.concept_extractor import ConceptExtractor
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier
+from app.ingestion.upload_storage import FileStorage, LocalFileStorage, S3FileStorage
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
 from app.retrieval.context_compressor import SimpleContextCompressor
 from app.retrieval.embeddings import EmbeddingService
@@ -30,11 +33,28 @@ from app.services.concept_map_service import ConceptMapService
 from app.services.indexing_service import IndexingService
 
 
+def build_file_storage() -> FileStorage:
+    """The upload store settings ask for. Building the boto3 client opens no connection."""
+    if settings.STORAGE_BACKEND == "local":
+        return LocalFileStorage()
+    client = boto3.client(
+        "s3",
+        endpoint_url=settings.SUPABASE_S3_ENDPOINT,
+        region_name=settings.SUPABASE_S3_REGION,
+        aws_access_key_id=settings.SUPABASE_S3_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.SUPABASE_S3_SECRET_ACCESS_KEY.get_secret_value(),
+        # Supabase's S3 endpoint serves path-style URLs (endpoint/bucket/key), not bucket subdomains.
+        config=BotoConfig(signature_version="s3v4", s3={"addressing_style": "path"}),
+    )
+    return S3FileStorage(client, settings.STORAGE_BUCKET)
+
+
 @dataclass
 class Services:
     gemini_client: genai.Client
     redis_client: redis.Redis
     semantic_cache_redis_client: redis.Redis
+    file_storage: FileStorage
     embedding_service: EmbeddingService
     indexing_service: IndexingService
     retrieval_service: RetrievalService
@@ -68,6 +88,7 @@ def build_services() -> Services:
         gemini_client=gemini_client,
         redis_client=redis_client,
         semantic_cache_redis_client=semantic_cache_redis_client,
+        file_storage=build_file_storage(),
         embedding_service=embedding_service,
         indexing_service=IndexingService(embedding_service),
         retrieval_service=retrieval_service,

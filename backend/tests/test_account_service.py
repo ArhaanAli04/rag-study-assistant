@@ -19,7 +19,7 @@ from app.db.models.concept_map import ConceptMap, ConceptMapNode
 from app.db.models import Chunk, Document, FailedQuery, Message, Session as ChatSession, User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories.chunks import NewChunk
-from app.ingestion.upload_storage import new_upload_path
+from app.ingestion.upload_storage import LocalFileStorage, new_upload_key
 from app.retrieval.embeddings import EMBEDDING_DIM
 
 
@@ -43,9 +43,11 @@ class FakeL1Cache:
 
 
 @pytest.fixture
-def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.chdir(tmp_path)
-    return Path("uploads")
+def storage(tmp_path: Path) -> LocalFileStorage:
+    return LocalFileStorage(tmp_path)
+
+
+SHARED_LEGACY = "uploads/DL_Unit5_RNN.pdf"
 
 
 @pytest.fixture
@@ -62,17 +64,19 @@ def _unit_vector() -> np.ndarray:
     return vector
 
 
-def _seed_user(db: DbSession, root: Path, shared_legacy: str) -> Tuple[int, Dict[str, Path]]:
+def _seed_user(db: DbSession, storage: LocalFileStorage) -> Tuple[int, Dict[str, str]]:
+    """A user with every kind of row, a per-user file, a private pre-G7 flat file, and a row on the
+    flat file SHARED_LEGACY that another user may also reference."""
     user = User(email=f"account-{uuid.uuid4().hex[:12]}@example.com")
     db.add(user)
     db.flush()
-    own = new_upload_path(root, user.id, ".pdf")
-    own.write_bytes(b"%PDF own")
-    private_legacy = root / f"private_{user.id}.pdf"
-    private_legacy.write_bytes(b"%PDF legacy")
+    own = new_upload_key(user.id, ".pdf")
+    storage.put(own, b"%PDF own")
+    private_legacy = f"uploads/private_{user.id}.pdf"
+    storage.put(private_legacy, b"%PDF legacy")
     documents = [
-        Document(user_id=user.id, file_name=path.name, file_path=str(path), file_hash="h", version=1, is_active=True)
-        for path in (own, private_legacy, Path(shared_legacy))
+        Document(user_id=user.id, file_name=key.rsplit("/", 1)[-1], file_path=key, file_hash="h", version=1, is_active=True)
+        for key in (own, private_legacy, SHARED_LEGACY)
     ]
     db.add_all(documents)
     db.flush()
@@ -101,16 +105,16 @@ def _count(db: DbSession, model: Any, user_id: int) -> int:
     return db.query(func.count()).select_from(model).filter(model.user_id == user_id).scalar()
 
 
-def test_deleting_an_account_removes_everything_of_that_user_only(db: DbSession, root: Path) -> None:
-    root.mkdir(parents=True)
-    shared = root / "DL_Unit5_RNN.pdf"
-    shared.write_bytes(b"%PDF shared by A and B before G7")
-    a, files_a = _seed_user(db, root, str(shared))
-    b, files_b = _seed_user(db, root, str(shared))
+def test_deleting_an_account_removes_everything_of_that_user_only(
+    db: DbSession, storage: LocalFileStorage, tmp_path: Path
+) -> None:
+    storage.put(SHARED_LEGACY, b"%PDF shared by A and B before G7")
+    a, files_a = _seed_user(db, storage)
+    b, files_b = _seed_user(db, storage)
     semantic_cache, l1 = FakeSemanticCache(a, b), FakeL1Cache(a, b)
 
     summary = delete_user_account(
-        db, db.get(User, a), semantic_cache=semantic_cache, retrieval_cache=l1, upload_root=root,
+        db, db.get(User, a), semantic_cache=semantic_cache, retrieval_cache=l1, storage=storage,
     )
 
     for model in (Document, ChatSession, Message, FailedQuery, ConceptMap, Chunk):
@@ -120,10 +124,10 @@ def test_deleting_an_account_removes_everything_of_that_user_only(db: DbSession,
     remaining_nodes = db.query(ConceptMapNode).join(ConceptMap).filter(ConceptMap.user_id.in_([a, b])).all()
     assert [n.concept_map.user_id for n in remaining_nodes] == [b]
 
-    assert not (root / str(a)).exists()
-    assert not files_a["private_legacy"].exists()
-    assert shared.exists(), "B's document still references the shared pre-G7 file"
-    assert files_b["own"].exists() and files_b["private_legacy"].exists()
+    assert not (tmp_path / "uploads" / str(a)).exists()
+    assert not storage.exists(files_a["private_legacy"])
+    assert storage.exists(SHARED_LEGACY), "B's document still references the shared pre-G7 file"
+    assert storage.exists(files_b["own"]) and storage.exists(files_b["private_legacy"])
 
     assert semantic_cache.keys == {f"semantic_cache:{b}"}
     assert list(l1.entries) == [(str(b), "q", 0)]
@@ -137,10 +141,9 @@ def test_deleting_an_account_removes_everything_of_that_user_only(db: DbSession,
     assert summary.index_entries_removed == 2  # the user's document_chunks rows
 
 
-def test_the_schema_cascades_a_users_rows_whatever_the_code_path(db: DbSession, root: Path) -> None:
+def test_the_schema_cascades_a_users_rows_whatever_the_code_path(db: DbSession, storage: LocalFileStorage) -> None:
     # Day 15: a plain DELETE of the user (no children-first code) must not fail or leave rows behind.
-    root.mkdir(parents=True)
-    a, _ = _seed_user(db, root, str(root / "unused.pdf"))
+    a, _ = _seed_user(db, storage)
 
     db.query(User).filter(User.id == a).delete(synchronize_session=False)
     db.commit()

@@ -4,6 +4,7 @@ Precedence (pydantic-settings): real environment variables > the repo-root .env 
 Render and CI set real variables; locally the root .env fills in the rest.
 """
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -67,6 +68,33 @@ class Settings(BaseSettings):
     # schema-agnostic; this only lets Alembic and the app refuse a role whose search_path was lost,
     # which would otherwise create every table in `public`.
     DATABASE_SCHEMA: str
+
+    # Where uploaded files live (Day 15). "local": the uploads/ directory under the backend's working
+    # directory (dev, tests, Docker volume). "supabase": a private Supabase Storage bucket over its S3
+    # API (Render: its disk is wiped on every restart). S3 access keys reach Storage only, not the
+    # database or Auth (Decision 5B).
+    STORAGE_BACKEND: Literal["local", "supabase"] = "local"
+    STORAGE_BUCKET: str | None = None
+    SUPABASE_S3_ENDPOINT: str | None = None
+    SUPABASE_S3_REGION: str | None = None
+    SUPABASE_S3_ACCESS_KEY_ID: str | None = None
+    SUPABASE_S3_SECRET_ACCESS_KEY: SecretStr | None = None
+
+    @model_validator(mode="after")
+    def _check_storage_settings(self) -> "Settings":
+        if self.STORAGE_BACKEND != "supabase":
+            return self
+        missing = [
+            name
+            for name in (
+                "STORAGE_BUCKET", "SUPABASE_S3_ENDPOINT", "SUPABASE_S3_REGION",
+                "SUPABASE_S3_ACCESS_KEY_ID", "SUPABASE_S3_SECRET_ACCESS_KEY",
+            )
+            if not getattr(self, name)
+        ]
+        if missing:
+            raise ValueError(f"STORAGE_BACKEND=supabase also needs: {', '.join(missing)}")
+        return self
 
     @model_validator(mode="after")
     def _check_database_settings(self) -> "Settings":

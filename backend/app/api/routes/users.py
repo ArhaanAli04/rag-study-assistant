@@ -7,7 +7,6 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user, get_db, get_services
 from app.db.models import User
 from app.db.repositories import documents as documents_repo
-from app.ingestion.upload_storage import UPLOAD_ROOT
 from app.schemas.users import ProfileUpdate
 from app.services.account_service import delete_user_account
 from app.services.container import Services
@@ -79,6 +78,6 @@ async def delete_account(
         current_user,
         semantic_cache=services.semantic_cache,
         retrieval_cache=services.retrieval_service,
-        upload_root=UPLOAD_ROOT,
+        storage=services.file_storage,
     )
     return {"message": "Account deleted successfully", "deleted": asdict(summary)}

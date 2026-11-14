@@ -44,6 +44,8 @@ TEST_ENV = {
     "GOOGLE_REDIRECT_URI": "http://testserver/auth/google/callback",
     "REDIS_URL": "redis://redis.invalid:6379/0",
     "SEMANTIC_CACHE_REDIS_URL": "redis://redis.invalid:6379/1",
+    # Uploads go to the suite's temp directory even when .env selects Supabase Storage (Day 15).
+    "STORAGE_BACKEND": "local",
 }
 
 # Local Docker Redis (6380) and a default local Redis (6379): a client that escapes the patches

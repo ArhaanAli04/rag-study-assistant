@@ -9,7 +9,7 @@ from app.api.deps import get_current_user, get_db, get_services
 from app.db.models import User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
-from app.ingestion.upload_storage import UPLOAD_ROOT, UnsafeUploadPath, display_name, file_extension, new_upload_path
+from app.ingestion.upload_storage import StorageError, UnsafeUploadPath, display_name
 from app.retrieval.embeddings import EmbeddingError
 from app.schemas.documents import SearchRequest
 from app.services import document_service
@@ -56,20 +56,14 @@ async def upload_file(
 ) -> Dict[str, Any]:
     await validate_upload(file)
     original_name = display_name(file.filename)
-    try:
-        stored_path = new_upload_path(UPLOAD_ROOT, current_user.id, file_extension(original_name))
-    except UnsafeUploadPath:
-        logger.error(f"Refused upload path for user {current_user.id}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Could not store the file.")
-    file_location = str(stored_path)
     content = await file.read()
-    with open(file_location, "wb") as f:
-        f.write(content)
-
-    logger.info(f"Uploaded file saved: {original_name} as {file_location} by user {current_user.id}")
-
-    registered = register_upload(current_user.id, file_location, original_name, UPLOAD_ROOT, file_size=len(content))
+    try:
+        registered = register_upload(current_user.id, content, original_name, services.file_storage)
+    except (StorageError, UnsafeUploadPath):
+        logger.error("Could not store an upload of user %s", current_user.id, exc_info=True)
+        raise HTTPException(status_code=503, detail="Could not store the file right now. Please try again.")
     doc = registered.document
+    logger.info("Upload %s by user %s: %s, stored as %s", original_name, current_user.id, registered.status, doc.file_path)
     if not registered.needs_indexing:
         # I6: an identical re-upload that is already indexed. Re-indexing would re-embed every chunk,
         # and a doc_version bump would empty the user's caches for nothing.
@@ -83,15 +77,17 @@ async def upload_file(
         }
 
     try:
-        indexed = services.indexing_service.index_document(
-            db,
-            file_path=doc.file_path,
-            user_id=current_user.id,
-            document_id=doc.id,
-            document_version=doc.version,
-            file_name=original_name,
-        )
-    except EmbeddingError:
+        # Parsers read a file: the stored one locally, a temporary download from object storage.
+        with services.file_storage.local_copy(doc.file_path) as local_path:
+            indexed = services.indexing_service.index_document(
+                db,
+                file_path=str(local_path),
+                user_id=current_user.id,
+                document_id=doc.id,
+                document_version=doc.version,
+                file_name=original_name,
+            )
+    except (EmbeddingError, StorageError):
         # Nothing was written: the row stays without chunks, and re-uploading the file indexes it.
         db.rollback()
         logger.warning("Indexing document %s of user %s failed", doc.id, current_user.id, exc_info=True)
@@ -117,8 +113,9 @@ async def delete_document(
     doc_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    deleted = document_service.delete_document(db, current_user.id, doc_id, UPLOAD_ROOT)
+    deleted = document_service.delete_document(db, current_user.id, doc_id, services.file_storage)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
 

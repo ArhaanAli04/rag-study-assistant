@@ -19,6 +19,8 @@ anyio==4.11.0
 attrs==25.4.0
 Authlib==1.6.6
 beautifulsoup4==4.14.2
+boto3==1.44.3
+botocore==1.44.3
 cachetools==6.2.2
 camelot-py==1.0.9
 certifi==2025.11.12
@@ -54,6 +56,7 @@ instructor==1.13.0
 itsdangerous==2.2.0
 Jinja2==3.1.6
 jiter==0.11.1
+jmespath==1.1.0
 jsonpatch==1.33
 jsonpointer==3.0.0
 langchain-core==1.1.0
@@ -120,6 +123,7 @@ requests==2.32.5
 requests-toolbelt==1.0.0
 rich==14.2.0
 rsa==4.9.1
+s3transfer==0.19.3
 setuptools==80.9.0
 shellingham==1.5.4
 six==1.17.0

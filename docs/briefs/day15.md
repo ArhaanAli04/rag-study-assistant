@@ -292,7 +292,14 @@ Backend-only, with no user-visible change:
 13. **`DELETE /user/delete`'s `index_entries_removed` keeps its name** (in the account-deletion summary). It now counts `document_chunks` rows. The frontend doesn't render it (only the test fixtures name it), so renaming it to `chunks` would be churn for no user-visible gain. This replaces the brief's UI-table row.
 14. **`PgChunkSearch` is one class, not `PgVectorStore` + `PgKeywordIndex`.** The owner's CO6 change requires one session per `hybrid_retrieve`, so one object runs both queries in one session behind a `ChunkSearch` protocol.
 15. **`POST /search` (`semantic_search`) now returns cosine similarity**, which ends B8's residual. `subject` / `file_type` filters are applied in SQL (jsonb `@>`), not after the search. The endpoint still has no frontend caller (unchanged since Day 11).
-16. **A failed query embedding now fails the request** instead of searching with a zero vector. For chat that is a 500 before streaming starts (steps 1–6), like any retrieval failure.
+16. **A failed query embedding now fails the request** instead of searching with a zero vector. For chat that is a 500 before streaming starts (steps 1–6), like any retrieval failure. *Superseded in Checkpoint 3:* the owner chose to degrade to keyword-only search instead.
+17. **Found in Checkpoint 4's live check: Supabase's S3 endpoint rejects `DeleteObjects` from boto3 1.44.3 with `InvalidRequest`.**
+    - It failed even for one key, and also with `request_checksum_calculation="when_required"`.
+    - Put, HeadObject, GetObject, DeleteObject and ListObjectsV2 all work.
+    - **Suspected cause, unconfirmed:** boto3 ≥ 1.36 sends a CRC32 checksum on `DeleteObjects` where older clients sent `Content-MD5`, and Supabase's S3 layer expects the latter (or doesn't implement batch delete).
+    - **Decision (owner, option A):** `delete_prefix` lists the keys and deletes them one at a time with `DeleteObject`. The untested checksum settings were reverted. The fake S3 client has no `delete_objects`, so reintroducing batch delete fails a test.
+    - **Cost:** one request per file, on account deletion only.
+    - **Revisit** if a boto3 or Supabase release fixes it, or if a user's file count makes account deletion slow.
 
 ## Outcome
 
@@ -353,3 +360,32 @@ _Written during the day; completed at the end._
   - `chunks` comes from one grouped query (`count_by_document`).
   - `file_size` comes from the row, falling back to the local file for older rows.
   - `created_at` is now returned. It was hard-coded to `None` with a stale "no timestamp field" comment, although the column has always existed, so the list showed "Recently uploaded" for every file.
+
+### Checkpoint 4 — uploaded files in Supabase Storage (2026-11-14)
+
+- **`ingestion/upload_storage.py`:** a `FileStorage` protocol (`put`, `exists`, `local_copy`, `delete`, `delete_prefix`) with two implementations:
+  - `LocalFileStorage`: keys are paths under the working directory, as before.
+  - `S3FileStorage`: a boto3 client against Supabase's S3 endpoint, path-style addressing, SigV4.
+  - `Document.file_path` holds the key `uploads/{user_id}/{uuid}{ext}`.
+  - `check_key` refuses anything outside `uploads/` by component (traversal, absolute, `uploads2/`, drive letters). Keys written on Windows (backslashes) are normalized.
+  - `local_copy` yields a file the parsers can read: the stored file itself, or a temporary download that keeps the extension.
+  - Backend failures become `StorageError`, whose message names the error type only, never credentials.
+- **Settings:** `STORAGE_BACKEND` (`local` by default, or `supabase`), `STORAGE_BUCKET`, `SUPABASE_S3_ENDPOINT`, `SUPABASE_S3_REGION`, `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY` (SecretStr). `supabase` requires all five; documented in `.env.example`. The tests pin `STORAGE_BACKEND=local`, so `.env` can never point them at a real bucket.
+- **Upload order:**
+  1. The hash comes from the bytes before anything is stored.
+  2. A new or changed file: the object is written, then the row is committed. If the commit fails, the object is deleted.
+  3. An identical re-upload stores nothing, unless the row's file is gone or is a legacy flat key; then a fresh copy is stored and the row re-linked.
+  4. Indexing reads through `local_copy`. A storage failure on write is a 503 ("Could not store the file right now"); on read it's the existing 502.
+- **Delete paths:** `delete_document` and `delete_user_account` remove objects through the storage after the commit (`delete_prefix` for the user's whole prefix, plus unshared legacy keys). Failures are logged. On S3, `delete_prefix` lists the keys and deletes them one by one (Risk 17: Supabase rejects `DeleteObjects`).
+- **Not done, as decided:** the copy script for existing local files (Scope 7).
+- **Deleted as dead code:** `ingestion/file_hash.py`, since the hash now comes from the bytes.
+- **Dependencies:** `boto3==1.44.3` (approved). The lock adds `boto3`, `botocore`, `jmespath` and `s3transfer`, and no other version moved.
+- **Tests:** 325 pass (299 before).
+  - Both backends run one shared contract test against a fake S3 client that raises real botocore errors: keys, put / read / delete, prefix delete, errors.
+  - The document-service flow also runs end to end on the fake bucket.
+  - The config tests check that `supabase` needs every S3 setting and that the secret is masked.
+- **Live check on `rag-staging`:**
+  - **Setup:** the owner created private buckets `rag-staging` and `rag-prod` and an S3 access key, and put the five values in `.env` without `STORAGE_BACKEND`. The check ran through the app's own `build_file_storage()`, with `STORAGE_BACKEND=supabase` set for that one process.
+  - **First run:** exists (False before, True after), put, a `local_copy` round trip (`.pdf` suffix, identical bytes) and delete (True, then False) passed. `delete_prefix` failed (Risk 17).
+  - **After option A:** the same steps plus `delete_prefix` on a 2-object test prefix passed (2 deleted, **0 left**).
+  - Test objects lived only under `uploads/0/`, a user id that never exists; the earlier run's two leftovers were removed. No configuration value was printed.

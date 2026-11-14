@@ -202,6 +202,41 @@ def test_unknown_database_scheme_is_refused(monkeypatch: pytest.MonkeyPatch) -> 
         load(monkeypatch, DATABASE_URL="mysql://u:p@localhost/db")
 
 
+# Day 15: uploads in local storage by default; Supabase Storage needs its whole S3 configuration.
+
+SUPABASE_STORAGE = {
+    "STORAGE_BACKEND": "supabase",
+    "STORAGE_BUCKET": "rag-staging",
+    "SUPABASE_S3_ENDPOINT": "https://project-ref.storage.supabase.co/storage/v1/s3",
+    "SUPABASE_S3_REGION": "ap-south-1",
+    "SUPABASE_S3_ACCESS_KEY_ID": "access-key-id",
+    "SUPABASE_S3_SECRET_ACCESS_KEY": "s3-secret-value",
+}
+
+
+def test_storage_is_local_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in SUPABASE_STORAGE:
+        monkeypatch.delenv(name, raising=False)
+
+    assert load(monkeypatch).STORAGE_BACKEND == "local"
+
+
+def test_supabase_storage_needs_every_s3_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in SUPABASE_STORAGE:
+        monkeypatch.delenv(name, raising=False)
+    partial = {k: v for k, v in SUPABASE_STORAGE.items() if k != "SUPABASE_S3_SECRET_ACCESS_KEY"}
+
+    with pytest.raises(ValidationError, match="SUPABASE_S3_SECRET_ACCESS_KEY"):
+        load(monkeypatch, **partial)
+
+
+def test_supabase_storage_secret_stays_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = load(monkeypatch, **SUPABASE_STORAGE)
+
+    assert s.STORAGE_BACKEND == "supabase"
+    assert "s3-secret-value" not in repr(s) + str(s)
+
+
 def test_env_file_is_the_repo_root_dotenv_whatever_the_cwd() -> None:
     repo_root = Path(__file__).resolve().parents[2]
 

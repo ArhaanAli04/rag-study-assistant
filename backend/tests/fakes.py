@@ -181,6 +181,68 @@ class FakeChunkSearch:
         return self.vector[:top_k]
 
 
+class FakeS3Client:
+    """The boto3 S3 calls S3FileStorage makes, against an in-memory bucket. Errors are real
+    botocore ClientErrors, so the storage's error handling is what production runs.
+
+    No delete_objects on purpose: Supabase rejects DeleteObjects (Day 15), so a storage that
+    reintroduces batch delete fails here with AttributeError instead of in production."""
+
+    def __init__(self, bucket: str = "rag-test") -> None:
+        self.bucket = bucket
+        self.objects: Dict[str, bytes] = {}
+        self.fail_with: Optional[str] = None  # e.g. "AccessDenied": every call raises it
+
+    def _check(self, Bucket: str, operation: str) -> None:
+        from botocore.exceptions import ClientError
+
+        if self.fail_with:
+            raise ClientError({"Error": {"Code": self.fail_with, "Message": "fake"}}, operation)
+        if Bucket != self.bucket:
+            raise ClientError({"Error": {"Code": "NoSuchBucket", "Message": "fake"}}, operation)
+
+    def put_object(self, Bucket: str, Key: str, Body: bytes) -> Dict[str, Any]:
+        self._check(Bucket, "PutObject")
+        self.objects[Key] = bytes(Body)
+        return {}
+
+    def head_object(self, Bucket: str, Key: str) -> Dict[str, Any]:
+        from botocore.exceptions import ClientError
+
+        self._check(Bucket, "HeadObject")
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
+        return {"ContentLength": len(self.objects[Key])}
+
+    def get_object(self, Bucket: str, Key: str) -> Dict[str, Any]:
+        import io
+
+        from botocore.exceptions import ClientError
+
+        self._check(Bucket, "GetObject")
+        if Key not in self.objects:
+            raise ClientError({"Error": {"Code": "NoSuchKey", "Message": "fake"}}, "GetObject")
+        return {"Body": io.BytesIO(self.objects[Key])}
+
+    def delete_object(self, Bucket: str, Key: str) -> Dict[str, Any]:
+        self._check(Bucket, "DeleteObject")
+        self.objects.pop(Key, None)
+        return {}
+
+    def get_paginator(self, operation: str) -> Any:
+        client = self
+
+        class _Paginator:
+            def paginate(self, Bucket: str, Prefix: str) -> Iterator[Dict[str, Any]]:
+                client._check(Bucket, "ListObjectsV2")
+                keys = sorted(k for k in client.objects if k.startswith(Prefix))
+                # Two pages when there is more than one key, so the pagination loop is exercised.
+                for page in (keys[:1], keys[1:]) if len(keys) > 1 else (keys,):
+                    yield {"Contents": [{"Key": k} for k in page]} if page else {}
+
+        return _Paginator()
+
+
 class FakeTavilyClient:
     """Drop-in for tavily.TavilyClient. Web search stays off unless a test sets TAVILY_API_KEY,
     because WebSearchClient refuses to build a client without one."""

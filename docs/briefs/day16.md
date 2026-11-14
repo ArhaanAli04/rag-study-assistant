@@ -360,3 +360,53 @@ Trade-off: a long transaction holds a pooled connection, and holding one open ac
   - At ~63 ms per round trip (Day 14), that is about 2.1 s → 0.7 s of network per turn on Render. **Estimate only: measure on Render after v0.3.0 (Day 17), n = 30 `/me`, n ≥ 15 chat turns.**
 - **Risk 7 checked:** `ChatWindow.js:157` calls `onSessionCreated` at `[DONE]`, and `ChatPage.js:55` re-fetches the sessions then. The topic commit happens before the `message_id` frame, so the sidebar sees it.
 - **Not done:** a live chat on the Docker stack (it would use production's Gemini key). The SSE contract and the stored messages are covered by `test_api_smoke.py` and `test_chat_writes.py`.
+
+### Checkpoint 4 — reindex script + live chat check (2026-11-15)
+- **Files:**
+  - `backend/scripts/__init__.py`, `backend/scripts/reindex_all.py` (new; `backend/scripts/` was already in `.dockerignore`):
+    - Decision 4A, run as `python -m scripts.reindex_all [--all] [--user N] [--re-embed] [--apply]` from `backend/`.
+    - Dry run by default. Logs the database name / schema / storage backend (never the URL), a per-document table and a summary with the number of embedding requests.
+    - Exit code 1 if any document failed.
+  - `backend/app/db/repositories/documents.py`: `list_active_for_reindex(db, user_id | None)`.
+  - `backend/app/services/document_service.py`: `_stored_copy_is_usable` → `stored_copy_is_usable` (now also used by the script).
+  - `backend/tests/test_reindex.py` (new, 7 tests):
+    - dry run writes nothing
+    - `--apply` indexes and bumps `doc_version`
+    - a missing file is reported and skipped
+    - documents with chunks are left alone unless `--all`
+    - `--all` again → every embedding reused, 0 calls
+    - `--re-embed` bypasses reuse
+    - an embedding outage fails only that document and writes nothing
+- **Deviation from the plan (told to the owner): `doc_version` is bumped in each document's own commit, not once per user.** With a single bump at the end, a run stopped after the first commit would leave new chunks behind an unchanged `doc_version`. A later default run would skip those documents (they have chunks now), so the bump would never come. Per-document bumps match `/upload`.
+- **Checks:** suite 349 → **356 passed**; `ruff check .` clean.
+- **Bug found in the live run, fixed:** the script wrapped the Gemini client to count requests, but kept only `client.models`. The unreferenced `genai.Client` was garbage-collected and closed its HTTP client, so `--apply` failed with `RuntimeError: Cannot send a request, as the client has been closed`. Nothing was written. `_CountingClient` now holds the client. The unit tests use a fake client that never closes, so they couldn't catch this.
+- **Live chat check** (venv backend on :8001, eval key, local `rag`, web search off, throwaway accounts deleted afterwards):
+  - **First attempt invalid: web search was on, Claude's mistake.** In Windows PowerShell `$env:TAVILY_API_KEY = ""` *deletes* the variable, so `.env`'s real Tavily key was read. The three turns made up to 3 real Tavily searches on that key (answer 1 cited a web URL).
+  - Re-run through a launcher that sets the empty value inside the Python process (`serve_no_web.py`; pydantic-settings keeps an empty env value), asserting it took effect. The three questions were reworded, because `websearch:{query}` in Redis (1 h) would otherwise have replayed the first run's web results. **0 web sources on every turn.**
+
+  | Step | Result | Evidence |
+  |---|---|---|
+  | 1. Upload a small PDF, new chat about it | **PASS** | frames metadata → 5 tokens → message_id → [DONE]; cites the PDF; confidence 57.5 (loose); the session is in `GET /sessions` (what the sidebar fetches) with topic **"Linguistics"** |
+  | 2. Follow-up in the same chat | **PASS** | same `session_id`, 1 session on the account. Judged by hand: "give one example of each of the two kinds you just explained" got a free-morpheme example ("book") and bound-morpheme examples ("un-", "-ed"), so it used the first turn |
+  | 3. Reload, thumbs-down | **PASS** | `GET /sessions/{id}/messages` → user, assistant, user, assistant in order; the assistant ids equal the two `message_id` frames; `POST /messages/{id}/feedback` → `{"status": "ok"}` |
+  | 4. Question the PDF can't answer → `failed_queries` | **FAIL, not a CO6 bug** | "Which team won the 1998 football World Cup final…" scored **confidence 72.0 (strict)** against a morphology-only PDF, so no row (0 → 0). This is the B2 / E4 finding: the heuristic doesn't predict relevance (Day 11: 2 of 6 out-of-corpus questions got strict; replaced Day 26) |
+  | 4b. Same question, account with **no documents** | **PASS** | confidence 0.0 (none); `failed_queries` rows for it 0 → **1** (`low_confidence`, same session), stored in the turn's last commit with the assistant message |
+
+  - The step 1 check of "after [DONE]" was done through the API the sidebar calls, not in a browser: the browser's frontend talks to the Docker backend, which has production's key.
+- **Reindex live check** (local `rag` only; the script ran with `--user` for the throwaway account, so no other local data was touched; eval key). The badge was checked through `GET /documents` on the Docker backend (:8000), the call `DocumentList.js` renders the badge from (`chunks === 0`):
+
+  | Step | Result |
+  |---|---|
+  | Upload `reindex-notes.pdf` through :8001 | `new`, 6 chunks; `GET /documents` → `chunks 6`, no badge |
+  | Delete that document's chunks (`drop_chunks.py`: refuses anything but database `rag` on localhost) | 6 deleted; `GET /documents` → `chunks 0`, **badge shown** |
+  | Dry run | lists document 11 "would index"; nothing written; 0 embedding requests; exit 0 |
+  | `--apply` | indexed: 6 chunks, 0 reused, 6 embedded in **1** request; `GET /documents` → `chunks 6`, **badge gone** |
+  | `--all --apply` | indexed: **6 reused, 0 embedded, 0 embedding requests** |
+
+  - `doc_version` 1 → 3 (one bump per applied run).
+  - The reindex account (user 26) was then **deleted** (owner's request) through the venv backend, so its host-stored file went too. Response: 1 document, 1 file, 6 index entries removed. Afterwards: login → 401; `backend/uploads/26` gone; 0 user / document / chunk rows for id 26.
+- **Owner's follow-ups (2026-11-15):**
+  - Accepted the per-document `doc_version` bump.
+  - Regression test for the closed-client bug: `test_the_request_counter_keeps_the_whole_client_alive` (`test_reindex.py`). Its fake client closes its `.models` when garbage-collected, like `genai.Client`, and the test asserts that a call through the counter still works after `gc.collect()`. Checked against the pre-fix wrapper (models only): the same fake fails with the live run's exact error. Suite **357 passed**.
+  - Step 4 recorded as new B2 evidence for Day 26 in `docs/improvements.md` (B2, "Day 16 evidence").
+- `rag_staging` and production: not touched. Day 17: production gets a dry run only (owner).

@@ -18,6 +18,15 @@ def list_active(db: Session, user_id: int) -> list[Document]:
     )
 
 
+def list_active_for_reindex(db: Session, user_id: int | None) -> list[Document]:
+    """Active documents of one user, or of every user (None): the reindex script's work list only.
+    Ordered by user, then id, so each user's documents are processed together."""
+    query = db.query(Document).filter(Document.is_active.is_(True))
+    if user_id is not None:
+        query = query.filter(Document.user_id == user_id)
+    return query.order_by(Document.user_id, Document.id).all()
+
+
 def count_active(db: Session, user_id: int) -> int:
     return db.query(Document).filter(Document.user_id == user_id, Document.is_active.is_(True)).count()
 

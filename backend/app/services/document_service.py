@@ -43,7 +43,7 @@ class RegisteredUpload:
         return self.status != "unchanged"
 
 
-def _stored_copy_is_usable(storage: FileStorage, user_id: int, key: str) -> bool:
+def stored_copy_is_usable(storage: FileStorage, user_id: int, key: str) -> bool:
     """The row's file is this user's own (not a pre-G7 shared flat path) and still exists.
 
     Before Day 15 Render's disk was wiped on every restart while the row survived in Postgres;
@@ -79,7 +79,7 @@ def register_upload(
         if existing and existing.file_hash == file_hash:
             indexed = chunks_repo.count_by_document(db, user_id).get(existing.id, 0) > 0
             status: UploadStatus = "unchanged" if indexed else "reindexed"
-            if not _stored_copy_is_usable(storage, user_id, existing.file_path):
+            if not stored_copy_is_usable(storage, user_id, existing.file_path):
                 # The row's file is gone, or it is a legacy flat path that another user's upload may
                 # have overwritten (that file is left alone: another row may still use it).
                 key = new_upload_key(user_id, file_extension(file_name))

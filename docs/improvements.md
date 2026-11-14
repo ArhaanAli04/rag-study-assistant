@@ -693,6 +693,26 @@ thresholds against retrieval eval results (E4).
 `backend/app/retrieval/confidence.py` (`grounding_level()` is the only grounding decision).
 `backend/tests/test_confidence.py` pins the forced-web path at 30 (was 0.3) and the threshold
 boundaries. Validation against E4 is still open (Day 11).
+**Day 16 evidence (2026-11-15, live, for the Day 26 replacement):** an out-of-corpus question still
+gets "strict" grounding, so it is never logged as a failed query.
+- Setup: local `rag`, venv backend with the eval key, web search off (0 web sources), one throwaway
+  account whose only document was a 3-page NLP lab write-up on morphology (6 chunks).
+- "Which team won the 1998 football World Cup final, and by what score?" scored **confidence 72.0,
+  grounding "strict"**. `failed_queries` got **no row** (0 → 0): it is written only below
+  `LOW_CONFIDENCE_BELOW` (30).
+- Control: the same question from an account with **no documents** scored 0.0 ("none") and was
+  logged (0 → 1, `low_confidence`). So the write path works; the score is what fails.
+- Likely mechanism, consistent with E4 (AUC 0.332; 2 of 6 out-of-corpus questions strict): the
+  confidence comes from min-max-normalised fused scores over the user's few candidates. With one
+  small document, *some* chunk always tops the list, and normalisation gives it a high score whatever
+  its absolute similarity.
+- Consequences: the model is told to stick to unrelated context ("strict"), the failed-query
+  analytics (`GET /analytics/failed-queries`) miss exactly the questions the documents can't answer,
+  and the "use general knowledge" fallback (grounding "none") never triggers for users with few
+  documents.
+- For Day 26: judge relevance on an absolute signal (raw cosine of the best chunk, or a reranker /
+  LLM relevance check), not on a score normalised within the candidate set; include a
+  "one small unrelated document" case in the eval.
 
 ### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
 Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`

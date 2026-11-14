@@ -12,8 +12,10 @@ from app.core.config import settings
 # The Supabase free tier's pooler caps client connections; one Render instance needs few.
 POSTGRES_POOL_SIZE = 5
 POSTGRES_MAX_OVERFLOW = 5
-# Poolers and the free tier close idle connections. Recycling before that, and pinging on checkout,
-# turns a dropped connection into a reconnect instead of a failed request after a quiet hour.
+# Poolers and the free tier close idle connections; recycling before that turns a dropped connection
+# into a reconnect instead of a failed request after a quiet hour. No pool_pre_ping (CO6, Day 16): it
+# cost a round trip on every checkout (~63 ms Render → Supabase, 6 per chat turn). The trade-off: a
+# connection the server drops within 300 s (a pooler restart) fails its next request once.
 POSTGRES_POOL_RECYCLE_SECONDS = 300
 
 
@@ -24,7 +26,6 @@ def build_engine(url: str) -> Engine:
         raise ValueError(f"Unsupported database backend: {backend}")
     return create_engine(
         url,
-        pool_pre_ping=True,
         pool_size=POSTGRES_POOL_SIZE,
         max_overflow=POSTGRES_MAX_OVERFLOW,
         pool_recycle=POSTGRES_POOL_RECYCLE_SECONDS,
@@ -33,3 +34,6 @@ def build_engine(url: str) -> Engine:
 
 engine = build_engine(settings.DATABASE_URL.get_secret_value())
 SessionLocal = sessionmaker(bind=engine)
+# Reads that need no transaction (retrieval's two searches): without one, psycopg sends no BEGIN and
+# the pool no ROLLBACK, so each query is one round trip (CO6). Same pool as SessionLocal.
+ReadOnlyAutocommitSession = sessionmaker(bind=engine.execution_options(isolation_level="AUTOCOMMIT"))

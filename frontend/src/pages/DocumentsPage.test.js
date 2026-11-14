@@ -46,6 +46,27 @@ beforeEach(() => {
   localStorage.setItem("userEmail", "demo@example.com");
 });
 
+test("while an upload is in progress the page says large files can take a few minutes", async () => {
+  let finishUpload;
+  mockApi({
+    documents: [],
+    upload: () => new Promise((resolve) => {
+      finishUpload = () => resolve({ ok: true, status: 200, json: () => Promise.resolve(
+        { filename: "notes.pdf", document_id: 7, status: "new", version: 1, chunks_indexed: 12, doc_version: 1 }) });
+    }),
+  });
+  renderPage();
+  await screen.findByText("No documents yet");
+  expect(screen.queryByText(/large files can take a few minutes/i)).not.toBeInTheDocument();
+
+  await uploadAFile();
+
+  expect(await screen.findByRole("note")).toHaveTextContent("Large files can take a few minutes to index.");
+  finishUpload();
+  expect(await screen.findByRole("status")).toBeInTheDocument();
+  expect(screen.queryByText(/large files can take a few minutes/i)).not.toBeInTheDocument();
+});
+
 test("an identical re-upload says it is already indexed instead of silently doing nothing", async () => {
   mockApi({
     documents: [NOTES],

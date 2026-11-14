@@ -31,13 +31,14 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  ed0fd3e on feature/day15-pgvector-chunks (draft PR #21 → develop, CI green on every push):
-              de45311 schema + Postgres-only suite, 6eb47de search in Postgres (E4 parity), a936138 I5/I6 + UI
-              + keyword fallback, ed0fd3e Supabase Storage. develop = 553c11a (Day 14 outcome, PR #20)
+Last commit:  7d5db67 on feature/day16-batch-embeddings (draft PR #22 → develop, CI green on every push):
+              cc0c02d batched embeddings, 2d23c6e CO3 reuse + tie order, ab158bc CO6 round trips,
+              7d5db67 reindex script + live chat check. develop = 61b4c63 (Day 15, PR #21 merged)
 Pushed:       master = v0.2.2 (tagged on 1e84de8; production still FAISS in memory + files on Render's disk).
-              develop = Day 14. Day 15 = PR #21, not merged yet
-Uncommitted:  Checkpoint 5 (docs only): brief Outcome + UI table, CLAUDE.md, layout.md, timeline (Day 17
-              runbook notes), guard-hook wording, posts 3 and 9. docs/learning/ updated (gitignored)
+              develop = Day 15. Day 16 = PR #22, not merged yet
+Uncommitted:  Checkpoint 5: upload pacing (100 texts / 60 s, 429 waits 60 s) + "Large files can take a few
+              minutes to index." UI, B13 (PPTX table extraction skipped), brief Outcome, tracker rows, this
+              file, improvements (B13, B7), posts 3 and 9. docs/learning/ updated (gitignored)
 Untracked:    none. Local only (gitignored): the old SQLite files + backups in backend/data/ (refused by
               Settings since Day 15); backend/eval/corpus/* except manifest.json, eval/.cache/,
               eval/results/*.json, eval/datasets/{drafts, sheets, hard_candidates.jsonl}, docs/learning/.
@@ -57,10 +58,21 @@ Day 15:       Chunks table + Supabase Storage (I4, I5, I6, I1, I2, B10). documen
               Live: Docker stack and rag_staging + rag-staging bucket — restart keeps search (new question
               still cites), re-upload unchanged, delete leaves 0 files. CO6: a chat turn = 33 round trips
               (≈ 2.1 s on Render). Suite 271 → 325, frontend 11 → 19. Notes in docs/briefs/day15.md
-Next:         /pre-commit + /ship commit Checkpoint 5 (tracker rows I4, I5, I6, I1, I2, B10 → Done included;
-              rag_staging_app's password was rotated 2026-11-14), then /ship merge PR #21. Then Day 16 (/run-day 16): batch embeddings (I3), CO3 embedding
-              cache on content_hash, CO6 round-trip cuts (33 → ?), reindex script, B7. Day 17 release runbook
-              notes are in the timeline (Render STORAGE_* vars, no Redis flush, v0.2.2 rows need a re-upload)
+Day 16:       Faster ingestion (I3, CO3, CO6, B7 → Done; B13 new). Embeddings in batches of ≤ 100; the free
+              tier counts per text, so uploads pace under 100 texts / 60 s and a 429 waits 60 s (3 attempts;
+              chat path 1 attempt). BCT PDF 24.1 → 3.7 s; HPC deck (217 texts) 143.3 s, 0 rejected batches;
+              one deck ≈ 22% of ~1,000 texts/day. CO3: same-user reuse by content_hash (index revision
+              21f0595f83d5, rag_staging at head); a changed re-upload embeds only its changed chunks. Vector
+              query: top-k by HNSW inside, (distance, id) outside → E4 deterministic, Hit@5 50/55, MRR@5 0.808.
+              CO6: chat turn 33 → 11 round trips, /me 4 → 3 (test = Postgres log). scripts/reindex_all.py (dry
+              run by default). B7: 9/9 borderless detections false positives, not enabled; B13: PPTX table
+              extraction never reached chunks → skipped (HPC working time 23.3 → 12.3 s). Found: CO5 triple
+              query embedding (quota), B2 strict confidence on an unrelated doc. Suite 325 → 363, frontend 19 →
+              20. Notes in docs/briefs/day16.md
+Next:         /pre-commit + /ship commit Checkpoint 5, then /ship merge PR #22. Then Day 17 (/run-day 17):
+              R5 + release v0.3.0. Day 16's release items are in the brief's "Day 17 release checklist":
+              CO6 Render latency (n = 30 /me, n ≥ 15 chat turns; re-create the latency script), reindex
+              against production as a dry run only (v0.2.2 rows → "file missing")
 Blockers:     none. Every `docker compose` command needs POSTGRES_PASSWORD and RAG_APP_PASSWORD in .env. Every
               pytest run needs TEST_DATABASE_URL / TEST_DATABASE_SCHEMA (rag_test); evals need EVAL_DATABASE_URL
               (rag_eval) and $env:GEMINI_API_KEY = the eval key. Never print .env values, connection strings
@@ -86,6 +98,7 @@ rag-study-assistant/
 │   │   └── schemas/          ← Pydantic request/response models (concept_maps, auth, documents, …)
 │   ├── eval/                 ← retrieval/ (E4, Day 11; on its own rag_eval database since Day 15), generation/ (judge, E1/E2, Day 12), corpus/ (manifest only), datasets/, results/, cache_tuner.py; not in the image
 │   ├── tests/                ← offline pytest suite on a Postgres *_test database (conftest fakes Gemini, Tavily, Redis, S3) + samples/
+│   ├── scripts/              ← operator scripts run from a dev shell (`python -m scripts.reindex_all`, Day 16); not in the image
 │   ├── data/                 ← the old SQLite files only (unused since Day 14, backups) — gitignored
 │   └── logs/, uploads/       ← runtime output — gitignored
 ├── frontend/                 ← React 19 (react-scripts), Tailwind, React Flow, react-markdown
@@ -114,7 +127,7 @@ and the known exceptions to the downward-only dependency rule, are in `docs/arch
 | App & wiring (Day 9) | `main.py`, `services/container.py`, `api/deps.py`, `api/routes/{health,auth,users,documents,chat,sessions,feedback,quiz,concepts}.py` | `main.py`: `create_app()` (middleware, routers, handlers — no I/O) and the lifespan (`assert_schema_at_head` — refuses a database not at Alembic head, Day 13; `build_services()` onto `app.state.services`, Redis closed on shutdown). `container.py`: the `Services` dataclass — one Gemini client, one FAISS + BM25, caches, `ChatPipeline`, `ConceptMapService`. `deps.py`: `get_db`, `get_current_user` (Bearer), `get_user_from_query_token` (SSE `?token=`), `get_services`. Routers hold HTTP only; their SQL moved to `db/repositories/` on Day 13 |
 | Data (Day 13, T2) | `db/{base,session,migrations}.py`, `db/models/{user,chat_session,message,document,failed_query,concept_map}.py`, `db/repositories/{users,sessions,documents,messages,failed_queries}.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `base.py`: `Base` with a constraint naming convention (`pk_`, `fk_`, `uq_`, `ix_`). `session.py`: `build_engine(url)` — Postgres only since Day 15 (`pool_pre_ping`, pool 5 + 5, recycle 300 s) — plus `engine`, `SessionLocal` from `settings.DATABASE_URL`. `migrations.py`: `assert_schema_at_head`, `assert_expected_schema` (Postgres `current_schema()` must equal `DATABASE_SCHEMA`), `alembic_config()`. `models/__init__.py` imports all 8 models (what `alembic/env.py` imports); `Session` lives in `chat_session.py`; `Chunk` (Day 15) in `document_chunk.py` — `document_chunks`: halfvec(3072) embedding + HNSW (cosine), generated `tsv` + GIN, CHECKs against zero vectors and blank text. Repositories: plain functions taking the session, `user_id: int`, never commit (the caller does), return `None` for a missing row; `chunks.py` holds the two searches (user filter in the query, I1). `ingestion/models.py`: `DocumentChunk` (parser output, not a table). `account_service.py`: `authenticate_user`, `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
 | Auth | `core/security.py`, `api/routes/auth.py`, `api/deps.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
-| Ingestion | `ingestion/{chunk_builder,chunking,text_preprocessing,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/{indexing_service,document_service}.py` | character-based chunks (1000 chars / 100 overlap). `IndexingService` (Day 15): parse → skip blank chunks (B10) → embed → replace the document's `document_chunks` rows; caller commits. `document_service`: `register_upload` → `new` / `changed` / `unchanged` / `reindexed` (I6), `delete_document` removes every version + chunks + files (I5). `upload_storage.py`: keys `uploads/{user_id}/{uuid}{ext}` + `check_key` (G7), `FileStorage` with `LocalFileStorage` and `S3FileStorage` (Supabase Storage, Day 15) |
+| Ingestion | `ingestion/{chunk_builder,chunking,text_preprocessing,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/{indexing_service,document_service}.py` | character-based chunks (1000 chars / 100 overlap). `IndexingService` (Day 15): parse → skip blank chunks (B10) → reuse the user's stored vectors of identical text (CO3, Day 16) → embed the rest in paced batches (I3) → replace the chunks of the document and its superseded versions; caller commits. `process_pptx` no longer extracts slide-image tables (B13, Day 16). `document_service`: `register_upload` → `new` / `changed` / `unchanged` / `reindexed` (I6), `delete_document` removes every version + chunks + files (I5). `upload_storage.py`: keys `uploads/{user_id}/{uuid}{ext}` + `check_key` (G7), `FileStorage` with `LocalFileStorage` and `S3FileStorage` (Supabase Storage, Day 15) |
 | OCR / tables | `ingestion/parsers/unified.py`, `ingestion/ocr/{ocr,image_preprocessing}.py`, `ingestion/tables/{pdf_tables,tables}.py` | not reachable from `/upload` (images are rejected) |
 | Indexes | `retrieval/{embeddings,pg_chunk_search}.py`, `db/repositories/chunks.py` | Postgres since Day 15 (FAISS / BM25 deleted after the E4 parity run): pgvector cosine search + full-text (`ts_rank_cd` over an OR-ed `plainto_tsquery`), both filtered to the user in the query and run in one session per retrieval (`PgChunkSearch.search`). `EMBEDDING_DIM = 3072` in `embeddings.py` (= the column's halfvec size, checked by a test), sent as `output_dimensionality`. `EmbeddingService` raises `EmbeddingError` instead of returning zero vectors |
 | Retrieval | `retrieval/{retrieval_service,context_assembly,confidence,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `context_assembly.py` (Day 11): `assemble_context()` — decompose → `hybrid_retrieve` per sub-query → parent expansion → compress; the chat and the retrieval eval both call it, so the eval measures what the chat sends. `confidence.py`: the 0–100 scale and every threshold on it (B2) — compare only against these names; E4 (Day 11) found the score doesn't predict a hit (AUC 0.332 after B8), so it is replaced, not re-tuned, on Day 26. `RetrievalService` takes an embedder, a `ChunkSearch` and its Redis caches by injection (typed by `Protocol`s) and has switches for web search, the L1 cache and the fusion weights (production defaults: on, on, 0.6 / 0.4). Scores are higher-is-better on both halves (cosine similarity; `ts_rank_cd`). A failed query embedding degrades to keyword-only search for that query and is not L1-cached (Day 15). `reranker.py` does no real reranking |
@@ -136,7 +149,7 @@ The one-off DB scripts, `scripts/manual/`, `frontend.py`, `document_delete_servi
 |---|---|
 | Backend | FastAPI, SQLAlchemy (sync `Session`), Pydantic v2; Python 3.11 (Docker) / 3.12 (local `venv`); code needs ≥ 3.10 |
 | LLM | Gemini `gemini-3.5-flash-lite` via `google-genai` (Day 12, B9: `GEMINI_GENERATION_MODEL`, default; reaches production with v0.2.1 — until then production runs `gemini-2.5-flash-lite`) |
-| Embeddings | Gemini `gemini-embedding-001`, 3072 dimensions, L2-normalized, one API call per text (I3, Day 16) |
+| Embeddings | Gemini `gemini-embedding-001`, 3072 dimensions, L2-normalized, batches of ≤ 100 texts (I3, Day 16). The free tier counts **per text** (100/min, ~1,000/day): uploads pace under 100 texts / 60 s and wait 60 s on a 429 (3 attempts); chat-path calls get 1 attempt. A user's stored vectors of identical text are reused by `content_hash` (CO3) |
 | Vector search | pgvector in Postgres (Day 15): `document_chunks.embedding` halfvec(3072), HNSW `halfvec_cosine_ops`; user filter in the query (I1). At today's sizes the planner picks an exact scan; forced HNSW recall@10 = 1.000 on the eval corpus |
 | Keyword search | Postgres full-text (Day 15): generated `tsv` (`english`) + GIN, `ts_rank_cd` over an OR-ed `plainto_tsquery` (replaced `rank-bm25`; no IDF) |
 | File storage | `FileStorage` (Day 15): local `backend/uploads/` (dev, tests, Docker volume) or Supabase Storage over its S3 API (`boto3`, private buckets `rag-prod` / `rag-staging`) |
@@ -231,7 +244,8 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
 - Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called first in `ChatPipeline`; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); the unsafe-topic check is one 6-keyword substring list in `chat_guards.py` since Day 9 ("bomb" still matches "bombardment") — G3 replaces it
 - Evaluation: retrieval eval since Day 11 (E4; its `web` config hasn't been run yet) and generation eval with a calibrated Gemini judge since Day 12 (E1/E2 done; RAGAS and the word-overlap metrics were removed). Partial: the judge is the same model as the generator, `faith-v2` was tuned on its 20-answer calibration set, and there is no answer-correctness metric or CI gate yet (E3, Day 26)
-- Concept extraction hand-parses JSON (S1); embeddings use one call per chunk (I3); sub-queries are retrieved serially (CO2)
+- Concept extraction hand-parses JSON (S1); sub-queries are retrieved serially (CO2); a chat turn embeds its question up to 3 times (CO5, Day 16 finding: latency and free-tier quota)
+- PPTX slide-image tables are not extracted since Day 16 (B13): they never became chunks. Re-enable with indexing them
 - Production still runs v0.2.2 until the Day 17 release: there, rows persist but files and vectors don't (Render has no disk; FAISS/BM25 in memory). `develop` has the fix since Day 15 (pgvector + Supabase Storage). v0.2.2's documents have no chunks and no stored file, so after v0.3.0 they show "Not searchable yet" until the user re-uploads them (the Day 16 reindex can't help: their files are gone)
 
 ### Not present
@@ -239,7 +253,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - History-aware query rewriting (C2); retrieval-based conversation memory (C3)
 - Indirect prompt-injection defenses (G5); request tracing (O1)
 - Golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
-- Query expansion / HyDE (R3); agentic tool use (A1); embedding cache (CO3, Day 16). (I1 — an ANN index with the user filter inside the query — exists since Day 15)
+- Query expansion / HyDE (R3); agentic tool use (A1). (I1 — an ANN index with the user filter inside the query — exists since Day 15; CO3 — reuse of stored embeddings by content hash — since Day 16)
 - Rate limiting, refresh tokens, quiz persistence
 - Frontend tests beyond 6 files / 19 tests: `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5), `pages/DocumentsPage.test.js` (upload notices, 502 error, "Not searchable yet" badge, Day 15). No tests for concept maps, quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
 
@@ -289,7 +303,8 @@ Found while writing this file; evidence and direction live under each ID.
 | Fixed Day 10: the contrib OpenCV build is reinstalled last (Dockerfile, CI, venv setup), so `cv2.ximgproc` is complete and ruled tables in images / PPTX slide images extract again; the Docker build asserts it | B3 | Done |
 | Fixed Day 10: deskew fits the ink (inverted Otsu), not the paper, and folds OpenCV's (0, 90] angle; `scan_handwritten.png` OCR 0 → 29 words | B5 | Done |
 | `preprocess_image` names its output with `.replace('.png', …)`, so a `.jpeg` / `.tif` input is overwritten by its own preprocessed copy. Not reachable from any user path today | B6 | P2 |
-| img2table's defaults (used by `extract_tables_from_image`) miss tables without ruling lines (`tableimage2.jpg`: 0 → 1 table with `borderless_tables=True`); measure false positives on real slide decks first (Day 16) | B7 | P2 |
+| Measured Day 16, not enabled: img2table's `borderless_tables=True` on `HPC Lecture.pptx` (11 pictures, 0 real tables) gave 9 detections, all false positives (diagrams, photos); defaults 0. Revisit with B13 on real borderless tables | B7 | Done |
+| Found Day 16: PPTX slide-image tables were extracted (img2table on every picture) but never became chunks — 11.4 s of a 143.3 s HPC upload, 49% of its working time without free-tier pacing. `process_pptx` no longer calls it (tests on a deck with a picture); HPC working time 23.3 → 12.3 s. Re-enable when tables become chunks, then measure with E4 | B13 | P2 |
 | Fixed Day 5: concept-map generation returned 500 whenever a node had empty sources (`concept_extractor` wrapped the whole source list) | B4 | Done |
 | Fixed Day 11: FAISS's squared L2 distances were fused as if higher = better, ranking the vector half backwards. `hybrid_retrieve` converts to cosine (`1 − d²/2`). E4: Hit@5 0.782 → 0.909, MRR@5 0.339 → 0.801. The residual (`POST /search` returned raw distances) ended Day 15: pgvector returns cosine similarity | B8 | Done |
 | Fixed Day 12: the generation model is `GEMINI_GENERATION_MODEL` (passed to `LLMClient`, `TopicClassifier`, `ConceptExtractor`), default `gemini-3.5-flash-lite` (500 RPD; 2.5-flash-lite's free tier was 20 and production's peak 28 requests in one day). It passed the generation eval's absolute gate (strict faithfulness 0.956, 0 contradicted claims, relevance 0.982); not a paired comparison — 2.5-flash-lite is not served to new projects. Reaches production with v0.2.1; rollback: `GEMINI_GENERATION_MODEL=gemini-2.5-flash-lite` on Render | B9 | Done |
@@ -300,7 +315,7 @@ Found while writing this file; evidence and direction live under each ID.
 | Fixed Day 14: an identical re-upload whose existing row's file was gone (Render has no disk) deleted the new copy and indexed a missing file, so that file could never be uploaded again. `register_upload` re-links the row to the new copy | — | Done |
 | Found Day 14 (security): Render's SQLite reset user ids on every deploy / restart / idle spin-down while Render's Redis kept `semantic_cache:{user_id}` (no TTL), so a new user with a reused id could get a previous user's cached answers and their document text. Fixed by flushing Render Redis right before the v0.2.2 deploy (2026-11-13: DB 0 5 → 0 keys, DB 1 empty), after which Postgres never reuses an id; any future database reset needs the same flush | G9 | Done |
 | `GET /sessions/{id}/messages` omits each message's `feedback`, so a reloaded chat shows no thumb already given (and a repeat thumbs-down logs a second failed query). Fix the backend field and `ChatWindow.js` rendering the same day | B11 | P2 |
-| Every DB round trip crosses regions (Render Singapore → Supabase Mumbai, ~63 ms); server-side statement time is ≤ 0.05 ms. `/me` = 4 round trips counted Day 15 (pre-ping, BEGIN, query, ROLLBACK); on Render it measured +190 ms over `/health` on Day 14. A chat turn = **33 round trips** — 6 pool pre-pings, 6 BEGIN, 15 statements, 6 COMMIT/ROLLBACK ≈ 2.1 s on Render (counted Day 15 after the move to pgvector; retrieval's share is 5). Day 16 cuts it | CO6 | P1 |
+| Every DB round trip crosses regions (Render Singapore → Supabase Mumbai, ~63 ms); server-side statement time is ≤ 0.05 ms. `/me` = 4 round trips counted Day 15 (pre-ping, BEGIN, query, ROLLBACK); on Render it measured +190 ms over `/health` on Day 14. A chat turn was **33 round trips** (6 pool pre-pings, 6 BEGIN, 15 statements, 6 COMMIT/ROLLBACK ≈ 2.1 s on Render). Fixed Day 16: **33 → 11** (follow-up 23 → 11), `/me` **4 → 3** — two transactions per turn, no reloads after commit, no `pool_pre_ping`, retrieval reads in autocommit; `test_round_trips.py` asserts the counts (matched against Postgres's own log). Render latency measured at the Day 17 release | CO6 | Done |
 | Source chips list retrieved chunks, not cited sources: duplicates (one URL ×4, p.1 ×2) and pages the answer cites can be missing (answer "Page 2", chips only p.1) | B12 | P2 |
 | A semantic-cache hit replays its original `sources`. After a Render restart (rows and `doc_version` kept, index gone, I4) a repeated question still cites a document that is no longer indexed; a new question shows the real state. Day 15 removes the gap in `develop` (the index persists; deletes bump `doc_version`); production keeps it until v0.3.0. Noted under CO5 | CO5 | P1 |
 | Fixed Day 15: `concept_map_nodes.map_id` had no ON DELETE rule, so once every `user_id` cascaded, a user delete through the schema was blocked by the user's concept-map nodes. Revision `500c410270f5` cascades it (on `rag_staging` already) | — | Done |
@@ -385,6 +400,15 @@ Remove-Item Env:TEST_DATABASE_URL, Env:TEST_DATABASE_SCHEMA
 # bucket and the four S3 values; never STORAGE_BACKEND itself). Never print any of these values. Roles and schemas
 # come from scripts/supabase/setup_rag_schemas.sql (run by the owner in the SQL editor, verifiers only:
 # python scripts/supabase/scram_verifier.py rag_app)
+
+# Reindex (Day 16) — from backend/, against whatever DATABASE_URL / DATABASE_SCHEMA / STORAGE_BACKEND the
+# shell has. Dry run unless --apply; reuses stored embeddings (CO3) unless --re-embed; each document is its own
+# commit with a doc_version bump; documents whose file is gone are reported "skipped: file missing".
+cd backend; python -m scripts.reindex_all                  # list active documents without chunks
+python -m scripts.reindex_all --user 42 --apply            # index them (one user)
+python -m scripts.reindex_all --all --apply                # re-chunk every active document (0 API calls if unchanged)
+python -m scripts.reindex_all --all --re-embed --apply     # after an embedding model / dimension change
+# Production: dry run only so far (Day 17: v0.2.2 rows have no files and show "file missing")
 
 # Redis — must be running before the first chat request
 docker compose up redis                   # or a local redis-server

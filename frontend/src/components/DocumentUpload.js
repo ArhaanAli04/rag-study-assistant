@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Upload, FileText, X, AlertCircle } from "lucide-react";
+import { Upload, FileText, X, AlertCircle, Loader2 } from "lucide-react";
 
 export default function DocumentUpload({ onUpload, uploading }) {
   const [dragActive, setDragActive] = useState(false);
@@ -184,6 +184,15 @@ export default function DocumentUpload({ onUpload, uploading }) {
           >
             {uploading ? 'Uploading...' : 'Upload Document'}
           </button>
+        </div>
+      )}
+
+      {/* Day 16: on the free tier an upload embeds at most 100 chunks a minute, so a large deck
+          waits a minute or two before the server answers. */}
+      {uploading && (
+        <div role="note" className="mt-4 flex flex-col items-center gap-2 text-center">
+          <Loader2 className="w-6 h-6 text-primary animate-spin" aria-hidden="true" />
+          <p className="text-sm text-muted-foreground">Large files can take a few minutes to index.</p>
         </div>
       )}
     </div>

@@ -580,6 +580,26 @@ longer indexed.
 - When reworking the cache: validate a hit's cited sources against what is currently retrievable,
   or key entries on an index epoch as well as `doc_version`.
 
+**Day 16 finding (2026-11-14): one chat turn still embeds the same question up to three times.** Not
+fixed on Day 16 (owner's call); it is why the chat path gets no embedding retries.
+- `SemanticCache.lookup` (`services/caches/semantic_cache.py`) embeds the question whenever the user
+  has at least one entry with the same `doc_version` and `mode`, i.e. on most repeat-mode turns.
+- `RetrievalService.hybrid_retrieve` (`retrieval/retrieval_service.py`, the `_embed_texts([vec_query])`
+  call) embeds it again (once per sub-query; for a single-part question the text is identical).
+- `SemanticCache.store` embeds it a third time after the answer has streamed.
+- None of them share a vector, so a miss costs up to 3 embedding requests of the same text: ~3× the
+  embedding latency and quota of a turn.
+- **Interaction with retries (Day 16):** uploads retry embeddings up to 3 attempts (1 s / 2 s backoff,
+  or a 429's `retryDelay` up to 60 s). Doing the same on the chat path would wait ~3 s per call during
+  an outage, ~9 s per turn across the three calls, before keyword-only search and a cache miss. So
+  `QUERY_MAX_ATTEMPTS = 1` (`retrieval/embeddings.py`) for retrieval and the semantic cache.
+- **Direction:** embed the question once at the top of `ChatPipeline.answer` and pass the vector to the
+  cache lookup, retrieval (when the sub-query equals the question) and the store. Then one retry on the
+  chat path costs one wait, not three.
+- **It is a quota issue, not only a latency one:** production's key is on the free tier, where requests count
+  per text (measured Day 16: a 100-text batch used the whole 100 RPM window). So ~1,000 embedded texts a
+  day are shared by all users' upload chunks and chat queries, and every turn spends up to 3 of them.
+
 ### CO6 — Every database round trip now crosses regions, and a chat turn makes many (P1)
 Found Day 14 (2026-11-13), measuring release v0.2.2. Render runs in Singapore, and Supabase is in
 `ap-south-1` (Mumbai), so **each round trip costs ~63 ms**.
@@ -673,6 +693,26 @@ thresholds against retrieval eval results (E4).
 `backend/app/retrieval/confidence.py` (`grounding_level()` is the only grounding decision).
 `backend/tests/test_confidence.py` pins the forced-web path at 30 (was 0.3) and the threshold
 boundaries. Validation against E4 is still open (Day 11).
+**Day 16 evidence (2026-11-15, live, for the Day 26 replacement):** an out-of-corpus question still
+gets "strict" grounding, so it is never logged as a failed query.
+- Setup: local `rag`, venv backend with the eval key, web search off (0 web sources), one throwaway
+  account whose only document was a 3-page NLP lab write-up on morphology (6 chunks).
+- "Which team won the 1998 football World Cup final, and by what score?" scored **confidence 72.0,
+  grounding "strict"**. `failed_queries` got **no row** (0 → 0): it is written only below
+  `LOW_CONFIDENCE_BELOW` (30).
+- Control: the same question from an account with **no documents** scored 0.0 ("none") and was
+  logged (0 → 1, `low_confidence`). So the write path works; the score is what fails.
+- Likely mechanism, consistent with E4 (AUC 0.332; 2 of 6 out-of-corpus questions strict): the
+  confidence comes from min-max-normalised fused scores over the user's few candidates. With one
+  small document, *some* chunk always tops the list, and normalisation gives it a high score whatever
+  its absolute similarity.
+- Consequences: the model is told to stick to unrelated context ("strict"), the failed-query
+  analytics (`GET /analytics/failed-queries`) miss exactly the questions the documents can't answer,
+  and the "use general knowledge" fallback (grounding "none") never triggers for users with few
+  documents.
+- For Day 26: judge relevance on an absolute signal (raw cosine of the best chunk, or a reranker /
+  LLM relevance check), not on a score normalised within the candidate set; include a
+  "one small unrelated document" case in the eval.
 
 ### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
 Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`
@@ -756,6 +796,11 @@ indexed as a table, silently.
 **Direction:** measure `borderless_tables=True` on real slide decks (the Day 11 corpus) for recall
 and false positives — pictures and diagrams detected as tables would index junk text — before
 enabling it. Scheduled Day 16.
+**Day 16 (2026-11-15): measured, not enabled.** `HPC Lecture.pptx` has 11 pictures and none is a
+real table: default 0 detections, `borderless_tables=True` 9 detections, all 9 false positives
+(diagrams, photo collages, a network tree; crops viewed). The same day showed that slide-image
+tables are never indexed at all (B13), and their extraction is now skipped. Revisit both together
+on a corpus with real borderless tables.
 
 ### B8 — The vector half of hybrid retrieval is ranked backwards (P0)
 `FaissVectorStore` is an `IndexFlatL2` and `search` returns `(squared L2 distance, metadata)`
@@ -898,6 +943,26 @@ chip list that disagrees with the answer's own "Page N" undermines trust in both
   parent-expanded blocks.
 - Backend + `ChatWindow.js` the same day (UI rule). Pairs naturally with the Day 50 PDF citation
   viewer.
+
+### B13 — PPTX slide-image tables are extracted but never indexed (P2)
+Found Day 16 (2026-11-15), measuring B7.
+- **What happened:** `process_pptx` (`ingestion/parsers/pptx_pipeline.py`) ran
+  `extract_tables_from_pptx_slides` (img2table on every picture of every slide) and returned the
+  result under `"tables"`. But `build_chunks_from_pptx` (`ingestion/chunk_builder.py`) reads only
+  `"slides"`. Nothing else read the key, apart from one test checking it existed. So no table from a
+  slide image ever became a chunk or could be retrieved.
+- **What it cost** (`HPC Lecture.pptx`, 11 pictures, **0 real tables**): 11.4 s of a 143.3 s upload in
+  a fresh process (img2table's first import included), **49%** of the upload's working time once
+  the free tier's 120 s of embedding pacing is left out; 2.8 s warm.
+- **Status: extraction skipped since Day 16.** `process_pptx` no longer calls it or returns
+  `"tables"`. `tables.py` and `extract_tables_from_pptx_slides` are kept as they are.
+  `test_pptx_utils.py` records img2table's `extract_tables` calls (where every path ends; the
+  callers swallow exceptions) and asserts none on a deck with a picture, both for `process_pptx`
+  and for `POST /upload`. A control test shows the old call does reach img2table on that deck. The
+  HPC deck's working time without pacing went 23.3 s → **12.3 s** (parse 12.1 s → 0.7 s).
+- **Direction:** re-enable when tables become chunks (e.g. a table's CSV text as a chunk of its
+  slide, with `doc_type`/metadata saying so). Then measure with E4 on a corpus that has real
+  slide-image tables (this one has none), and decide `borderless_tables` (B7) on that data.
 
 ---
 

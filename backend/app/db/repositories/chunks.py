@@ -69,6 +69,23 @@ def delete_for_documents(db: Session, user_id: int, document_ids: Sequence[int])
     return result.rowcount
 
 
+def embeddings_by_hash(db: Session, user_id: int, content_hashes: Sequence[str]) -> Dict[str, np.ndarray]:
+    """{content_hash: stored embedding} for those of the user's chunks whose hash is asked for; one query.
+
+    Only this user's rows (CO3, Day 16, Decision 2A): reuse never crosses users. Inactive versions
+    count too, so a changed re-upload reuses the previous version's vectors. The HALFVEC type returns
+    a list of the stored float16 values; as float32 they store back as the same halfvec.
+    """
+    if not content_hashes:
+        return {}
+    rows = db.execute(
+        select(Chunk.content_hash, Chunk.embedding)
+        .where(Chunk.user_id == user_id, Chunk.content_hash.in_(set(content_hashes)))
+        .distinct(Chunk.content_hash)
+    )
+    return {content_hash: np.asarray(embedding, dtype=np.float32) for content_hash, embedding in rows}
+
+
 def count_for_user(db: Session, user_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Chunk).where(Chunk.user_id == user_id)) or 0
 
@@ -86,15 +103,26 @@ def count_by_document(db: Session, user_id: int) -> Dict[int, int]:
 # Raw SQL for the two searches: the operators (<=>, @@) and the OR-ed tsquery read more plainly
 # than their SQLAlchemy spellings. Both join documents for the citation name and skip inactive
 # versions, so an old version's chunks can never be cited even if a delete was missed.
+#
+# Two levels (Day 16): identical chunk text (a repeated slide) gives identical vectors, and the sort
+# behind ORDER BY distance isn't stable, so exact ties came back in either order from run to run.
+# A second sort key in the inner query would stop pgvector's HNSW index from serving it (the index
+# serves only ORDER BY <distance> LIMIT k), so the inner query keeps that shape and the outer one
+# orders its k rows by (distance, id). A tie straddling the k-th place is still picked by the scan.
 _VECTOR_SEARCH = text(
     """
-    SELECT c.id, c.document_id, d.file_name, c.page, c.chunk_index, c.text, c.metadata,
-           1 - (c.embedding <=> :query_embedding) AS score
-    FROM document_chunks c
-    JOIN documents d ON d.id = c.document_id
-    WHERE c.user_id = :user_id AND d.is_active AND c.metadata @> :metadata_filter
-    ORDER BY c.embedding <=> :query_embedding
-    LIMIT :top_k
+    SELECT top.id, top.document_id, top.file_name, top.page, top.chunk_index, top.text, top.metadata,
+           1 - top.distance AS score
+    FROM (
+        SELECT c.id, c.document_id, d.file_name, c.page, c.chunk_index, c.text, c.metadata,
+               c.embedding <=> :query_embedding AS distance
+        FROM document_chunks c
+        JOIN documents d ON d.id = c.document_id
+        WHERE c.user_id = :user_id AND d.is_active AND c.metadata @> :metadata_filter
+        ORDER BY c.embedding <=> :query_embedding
+        LIMIT :top_k
+    ) AS top
+    ORDER BY top.distance, top.id
     """
 ).bindparams(
     bindparam("query_embedding", type_=HALFVEC(EMBEDDING_DIMENSIONS)),

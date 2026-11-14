@@ -45,7 +45,7 @@ class Chunk(Base):
     page = Column(Integer, nullable=True)
     chunk_index = Column(Integer, nullable=False)
     text = Column(Text, nullable=False)
-    # sha256 of text: Day 16's embedding cache (CO3) looks embeddings up by it.
+    # sha256 of text: indexing reuses the user's stored embedding of identical text (CO3, Day 16).
     content_hash = Column(String(64), nullable=False)
     embedding = Column(HALFVEC(EMBEDDING_DIMENSIONS), nullable=False)
     # Written as Postgres reflects it (with ::regconfig), so `alembic check` compares it without a warning.
@@ -60,6 +60,8 @@ class Chunk(Base):
         CheckConstraint("l2_norm(embedding) > 0", name="embedding_not_zero"),
         CheckConstraint("length(btrim(text)) > 0", name="text_not_blank"),
         Index("ix_document_chunks_user_id_document_id", "user_id", "document_id"),
+        # CO3 (Day 16): indexing looks a user's existing vectors up by content_hash before embedding.
+        Index("ix_document_chunks_user_id_content_hash", "user_id", "content_hash"),
         Index(
             "ix_document_chunks_embedding_hnsw",
             "embedding",

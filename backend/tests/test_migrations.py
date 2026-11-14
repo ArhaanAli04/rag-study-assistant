@@ -92,6 +92,7 @@ def test_chunk_search_indexes_exist() -> None:
     assert "USING hnsw (embedding halfvec_cosine_ops)" in definitions["ix_document_chunks_embedding_hnsw"]
     assert "USING gin (tsv)" in definitions["ix_document_chunks_tsv"]
     assert "(user_id, document_id)" in definitions["ix_document_chunks_user_id_document_id"]
+    assert "(user_id, content_hash)" in definitions["ix_document_chunks_user_id_content_hash"]
 
 
 @pytest.mark.parametrize(

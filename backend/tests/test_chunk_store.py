@@ -166,6 +166,22 @@ def test_a_stop_word_only_query_finds_nothing_instead_of_failing(make_document: 
     assert search(doc, keyword_query="   ").keyword == []
 
 
+def test_exact_ties_in_vector_search_come_back_in_id_order(make_document: Callable[..., Document]) -> None:
+    # Day 16: repeated slides have identical vectors; their order must not change from run to run.
+    doc = make_document([
+        ("Agenda (repeated slide)", direction(1.0, 0.0)), ("Closer than the ties", direction(1.0, 0.0)),
+        ("Agenda (repeated slide) again", direction(1.0, 0.0)), ("Far away", direction(0.0, 1.0)),
+    ])
+
+    with SessionLocal() as db:
+        hits = chunks_repo.vector_search(db, doc.user_id, QUERY_VECTOR, top_k=4)
+
+    tied = [h for h in hits if h.score == pytest.approx(1.0, abs=1e-3)]
+    assert len(tied) == 3
+    assert [h.id for h in tied] == sorted(h.id for h in tied)
+    assert hits[-1].text == "Far away"
+
+
 # --- hybrid, through RetrievalService ---------------------------------------------------------
 
 def test_nearest_chunk_ranks_first_after_fusion(make_document: Callable[..., Document]) -> None:
@@ -275,11 +291,12 @@ def test_a_failed_embedding_writes_nothing_and_keeps_the_old_chunks(
     service = _indexing()
     before = _index(service, doc, str(SAMPLES_DIR / "samples.pdf"))
 
-    gemini.fail_embedding_at = 2
+    gemini.embeddings_down = True  # past every retry, unlike one 429 (Day 16)
     with pytest.raises(EmbeddingError), SessionLocal() as db:
+        # Same file: with reuse (CO3) it would make no call at all, so force the re-embed.
         service.index_document(
             db, file_path=str(SAMPLES_DIR / "samples.pdf"), user_id=doc.user_id, document_id=doc.id,
-            document_version=doc.version, file_name=doc.file_name,
+            document_version=doc.version, file_name=doc.file_name, reuse_embeddings=False,
         )
 
     assert len(_stored(doc)) == before
@@ -288,5 +305,5 @@ def test_a_failed_embedding_writes_nothing_and_keeps_the_old_chunks(
 def test_embedding_service_raises_instead_of_returning_a_zero_vector(gemini: FakeGemini) -> None:
     gemini.fail_embedding_at = 1
 
-    with pytest.raises(EmbeddingError, match="1 of 2"):
-        EmbeddingService(FakeGenaiClient()).embed_texts(["a", "b"])  # type: ignore[arg-type]
+    with pytest.raises(EmbeddingError, match="batch 1 of 1"):
+        EmbeddingService(FakeGenaiClient(), max_attempts=1).embed_texts(["a", "b"])  # type: ignore[arg-type]

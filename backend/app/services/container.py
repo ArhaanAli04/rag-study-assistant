@@ -14,14 +14,14 @@ from google import genai
 
 from app.core.config import settings
 from app.core.gemini import build_gemini_client
-from app.db.session import SessionLocal
+from app.db.session import ReadOnlyAutocommitSession
 from app.generation.concept_extractor import ConceptExtractor
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier
 from app.ingestion.upload_storage import FileStorage, LocalFileStorage, S3FileStorage
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
 from app.retrieval.context_compressor import SimpleContextCompressor
-from app.retrieval.embeddings import EmbeddingService
+from app.retrieval.embeddings import EMBED_TEXTS_PER_MINUTE, QUERY_MAX_ATTEMPTS, EmbeddingService
 from app.retrieval.pg_chunk_search import PgChunkSearch
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
@@ -55,7 +55,9 @@ class Services:
     redis_client: redis.Redis
     semantic_cache_redis_client: redis.Redis
     file_storage: FileStorage
+    # Two embedders on the one client: uploads retry, the chat path doesn't (Day 16).
     embedding_service: EmbeddingService
+    query_embedding_service: EmbeddingService
     indexing_service: IndexingService
     retrieval_service: RetrievalService
     llm_client: LLMClient
@@ -73,16 +75,19 @@ def build_services() -> Services:
     redis_client = redis.from_url(settings.redis_url)
     semantic_cache_redis_client = redis.from_url(settings.semantic_cache_redis_url)
 
-    embedding_service = EmbeddingService(gemini_client)
+    # Uploads: 3 attempts, paced under the free tier's per-text limit within each upload (Day 16).
+    embedding_service = EmbeddingService(gemini_client, texts_per_minute=EMBED_TEXTS_PER_MINUTE)
+    # The chat path gets one attempt (Day 16): see QUERY_MAX_ATTEMPTS.
+    query_embedding_service = EmbeddingService(gemini_client, max_attempts=QUERY_MAX_ATTEMPTS)
     retrieval_service = RetrievalService(
-        embedding_service=embedding_service,
-        chunk_search=PgChunkSearch(SessionLocal),
+        embedding_service=query_embedding_service,
+        chunk_search=PgChunkSearch(ReadOnlyAutocommitSession),
         query_cache=QueryCache(redis_client),
         web_cache=WebCache(redis_client),
     )
     generation_model = settings.GEMINI_GENERATION_MODEL
     llm_client = LLMClient(gemini_client, generation_model)
-    semantic_cache = SemanticCache(embedding_service=embedding_service, redis_client=semantic_cache_redis_client)
+    semantic_cache = SemanticCache(embedding_service=query_embedding_service, redis_client=semantic_cache_redis_client)
 
     return Services(
         gemini_client=gemini_client,
@@ -90,6 +95,7 @@ def build_services() -> Services:
         semantic_cache_redis_client=semantic_cache_redis_client,
         file_storage=build_file_storage(),
         embedding_service=embedding_service,
+        query_embedding_service=query_embedding_service,
         indexing_service=IndexingService(embedding_service),
         retrieval_service=retrieval_service,
         llm_client=llm_client,

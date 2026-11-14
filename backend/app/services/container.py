@@ -14,7 +14,7 @@ from google import genai
 
 from app.core.config import settings
 from app.core.gemini import build_gemini_client
-from app.db.session import SessionLocal
+from app.db.session import ReadOnlyAutocommitSession
 from app.generation.concept_extractor import ConceptExtractor
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier
@@ -80,7 +80,7 @@ def build_services() -> Services:
     query_embedding_service = EmbeddingService(gemini_client, max_attempts=QUERY_MAX_ATTEMPTS)
     retrieval_service = RetrievalService(
         embedding_service=query_embedding_service,
-        chunk_search=PgChunkSearch(SessionLocal),
+        chunk_search=PgChunkSearch(ReadOnlyAutocommitSession),
         query_cache=QueryCache(redis_client),
         web_cache=WebCache(redis_client),
     )

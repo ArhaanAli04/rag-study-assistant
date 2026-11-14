@@ -314,3 +314,49 @@ Trade-off: a long transaction holds a pooled connection, and holding one open ac
     - **Every summary number is identical between the two runs:** Hit@5 **0.909 (50/55)**, **MRR@5 0.808**, Recall@5 0.897, Recall@10 0.964, MRR@10 0.824, nDCG@10 0.853.
     - **MRR@5 0.808 is the recorded value.** It differs from Day 15's 0.806 only through g-029's tie: slide 98 and its identical slide 99 now come back in id order, so the relevant one ranks 3rd instead of 4th.
     - **One per-question difference remains:** n-05 (out-of-corpus, no metric). Its 5th served chunk is BCT page 40 in run 1 and page 34 in run 2, two of the four identical BCT chunks (30/34/40/46). This is a tie **straddling the k-th place**: which tied rows the inner `LIMIT` admits is still up to the scan, and the outer sort can only order what it gets. It affects no metric today. Over-fetching (inner `LIMIT k + m`, outer `LIMIT k`) would cover up to m extra ties; not done.
+
+### Checkpoint 3 — CO6 database round trips (2026-11-15)
+- **Files:**
+  - `backend/tests/test_round_trips.py` (new): counts wire round trips for `GET /me`, a first chat turn (new session) and a follow-up turn.
+    - What it counts: statements, `BEGIN` (psycopg sends it before a transaction's first statement), `COMMIT` / `ROLLBACK` (only when a transaction is open, including the pool's reset-on-return) and pre-pings (via `dialect.do_ping`, which no cursor event sees).
+    - It asserts exact budgets.
+  - `backend/app/db/session.py`: no `pool_pre_ping` (Decision 3A; the trade-off is in the comment). `ReadOnlyAutocommitSession` shares the pool, in autocommit.
+  - `backend/app/services/container.py`: `PgChunkSearch(ReadOnlyAutocommitSession)`: retrieval's two searches run with no BEGIN / ROLLBACK.
+  - `backend/app/services/session_service.py`: nothing commits.
+    - `get_or_create_session` returns `(session, created)` and skips the lookup for `session_id` 0 (the frontend's "new chat").
+    - `add_message` flushes and returns the id read back by `RETURNING`.
+    - The unused `create_session` is folded in.
+  - `backend/app/db/repositories/sessions.py`: `set_topic`, an UPDATE by id (scoped to the user), with no load.
+  - `backend/app/services/chat_pipeline.py`:
+    - `_open_turn`: session + history (skipped for a new session) + user message, one commit, returning plain values (`_Turn`), so nothing reloads an expired object.
+    - `_classify_topic`: an LLM call with no transaction open; the `count(*)` is gone, since "topic is still General" covers it.
+    - `_close_turn`: topic UPDATE + the low-confidence failed query (only `add`-ed before streaming, so no transaction stays open while the answer streams) + the assistant message, one commit.
+    - On a stream error, `_commit_failed_query` keeps the failed query (`SQLAlchemyError` → rollback + log).
+    - The cached-replay path has the same shape. The SSE frame order is unchanged.
+  - `backend/tests/test_chat_writes.py` (new, 3 tests):
+    - the first turn tags the topic
+    - a low-confidence turn stores the failed query with the answer
+    - a stream error keeps the question and the failed query, and stores no assistant message
+- **Checks:** suite 344 → **349 passed** (+2 round-trip tests, +3 chat-write tests); `ruff check .` clean.
+- **Round trips, counted by the test and checked against the compose Postgres's own log** (owner's change 3):
+  - Method:
+    - `ALTER SYSTEM SET log_statement = 'all'` + `pg_reload_conf()`, reverted afterwards with `RESET` (verified `none`).
+    - "Before" ran from a scratchpad copy of the repo with today's `backend/app` diff reverse-applied (`patch -R`; no git write).
+    - A scratchpad pytest plugin bracketed each measured request with marker queries from a separate connection, whose pid was excluded.
+
+  | Request | Test, before | Server log, before | Test, after | Server log, after |
+  |---|---|---|---|---|
+  | `GET /me` | 4 | 4 | **3** | 3 |
+  | chat, first turn (new session) | 33 | 33 | **11** | 11 |
+  | chat, follow-up turn | 23 | 23 | **11** | 11 |
+
+  - **They match exactly; no fix to the test was needed.** The pre-ping appears in the server log as `;` (psycopg's ping statement). The pool's reset `ROLLBACK` and psycopg's `BEGIN` are both visible there and counted by the test.
+  - Before = 6 pings + 6 BEGIN + 15 statements + 4 COMMIT + 2 ROLLBACK (Day 15's 33, reproduced). The reloads after each commit (`SELECT sessions…`, `SELECT messages…` to read ids and the topic) made up 5 of the 15 statements.
+  - After, first turn:
+    - `BEGIN, user, INSERT session, INSERT message, COMMIT`
+    - `vector search, keyword search` (autocommit)
+    - `BEGIN, UPDATE topic, INSERT message, COMMIT`
+  - After, follow-up turn: session lookup + history instead of the INSERT session, and no topic UPDATE.
+  - At ~63 ms per round trip (Day 14), that is about 2.1 s → 0.7 s of network per turn on Render. **Estimate only: measure on Render after v0.3.0 (Day 17), n = 30 `/me`, n ≥ 15 chat turns.**
+- **Risk 7 checked:** `ChatWindow.js:157` calls `onSessionCreated` at `[DONE]`, and `ChatPage.js:55` re-fetches the sessions then. The topic commit happens before the `message_id` frame, so the sidebar sees it.
+- **Not done:** a live chat on the Docker stack (it would use production's Gemini key). The SSE contract and the stored messages are covered by `test_api_smoke.py` and `test_chat_writes.py`.

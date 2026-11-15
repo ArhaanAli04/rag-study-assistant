@@ -1,21 +1,37 @@
-"""B4: a node without sources gets the first retrieved source of its type — a string, never a list."""
+"""Node sources come from the numbered context blocks the model cites (Day 17, D1).
+
+Until Day 17 a node without sources got the first retrieved source of its type (B4 made that a
+string, not a list); a guess shown as a citation. Now a source is either a block that was in the
+context or nothing. Storage round trips are covered too (a JSON array, legacy comma-joined rows).
+"""
+import json
 from typing import Any, Dict, List
 
 import pytest
 
-from app.generation.concept_extractor import ConceptExtractor
-from tests.fakes import FakeGenaiClient
+from app.generation.concept_extractor import ConceptExtractor, Evidence
+from app.services.concept_map_service import decode_sources, encode_sources
+from tests.fakes import FakeGemini, FakeGenaiClient
 
-WEB = ["https://en.wikipedia.org/wiki/Photosynthesis", "https://biology.stackexchange.com/q/1"]
-DOCS = ["biology_notes.pdf", "chapter2.docx"]
-
-
-def _retrieval(web: List[str], docs: List[str]) -> Dict[str, Any]:
-    return {"sources": {"web_sources": web, "document_sources": docs}, "confidence": 70.0}
+WIKI = "https://en.wikipedia.org/wiki/Photosynthesis"
 
 
-def _node(source_type: str, sources: List[str]) -> Dict[str, Any]:
-    return {"id": "n1", "label": "Photosynthesis", "source_type": source_type, "sources": sources}
+def _doc(file_name: str, page: int, text: str) -> Dict[str, Any]:
+    return {"text": text, "metadata": {"file_name": file_name, "page_num": page, "source_type": "local"}}
+
+
+RETRIEVAL: Dict[str, Any] = {
+    "document_results": [
+        _doc("biology_notes.pdf", 4, "Chlorophyll absorbs light. " * 4),
+        _doc("biology_notes.pdf", 4, "The light reactions happen in the thylakoid. " * 3),
+        _doc("week 3, plants.pdf", 2, "The Calvin cycle fixes carbon dioxide. " * 3),
+    ],
+    "web_results": [
+        {"text": "Photosynthesis converts light energy. " * 3, "metadata": {"url": WIKI, "title": "Photosynthesis"}},
+    ],
+    "sources": {"document_sources": ["biology_notes.pdf", "week 3, plants.pdf"], "web_sources": [WIKI]},
+    "confidence": 72.0,
+}
 
 
 @pytest.fixture
@@ -23,30 +39,69 @@ def extractor() -> ConceptExtractor:
     return ConceptExtractor(FakeGenaiClient(), "fake-model")
 
 
-@pytest.mark.parametrize(("source_type", "expected"), [("web", WEB[0]), ("document", DOCS[0])])
-def test_empty_sources_fall_back_to_the_first_source_of_that_type(
-    extractor: ConceptExtractor, source_type: str, expected: str
+def test_the_context_numbers_each_block_with_file_and_page(extractor: ConceptExtractor) -> None:
+    context, evidence = extractor.build_context(RETRIEVAL)
+
+    assert "[D1] biology_notes.pdf — p. 4:" in context
+    assert "[D3] week 3, plants.pdf — p. 2:" in context
+    assert f"[W1] Photosynthesis ({WIKI}):" in context
+    assert evidence.blocks["D3"] == ("document", "week 3, plants.pdf — p. 2")
+
+
+@pytest.mark.parametrize(("cited", "expected"), [
+    (["D1"], ("document", ["biology_notes.pdf — p. 4"])),
+    (["D1", "D2"], ("document", ["biology_notes.pdf — p. 4"])),  # same page twice → one source
+    (["[d3]", " W1 "], ("both", ["week 3, plants.pdf — p. 2", WIKI])),
+    (["D9", "biology_notes.pdf", "Document 1"], ("unknown", [])),  # not in the context → dropped
+    ("D1", ("unknown", [])),  # not a list
+    (None, ("unknown", [])),
+])
+def test_cited_ids_resolve_to_blocks_and_unknown_ones_are_dropped(
+    extractor: ConceptExtractor, cited: Any, expected: Any
 ) -> None:
-    concept_map = {"nodes": [_node(source_type, [])]}
+    _, evidence = extractor.build_context(RETRIEVAL)
 
-    result = extractor._add_source_attribution(concept_map, _retrieval(WEB, DOCS))
-
-    assert result["nodes"][0]["sources"] == [expected]
-    # What concept_map_service stores: must be a plain comma-joined string.
-    assert ",".join(result["nodes"][0]["sources"]) == expected
+    assert evidence.resolve(cited) == expected
 
 
-def test_existing_sources_are_kept(extractor: ConceptExtractor) -> None:
-    concept_map = {"nodes": [_node("web", ["own-source.pdf"])]}
+def test_a_page_less_chunk_is_labelled_by_file_name() -> None:
+    evidence = Evidence()
+    evidence.add("D1", "document", "slides.pptx")
 
-    result = extractor._add_source_attribution(concept_map, _retrieval(WEB, DOCS))
-
-    assert result["nodes"][0]["sources"] == ["own-source.pdf"]
+    assert evidence.resolve(["D1"]) == ("document", ["slides.pptx"])
 
 
-def test_no_retrieved_source_of_that_type_leaves_sources_empty(extractor: ConceptExtractor) -> None:
-    concept_map = {"nodes": [_node("document", [])]}
+def test_extraction_attributes_sources_from_ids_and_never_guesses(gemini: FakeGemini) -> None:
+    nodes: List[Dict[str, Any]] = [
+        {"id": "chlorophyll", "label": "Chlorophyll", "definition": "A pigment.", "source_ids": ["D1"]},
+        # The model claims a file that wasn't retrieved: before Day 17 this was shown as its source.
+        {"id": "stroma", "label": "Stroma", "definition": "Fluid.", "source_ids": [], "sources": ["made_up.pdf"]},
+    ]
+    gemini.replies.append(json.dumps({"nodes": nodes, "edges": []}))
 
-    result = extractor._add_source_attribution(concept_map, _retrieval(WEB, []))
+    result = ConceptExtractor(FakeGenaiClient(), "fake-model").extract_concepts_from_hybrid_sources(
+        "Photosynthesis", RETRIEVAL
+    )
 
-    assert result["nodes"][0]["sources"] == []
+    by_id = {n["id"]: n for n in result["nodes"]}
+    assert (by_id["chlorophyll"]["source_type"], by_id["chlorophyll"]["sources"]) == (
+        "document", ["biology_notes.pdf — p. 4"]
+    )
+    assert (by_id["stroma"]["source_type"], by_id["stroma"]["sources"]) == ("unknown", [])
+    assert "source_ids" not in by_id["chlorophyll"]
+    assert result["source_summary"]["document_sources"] == ["biology_notes.pdf", "week 3, plants.pdf"]
+
+
+def test_sources_with_commas_survive_storage() -> None:
+    sources = ["week 3, plants.pdf — p. 2", WIKI]
+
+    assert decode_sources(encode_sources(sources)) == sources
+
+
+@pytest.mark.parametrize(("stored", "expected"), [
+    ("biology_notes.pdf,https://x.org/a", ["biology_notes.pdf", "https://x.org/a"]),  # saved before Day 17
+    ("", []),
+    (None, []),
+])
+def test_legacy_comma_joined_sources_still_read(stored: Any, expected: List[str]) -> None:
+    assert decode_sources(stored) == expected

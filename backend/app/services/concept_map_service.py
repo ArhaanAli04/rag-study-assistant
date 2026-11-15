@@ -3,6 +3,8 @@ Concept Map Service - Business logic for concept map operations
 Handles database operations, retrieval, and extraction
 """
 
+import ast
+import json
 import logging
 from typing import List, Dict, Optional, Any
 from datetime import datetime,timezone
@@ -12,9 +14,41 @@ from app.db.models.concept_map import ConceptMap, ConceptMapNode
 from app.retrieval.concept_map_retriever import ConceptMapRetriever
 from app.generation.concept_extractor import ConceptExtractor
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class NoConceptContext(Exception):
+    """Retrieval found nothing in the selected sources; no map is built or saved."""
+
+
+class ConceptExtractionFailed(Exception):
+    """Context was found but no concepts came out of it; nothing is saved."""
+
+
+def no_context_message(use_documents: bool, use_web: bool) -> str:
+    if use_documents and use_web:
+        return "Neither your documents nor web search found anything on this topic. Try another topic."
+    if use_documents:
+        return "No passages in your documents match this topic. Try another topic or turn on web search."
+    return "Web search found nothing usable on this topic. Try another topic or use your documents."
+
+
+def encode_sources(sources: List[str]) -> str:
+    # A JSON array: the comma-joined form split "notes, week 3.pdf" into two sources.
+    return json.dumps(sources)
+
+
+def decode_sources(stored: Optional[str]) -> List[str]:
+    if not stored:
+        return []
+    if stored.startswith("["):
+        try:
+            decoded = json.loads(stored)
+        except json.JSONDecodeError:
+            decoded = None
+        if isinstance(decoded, list):
+            return [str(s) for s in decoded]
+    return stored.split(",")  # maps saved before Day 17
 
 
 class ConceptMapService:
@@ -22,93 +56,64 @@ class ConceptMapService:
     Service layer for concept map operations
     Orchestrates retrieval, extraction, and database operations
     """
-    
+
     def __init__(self, retriever: ConceptMapRetriever, extractor: ConceptExtractor) -> None:
         self.retriever = retriever
         self.extractor = extractor
 
-    
     def generate_concept_map(
         self,
         topic: str,
         user_id: int,
+        doc_version: int,
         db: Session,
         use_documents: bool = False,
         use_web: bool = True,
         max_concepts: int = 15,
         max_edges: int = 20
     ) -> Dict[str, Any]:
+        """Retrieve → extract → save; returns map_id, nodes, edges, sources, metadata, created_at.
+
+        Raises NoConceptContext when the selected sources return nothing, and ConceptExtractionFailed
+        when no concept comes out of what they returned — in both cases nothing is saved, instead of
+        a 0-concept map in the user's list.
         """
-        Generate a new concept map
-        
-        Args:
-            topic: The concept map topic
-            user_id: User ID generating the map
-            db: Database session
-            use_documents: Whether to use user documents
-            use_web: Whether to use web search
-            max_concepts: Maximum concepts to extract
-            max_edges: Maximum edges to extract
-            
-        Returns:
-            Dictionary with map_id, nodes, edges, sources, created_at
-        """
-        logger.info(f" Generating concept map for topic: '{topic}' (user: {user_id})")
-        
-        try:
-            # Step 1: Retrieve context
-            logger.info(" Step 1: Retrieving context...")
-            retrieval_result = self.retriever.retrieve_for_concept_map(
-                topic=topic,
-                user_id=str(user_id),
-                use_documents=use_documents,
-                use_web=use_web,
-                max_results=12
+        logger.info("Generating concept map for user %s", user_id)
+        retrieval_result = self.retriever.retrieve_for_concept_map(
+            topic=topic,
+            user_id=str(user_id),
+            doc_version=doc_version,
+            use_documents=use_documents,
+            use_web=use_web,
+            max_results=12,
+        )
+        if retrieval_result["sources"]["total"] == 0:
+            raise NoConceptContext(no_context_message(use_documents, use_web))
+
+        concept_map_data = self.extractor.extract_concepts_from_hybrid_sources(
+            topic=topic,
+            retrieval_result=retrieval_result,
+            max_concepts=max_concepts,
+            max_edges=max_edges,
+        )
+        if not concept_map_data.get("nodes"):
+            raise ConceptExtractionFailed(
+                "Couldn't build a concept map from the passages found. Try again or rephrase the topic."
             )
-            
-            if not retrieval_result:
-                raise ValueError("Failed to retrieve context")
-            
-            logger.info(f"   Retrieved {retrieval_result['sources']['total']} sources")
-            
-            # Step 2: Extract concepts
-            logger.info(" Step 2: Extracting concepts...")
-            concept_map_data = self.extractor.extract_concepts_from_hybrid_sources(
-                topic=topic,
-                retrieval_result=retrieval_result,
-                max_concepts=max_concepts,
-                max_edges=max_edges
-            )
-            
-            if not concept_map_data:
-                raise ValueError("Failed to extract concepts")
-            
-            logger.info(f"   Extracted {len(concept_map_data.get('nodes', []))} nodes")
-            
-            # Step 3: Save to database
-            logger.info(" Step 3: Saving to database...")
-            map_id = self._save_concept_map_to_db(
-                user_id=user_id,
-                topic=topic,
-                concept_map_data=concept_map_data,
-                retrieval_result=retrieval_result,
-                db=db
-            )
-            
-            logger.info(f" Concept map generated successfully (ID: {map_id})")
-            
-            # Step 4: Format response
-            return self._format_generate_response(
-                map_id=map_id,
-                concept_map_data=concept_map_data,
-                retrieval_result=retrieval_result
-            )
-            
-        except Exception as e:
-            logger.error(f" Failed to generate concept map: {e}")
-            import traceback
-            traceback.print_exc()
-            raise
+
+        map_id = self._save_concept_map_to_db(
+            user_id=user_id,
+            topic=topic,
+            concept_map_data=concept_map_data,
+            retrieval_result=retrieval_result,
+            db=db,
+        )
+        logger.info("Concept map %s saved: %d nodes", map_id, len(concept_map_data["nodes"]))
+        return self._format_generate_response(
+            map_id=map_id,
+            concept_map_data=concept_map_data,
+            retrieval_result=retrieval_result,
+        )
     
     
     def _save_concept_map_to_db(
@@ -163,7 +168,7 @@ class ConceptMapService:
                     label=node.get('label', ''),
                     definition=node.get('definition', ''),
                     source_type=node.get('source_type', 'unknown'),
-                    sources_json=','.join(node.get('sources', []))  # Store as comma-separated
+                    sources_json=encode_sources(node.get('sources', [])),
                 )
                 db.add(node_record)
             
@@ -311,16 +316,16 @@ class ConceptMapService:
                     "label": node.label,
                     "definition": node.definition,
                     "source_type": node.source_type,
-                    "sources": node.sources_json.split(',') if node.sources_json else []
+                    "sources": decode_sources(node.sources_json),
                 })
-            
+
             # Parse edges from stored JSON (if available)
             edges = []
             if hasattr(concept_map, 'edges_json') and concept_map.edges_json:
                 try:
-                    import ast
                     edges = ast.literal_eval(concept_map.edges_json)
-                except:
+                except (ValueError, SyntaxError):
+                    logger.warning("Concept map %s has unreadable edges", map_id)
                     edges = []
             
             # Format response

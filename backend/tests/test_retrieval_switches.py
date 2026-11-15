@@ -56,6 +56,30 @@ def test_web_search_off_never_calls_the_web(monkeypatch: pytest.MonkeyPatch) -> 
     assert all(r["metadata"]["source_type"] == "local" for r in result["results"])
 
 
+def test_include_web_false_skips_the_web_for_one_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Day 17: a documents-only concept map paid for a Tavily search and its embeddings, then dropped them.
+    service = _service(counting_search())  # web search on, as in production
+    calls: list = []
+    monkeypatch.setattr(service, "get_web_chunks", lambda *args, **kwargs: calls.append(args) or [])
+
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5, include_web=False)
+    assert calls == []
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    assert len(calls) == 1
+
+
+def test_include_web_is_part_of_the_l1_key() -> None:
+    chunk_search = counting_search()
+    service = _service(chunk_search, web_search_enabled=False)
+
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    documents_only = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5, include_web=False)
+
+    assert "from_l1_cache" not in documents_only  # a with-web result is never replayed as documents-only
+    assert chunk_search.searches == 2
+    assert service.l1_cache_lookup("1", QUERY, 0, include_web=False) is not None
+
+
 def test_l1_cache_off_recomputes_a_repeated_query() -> None:
     chunk_search = counting_search()
     service = _service(chunk_search, web_search_enabled=False, l1_cache_enabled=False)

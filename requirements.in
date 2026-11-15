@@ -24,14 +24,15 @@ Authlib==1.6.6                 # Google OAuth (services/oauth_service.py)
 SQLAlchemy==2.0.44
 alembic==1.17.2                # alembic/ (T2: made the real migration path on Day 13)
 psycopg[binary]==3.3.8         # Postgres driver, postgresql+psycopg:// (T2, Day 13); binary = prebuilt libpq
+pgvector==0.5.1                # SQLAlchemy HALFVEC type for document_chunks.embedding (Day 15)
 redis==7.1.0                   # query, web and semantic caches
+boto3==1.44.3                  # uploaded files in Supabase Storage over its S3 API (Day 15, Decision 5B: S3 keys reach Storage only)
 
 # --- LLM, embeddings, retrieval --------------------------------------------------------------
 google-genai==1.52.0           # Gemini generation + embeddings (core/gemini.py)
-faiss-cpu==1.13.0              # vector index (retrieval/vector_store.py)
-rank-bm25==0.2.2               # keyword index (retrieval/keyword_index.py)
+# Vector and keyword search run in Postgres since Day 15 (pgvector + full-text, document_chunks);
+# faiss-cpu, rank-bm25 and tqdm were removed after the E4 parity run.
 numpy==2.2.6
-tqdm==4.67.1                   # progress bar in retrieval/index_builder.py
 tavily-python==0.7.13          # web search (retrieval/web/search_client.py)
 requests==2.32.5               # page fetches (retrieval/web/scraper.py)
 beautifulsoup4==4.14.2         # HTML parsing (retrieval/web/scraper.py)

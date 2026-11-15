@@ -4,6 +4,7 @@ from typing import Any, Dict, List
 import numpy as np
 import pytest
 
+from app.retrieval.embeddings import EmbeddingError
 from app.services.caches.semantic_cache import SemanticCache, _cache_key
 from tests.fakes import FakeRedis
 
@@ -41,7 +42,7 @@ def redis_stub() -> FakeRedis:
 
 @pytest.fixture
 def cache(redis_stub: FakeRedis) -> SemanticCache:
-    return SemanticCache(index_builder=FakeEmbedder(), redis_client=redis_stub)
+    return SemanticCache(embedding_service=FakeEmbedder(), redis_client=redis_stub)
 
 
 def test_query_cached_for_user_a_misses_for_user_b(cache: SemanticCache) -> None:
@@ -86,6 +87,24 @@ def test_entries_are_stored_under_a_per_user_key(cache: SemanticCache, redis_stu
     cache.store(QUERY, _answer("B"), user_id=USER_B, user_doc_version=0, mode="quick")
 
     assert set(redis_stub.store) == {_cache_key(USER_A), _cache_key(USER_B)}
+
+
+class FailingEmbedder:
+    def embed_texts(self, texts: List[str]) -> np.ndarray:
+        raise EmbeddingError("embedding text 1 of 1 failed: ClientError")
+
+
+def test_a_failed_embedding_is_a_miss_on_lookup_and_a_no_op_on_store(redis_stub: FakeRedis) -> None:
+    # Day 15: the cache is an optimization, so an embedding outage must not fail the chat.
+    SemanticCache(embedding_service=FakeEmbedder(), redis_client=redis_stub).store(
+        QUERY, _answer("A"), user_id=USER_A, user_doc_version=0, mode="quick"
+    )
+    stored = dict(redis_stub.store)
+    broken = SemanticCache(embedding_service=FailingEmbedder(), redis_client=redis_stub)  # type: ignore[arg-type]
+
+    assert broken.lookup(QUERY, user_id=USER_A, user_doc_version=0, mode="quick") is None
+    broken.store("another question", _answer("A"), user_id=USER_A, user_doc_version=0, mode="quick")
+    assert redis_stub.store == stored
 
 
 def test_foreign_entry_under_a_users_key_is_ignored(cache: SemanticCache, redis_stub: FakeRedis) -> None:

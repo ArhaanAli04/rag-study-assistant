@@ -62,7 +62,9 @@ HERE_STRING_START = re.compile(r"@['\"]\s*$")
 SHORT_FLAG = re.compile(r"-[a-z]{1,4}")
 DRIVE_ROOT = re.compile(r"[a-z]:")
 
-# `alembic downgrade` (T2, Day 13): allowed only against throwaway databases.
+# `alembic downgrade` (T2, Day 13): allowed only against databases on this machine. Since Day 14 the
+# local compose Postgres's `rag` holds the dev data; it is disposable by design (no backup, started
+# empty), so a downgrade there is allowed. `rag_test` and `rag_eval` are wiped by their own runs anyway.
 ALEMBIC_DOWNGRADE = re.compile(r"\balembic\b.*\bdowngrade\b", re.IGNORECASE)
 # `$env:DATABASE_URL = …` (PowerShell), `export DATABASE_URL=…`, `set DATABASE_URL=…`, `DATABASE_URL=… cmd`
 DATABASE_URL_ASSIGNMENT = re.compile(
@@ -74,7 +76,8 @@ HOSTED_DATABASE_MARKERS = re.compile(
 )
 # Loopback, plus the compose service and container name of the local Postgres.
 LOCAL_DATABASE_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1", "postgres", "rag-postgres"})
-# The app's real SQLite files: backend/data/app.db on the host, /app/backend/data/app.db in Docker.
+# The old SQLite files (unused since Day 14, refused by Settings since Day 15, kept as backups):
+# backend/data/app.db on the host, /app/backend/data/app.db in the Docker data volume.
 REAL_SQLITE_DATABASE = re.compile(r"(^|/)(backend/)?data/app\.db$|(^|/)app\.db$", re.IGNORECASE)
 
 
@@ -216,13 +219,15 @@ def split_segments(command: str) -> list[str]:
 
 
 def database_url_problem(url: str | None) -> str | None:
-    """None if the URL is a throwaway database; otherwise why a downgrade there must be blocked.
+    """None if the URL is a local, disposable database; otherwise why a downgrade there must be blocked.
 
-    Throwaway means a temporary SQLite file (not the app's real app.db) or a Postgres on this machine
-    (loopback or the compose service). No URL at all is the app's default: the real SQLite file.
+    Allowed: a Postgres on this machine (loopback or the compose service), whose `rag` holds dev data
+    that is disposable by design, or a temporary SQLite file. Blocked: the old SQLite backups (app.db),
+    any other host, and no URL at all. Since Day 15 DATABASE_URL has no default, so with none
+    set the guard can't tell where a downgrade would go.
     """
     if url is None:
-        return "no DATABASE_URL is set, so the target is the app's real SQLite database (backend/data/app.db)"
+        return "no DATABASE_URL is set (it has no default since Day 15), so the guard can't tell the target"
     value = url.strip().strip("\"'")
     if "://" not in value:
         return "DATABASE_URL is built from an expression the guard can't read"
@@ -230,7 +235,7 @@ def database_url_problem(url: str | None) -> str | None:
     if parts.scheme.lower().startswith("sqlite"):
         path = value.split("://", 1)[1].lstrip("/").replace("\\", "/")
         if REAL_SQLITE_DATABASE.search(path):
-            return "DATABASE_URL is the app's real SQLite database (app.db)"
+            return "DATABASE_URL is an old SQLite backup (app.db), kept since Day 14"
         return None
     host = (parts.hostname or "").lower()
     if host in LOCAL_DATABASE_HOSTS:
@@ -252,12 +257,11 @@ def dotenv_database_url(root: str) -> str | None:
 
 
 def downgrade_block_reason(command: str, root: str) -> str | None:
-    """Why an `alembic downgrade` in `command` must be blocked, or None for a throwaway target.
+    """Why an `alembic downgrade` in `command` must be blocked, or None for a local target.
 
     The hook runs in its own process and can't see variables the command sets for itself, so the
     target is resolved the way the app's Settings resolves it: an assignment in the command, then
-    this process's environment, then .env, then the default (the real SQLite file). Anything hosted,
-    real or unreadable stays blocked.
+    this process's environment, then .env. Anything hosted, missing or unreadable stays blocked.
     """
     if HOSTED_DATABASE_MARKERS.search(command):
         return "`alembic downgrade` against a hosted database (Supabase rag / rag_staging) drops real schema"

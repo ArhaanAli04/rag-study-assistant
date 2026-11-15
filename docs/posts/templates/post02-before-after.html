@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 02 before after</title>
+<link rel="stylesheet" href="brand.css">
+<style>
+  /* Numbers: docs/posts/02-measuring-retrieval.md, Day 11 material log (eval/results/*-{before,after}-b8.md). */
+  .lead { font-size: 40px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.15; }
+  .lead span { color: var(--ink-soft); font-weight: 500; font-size: 22px; display: block; margin-top: 12px; letter-spacing: 0; }
+
+  table { width: 100%; border-collapse: collapse; font-family: "JetBrains Mono", monospace; color: var(--code); }
+  th, td { padding: 22px 32px; text-align: right; font-size: 26px; }
+  th { font-size: 16px; font-weight: 500; color: var(--code-muted); text-transform: uppercase; letter-spacing: 1.2px; padding-top: 26px; padding-bottom: 14px; }
+  th:first-child, td:first-child { text-align: left; }
+  td:first-child { font-family: "Inter", sans-serif; font-size: 24px; }
+  td small { display: block; font-size: 15px; color: var(--code-muted); margin-top: 4px; }
+  tbody tr + tr td { border-top: 1px solid rgba(205, 214, 244, 0.08); }
+  td.bad { color: var(--bad); }
+  td.good { color: var(--good); font-weight: 600; }
+  tbody { padding-bottom: 12px; }
+  .foot { font-size: 18px; color: var(--ink-soft); line-height: 1.5; }
+</style>
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">02</span>
+  </header>
+
+  <main class="stack">
+    <div class="lead">The first time I measured retrieval,<br>it was ranking results backwards.
+      <span>55 labelled questions over 6 course files · same index, same questions</span></div>
+
+    <section class="window">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">retrieval eval · <b>before vs after a one-line fix</b></div>
+      </div>
+      <table>
+        <thead><tr><th>Metric</th><th>Before</th><th>After</th></tr></thead>
+        <tbody>
+          <tr><td>Hit@5<small>right page in the top 5</small></td><td class="bad">0.782</td><td class="good">0.909</td></tr>
+          <tr><td>MRR@5<small>how high the right page ranks</small></td><td class="bad">0.339</td><td class="good">0.801</td></tr>
+          <tr><td>nDCG@10<small>ranking quality, top 10</small></td><td class="bad">0.317</td><td class="good">0.872</td></tr>
+          <tr><td>Hit@5, 245-slide deck<small>18 questions</small></td><td class="bad">0.611</td><td class="good">0.944</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <p class="foot">Vector search found the right pages but put the best one last.<br>A distance (lower = closer) was being read as a score (higher = better).</p>
+  </main>
+</body>
+</html>

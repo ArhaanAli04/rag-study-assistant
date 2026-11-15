@@ -1,4 +1,5 @@
 """G8: no log record may ever carry a bearer token."""
+import io
 import logging
 from pathlib import Path
 from typing import Any, Iterator, Optional, Tuple
@@ -134,6 +135,37 @@ def test_second_setup_call_still_filters_handlers_added_since_the_first() -> Non
     setup_logging()
 
     assert any(isinstance(f, RedactSecretsFilter) for f in late_root_handler.filters)
+
+
+@pytest.mark.usefixtures("isolated_logging")
+def test_a_chat_stream_access_line_through_the_real_uvicorn_logger_has_no_token() -> None:
+    # G10 (Day 17): end to end, not filter by filter. uvicorn's handler and AccessFormatter on the real
+    # "uvicorn.access" logger, redaction installed the way the app's setup_logging() does it, and the
+    # record logged the way uvicorn's HTTP protocol logs a request (path with its query string).
+    from uvicorn.logging import AccessFormatter
+
+    stream = io.StringIO()
+    handler = logging.StreamHandler(stream)
+    handler.setFormatter(AccessFormatter('%(client_addr)s - "%(request_line)s" %(status_code)s', use_colors=False))
+    access_logger = logging.getLogger("uvicorn.access")
+    access_logger.addHandler(handler)
+    previous_level = access_logger.level  # the fixture restores handlers, filters, propagate — not levels
+    access_logger.setLevel(logging.INFO)
+    access_logger.propagate = False
+    setup_logging()
+
+    try:
+        access_logger.info(
+            '%s - "%s %s HTTP/%s" %d', "127.0.0.1:51930", "GET", "/chat/stream?query=hi&session_id=0&token=abc", "1.1", 200
+        )
+        handler.flush()
+    finally:
+        access_logger.setLevel(previous_level)
+
+    line = stream.getvalue()
+    assert '127.0.0.1:51930 - "GET /chat/stream HTTP/1.1" 200' in line
+    assert "abc" not in line
+    assert "token" not in line
 
 
 @pytest.mark.usefixtures("isolated_logging")

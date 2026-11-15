@@ -16,7 +16,7 @@ class ConceptMap(Base):
     __tablename__ = "concept_maps"
     
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)  # Links to User.id
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     topic = Column(String, nullable=False)  # User-defined topic (e.g., "Machine Learning")
     
     # JSON storage for map structure
@@ -53,7 +53,8 @@ class ConceptMapNode(Base):
     __tablename__ = "concept_map_nodes"
     
     id = Column(Integer, primary_key=True, index=True)
-    map_id = Column(Integer, ForeignKey("concept_maps.id"), nullable=False)
+    # CASCADE (Day 15): a user delete cascades to concept_maps, and nodes must not block it.
+    map_id = Column(Integer, ForeignKey("concept_maps.id", ondelete="CASCADE"), nullable=False)
     node_id = Column(String, nullable=False)  # Unique ID within the map
     label = Column(String, nullable=False)  # Concept name
     definition = Column(Text, nullable=True)  # Concept definition

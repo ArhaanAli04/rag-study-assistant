@@ -20,7 +20,7 @@ def preprocess_image_for_table(image_path):
 
 def extract_tables_from_image(image_path):
     # Imported here, not at module top: img2table costs ~4 s at import and every app start
-    # reaches this module through the PPTX pipeline, while only PPTX image slides use it.
+    # used to reach this module through the PPTX pipeline (no caller there since B13, Day 16).
     from img2table.document import Image as Img2TableImage
 
     processed_path = preprocess_image_for_table(image_path)

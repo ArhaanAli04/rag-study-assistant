@@ -12,8 +12,8 @@ the semantic cache.
 Items R5, G7, G8, I4, I5, I6, and the new sections 10–11 (B1, B2, T1, T2, T3) were added on
 2026-09-12 from the codebase review done while writing `CLAUDE.md`.
 
-B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07). G9 and B11 were found on
-Day 14 (2026-11-13), while moving the app to Postgres.
+B3 and B4 were found on Day 5 (2026-11-05), B5 on Day 8 (2026-11-07). G9, B11 and B12 were found on
+Day 14 (2026-11-13), while moving the app to Postgres; the same day added a finding under CO5.
 
 Priority legend:
 - **P0** — cheap to fix, and either a correctness/security bug or something that blocks
@@ -351,6 +351,27 @@ deployment. It is not known whether it was ever hit: the cache logs hits by user
   flush first (CLAUDE.md, Redis key schema).
 - A version or epoch prefix in the cache keys, or CO5's per-entry TTLs, would make that automatic.
 
+### G10 — JWT in the SSE query string (P2)
+Found Day 17 (2026-11-15). The chat stream authenticates with the user's JWT as a query parameter,
+`GET /chat/stream?token=<JWT>` (`api/deps.py`, `get_user_from_query_token`), because a browser
+`EventSource` can't send an `Authorization` header (`ChatWindow.js`). The token is the full 7-day
+access token (`JWT_EXPIRATION_MINUTES`), and `/auth/logout` revokes nothing.
+- **The app's own logs are clean** (G8): the request-log middleware logs the path only,
+  `StripQueryStringFilter` drops the query string from `uvicorn.access` records, and
+  `RedactSecretsFilter` scrubs `token=` / JWTs from every handler. Verified Day 17: **0 occurrences** of
+  `token=` or `eyJ` in `app.log` and in three uvicorn console logs holding 32 `/chat/stream` requests
+  (every access line reads `"GET /chat/stream HTTP/1.1" 200 OK`). `test_log_redaction.py` covers it,
+  including an end-to-end test through the real `uvicorn.access` logger and a handler.
+- **URLs may be logged outside the app** (unverified): Render's edge / load balancer, and any proxy
+  between a user and Render (a campus or corporate proxy), can record full request URLs — query string
+  included — in logs the app doesn't control and can't scrub.
+- **Why it matters:** anyone who can read such a log could use the token for up to 7 days.
+- **Direction (later):** keep the JWT out of the URL — a short-lived, single-use stream ticket obtained
+  with an authenticated `POST` (the ticket, not the JWT, goes in the query string, valid for seconds),
+  or an HTTP-only cookie the `EventSource` sends by itself (needs CSRF care), or a fetch-based SSE
+  client that can send an `Authorization` header. Changes both `ChatWindow.js` and the endpoint the same
+  day (SSE contract rule).
+
 ---
 
 ## 6. Context & Token Management
@@ -514,6 +535,29 @@ pay the full retrieval latency multiple times in series instead of once, in para
 **Direction:** use `asyncio.gather` (or run the sync retrieval calls in a thread pool)
 to parallelize sub-query retrieval.
 
+**Day 17 measurement (2026-11-15, not fixed today): live web search dominates the pre-stream time.**
+Today the loop is in `retrieval/context_assembly.py` (`assemble_context`), and every sub-query's
+`hybrid_retrieve` runs a **live Tavily search** (`search_depth="advanced"`) before the `metadata` frame,
+on every turn: web search is always on (2 results above confidence 60, 3 below).
+- Setup: venv backend, eval Gemini key, local `rag` (round trips ≈ 0.1 ms, so no database cost to
+  speak of), a throwaway account with no documents, `backend/scripts/measure_latency.py`, 15 distinct
+  questions in one session. Tavily was live by accident (Windows PowerShell deletes an empty
+  `$env:TAVILY_API_KEY`, so `.env`'s key was used — hence `WEB_SEARCH_ENABLED`, Day 17).
+- Server-side time to the `metadata` frame: **5.4 s median for the 11 one-sub-query turns; 9.2–11.1 s
+  for the 4 two-sub-query turns** — about 4.3 s more per extra sub-query, paid in series.
+- Steps timed in-process for 2 turns with Tavily forced off (web results from the Redis cache the run
+  filled): semantic-cache lookup ~0.5 s, query embedding ~0.5 s and search ~55–60 ms per sub-query,
+  web-chunk embedding 0–0.75 s, the rest ~0 → **~1.1 s per one-sub-query turn**. So **live Tavily ≈
+  3.8–4.3 s per sub-query**, three quarters or more of the turn.
+- It explains most of Day 14's chat latency on Render (chat → `metadata` 9.2 s p50 on v0.2.2, of
+  which the database round trips CO6 removed were ≈ 2.1 s).
+- Two directions:
+  1. **Parallelize** sub-queries and their web searches (this item): a two-part question would cost
+     one Tavily wait instead of two.
+  2. **Search the web only when it's needed** instead of on every turn. That needs a retrieval signal
+     that actually predicts relevance — today's confidence doesn't (B2, AUC 0.332; a fully covering
+     PDF scored 46, an unrelated one 72) — so it depends on Day 26's confidence replacement.
+
 ### CO3 — No embedding cache keyed by content hash (P2)
 Nothing in `embedding_service.py` or `index_builder.py` caches embeddings by a hash of
 the input text.
@@ -567,6 +611,92 @@ cheap LLM equivalence check; track thumbs-down on cached answers as a production
 false-hit signal. Consider caching retrieval results instead of final answers, so the
 answer is still generated with the current conversation. Builds on CO1 (index-based
 lookup).
+**Day 14 finding (2026-11-13, live on v0.2.2):** a cached answer can cite a document that is no
+longer indexed.
+- After a Render restart, Postgres keeps the document rows and `User.doc_version`, while the
+  uploaded file and its FAISS/BM25 chunks are gone (no disk; I4).
+- The semantic-cache entry's key and checks (`user_id`, the unchanged `doc_version`, `mode`) still
+  match, so repeating a pre-restart question replayed the old answer **with its old sources**.
+  A new question correctly found nothing in the documents.
+- `doc_version` only tracks *changes to the document set*, not *whether the index still holds it*.
+- Days 15–16 (persistent pgvector chunks) remove the gap. Until then, a post-restart check must use
+  a new question.
+- When reworking the cache: validate a hit's cited sources against what is currently retrievable,
+  or key entries on an index epoch as well as `doc_version`.
+
+**Day 16 finding (2026-11-14): one chat turn still embeds the same question up to three times.** Not
+fixed on Day 16 (owner's call); it is why the chat path gets no embedding retries.
+- `SemanticCache.lookup` (`services/caches/semantic_cache.py`) embeds the question whenever the user
+  has at least one entry with the same `doc_version` and `mode`, i.e. on most repeat-mode turns.
+- `RetrievalService.hybrid_retrieve` (`retrieval/retrieval_service.py`, the `_embed_texts([vec_query])`
+  call) embeds it again (once per sub-query; for a single-part question the text is identical).
+- `SemanticCache.store` embeds it a third time after the answer has streamed.
+- None of them share a vector, so a miss costs up to 3 embedding requests of the same text: ~3× the
+  embedding latency and quota of a turn.
+- **Interaction with retries (Day 16):** uploads retry embeddings up to 3 attempts (1 s / 2 s backoff,
+  or a 429's `retryDelay` up to 60 s). Doing the same on the chat path would wait ~3 s per call during
+  an outage, ~9 s per turn across the three calls, before keyword-only search and a cache miss. So
+  `QUERY_MAX_ATTEMPTS = 1` (`retrieval/embeddings.py`) for retrieval and the semantic cache.
+- **Direction:** embed the question once at the top of `ChatPipeline.answer` and pass the vector to the
+  cache lookup, retrieval (when the sub-query equals the question) and the store. Then one retry on the
+  chat path costs one wait, not three.
+- **It is a quota issue, not only a latency one:** production's key is on the free tier, where requests count
+  per text (measured Day 16: a 100-text batch used the whole 100 RPM window). So ~1,000 embedded texts a
+  day are shared by all users' upload chunks and chat queries, and every turn spends up to 3 of them.
+
+### CO6 — Every database round trip now crosses regions, and a chat turn makes many (P1)
+Found Day 14 (2026-11-13), measuring release v0.2.2. Render runs in Singapore, and Supabase is in
+`ap-south-1` (Mumbai), so **each round trip costs ~63 ms**.
+
+**What the database time actually is:** `pg_stat_statements` for `rag_app` after 9 chat turns shows
+every statement averaging ≤ 0.05 ms server-side (inserts ~1–3 ms). The cost is entirely network
+round trips, multiplied by how many the code makes:
+- psycopg sends `BEGIN` as its own round trip (153 `BEGIN`s in that window).
+- The pool sends `ROLLBACK` when each connection is returned (104).
+- Every write commits separately (48 `COMMIT`s).
+- `pool_pre_ping` adds a ping per checkout (`db/session.py`).
+
+**Measured** (client-side differential timing, p50; Decision 3 in `docs/briefs/day14.md`):
+
+| | v0.2.1 SQLite | v0.2.2 Postgres | Δ |
+|---|---|---|---|
+| `/me` − `/health` (n = 30) | 0.2 ms | 190.3 ms | **+190 ms**, 3 round trips: `BEGIN`, the user query, `ROLLBACK` |
+| chat → `metadata` frame (n = 5) | 7720 ms | 9170 ms | +1450 ms (noisy; min only +330 ms) |
+| chat → `[DONE]` (n = 5) | 8621 ms | 11019 ms | +2398 ms |
+
+A chat turn runs one transaction per step:
+- user lookup
+- session lookup / insert + commit
+- history load + a message `count(*)`
+- user-message insert + commit
+- topic `UPDATE` + commit
+- assistant-message insert + commit
+
+That is **≈ 10–15 round trips ≈ +1 s** per turn.
+
+**Why it matters:**
+- Every authenticated request pays ≥ 190 ms before doing anything.
+- Every chat turn pays about a second of pure waiting on top of a 6–12 s, Gemini-dominated answer.
+- The count grows with features: Day 15 moves vector and keyword search into Postgres (more queries
+  per sub-query), and Projects (Days 18–20) add scope lookups.
+
+**Fix plan:**
+1. **Count statements per chat turn locally:** a SQLAlchemy `before_cursor_execute` counter plus the
+   test suite's fake Gemini, against the compose Postgres. No production quota is used, and it gives
+   exact numbers per step instead of totals.
+2. **One transaction per chat step:** batch the session, history and user-message work into one
+   transaction with one commit, and the assistant message and failed query into another. Drop the
+   separate `count(*)` if the history query can return what is needed.
+3. **Drop `pool_pre_ping`:** `pool_recycle = 300 s` already retires connections before the pooler's
+   idle timeout. Accept a rare retryable failure on a dead connection; it saves one round trip per
+   checkout.
+4. **Re-measure** with the same script: n = 30 for `/me`, **n ≥ 15** chat turns, before and after.
+   Record the round trips per turn and the p50s.
+
+Co-locating Render and Supabase in one region would cut the cost per round trip. Neither can move
+in place (a new Render service changes the API URL, OAuth redirect and CORS; the Supabase project
+is shared), so fewer round trips is the lever. Request tracing (O1, Day 23) will show this per
+span once it exists.
 
 ---
 
@@ -607,6 +737,40 @@ thresholds against retrieval eval results (E4).
 `backend/app/retrieval/confidence.py` (`grounding_level()` is the only grounding decision).
 `backend/tests/test_confidence.py` pins the forced-web path at 30 (was 0.3) and the threshold
 boundaries. Validation against E4 is still open (Day 11).
+**Day 16 evidence (2026-11-15, live, for the Day 26 replacement):** an out-of-corpus question still
+gets "strict" grounding, so it is never logged as a failed query.
+- Setup: local `rag`, venv backend with the eval key, web search off (0 web sources), one throwaway
+  account whose only document was a 3-page NLP lab write-up on morphology (6 chunks).
+- "Which team won the 1998 football World Cup final, and by what score?" scored **confidence 72.0,
+  grounding "strict"**. `failed_queries` got **no row** (0 → 0): it is written only below
+  `LOW_CONFIDENCE_BELOW` (30).
+- Control: the same question from an account with **no documents** scored 0.0 ("none") and was
+  logged (0 → 1, `low_confidence`). So the write path works; the score is what fails.
+- Likely mechanism, consistent with E4 (AUC 0.332; 2 of 6 out-of-corpus questions strict): the
+  confidence comes from min-max-normalised fused scores over the user's few candidates. With one
+  small document, *some* chunk always tops the list, and normalisation gives it a high score whatever
+  its absolute similarity.
+- Consequences: the model is told to stick to unrelated context ("strict"), the failed-query
+  analytics (`GET /analytics/failed-queries`) miss exactly the questions the documents can't answer,
+  and the "use general knowledge" fallback (grounding "none") never triggers for users with few
+  documents.
+- For Day 26: judge relevance on an absolute signal (raw cosine of the best chunk, or a reranker /
+  LLM relevance check), not on a score normalised within the candidate set; include a
+  "one small unrelated document" case in the eval.
+
+**Day 17 evidence (2026-11-15, live, concept maps):** the same score is wrong in the other direction
+too — it doesn't rise when the documents fully cover the topic.
+- Setup: local `rag`, venv backend with the eval key, web search off, one throwaway account whose only
+  document was a 3-page demo PDF on photosynthesis (light-dependent reactions, Calvin cycle, limiting
+  factors — one per page).
+- A documents-only concept map on "Photosynthesis" — a topic the PDF covers completely, nodes citing
+  the right pages — was stored with **confidence 46.28** (shown as "46% confident").
+- Unrelated topics ("French Revolution", "Cellular respiration") also retrieve chunks, since vector
+  search always returns the nearest ones; the map is refused only because the extractor model flags
+  the passages as off-topic (Day 17), not because of the score. Day 17 deliberately did not add a
+  similarity threshold: there is no calibration data (see E4 above).
+- So the heuristic neither drops for unrelated context (Day 16) nor rises for complete coverage (Day 17):
+  more evidence for replacing it on Day 26 rather than re-tuning it.
 
 ### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
 Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`
@@ -690,6 +854,11 @@ indexed as a table, silently.
 **Direction:** measure `borderless_tables=True` on real slide decks (the Day 11 corpus) for recall
 and false positives — pictures and diagrams detected as tables would index junk text — before
 enabling it. Scheduled Day 16.
+**Day 16 (2026-11-15): measured, not enabled.** `HPC Lecture.pptx` has 11 pictures and none is a
+real table: default 0 detections, `borderless_tables=True` 9 detections, all 9 false positives
+(diagrams, photo collages, a network tree; crops viewed). The same day showed that slide-image
+tables are never indexed at all (B13), and their extraction is now skipped. Revisit both together
+on a corpus with real borderless tables.
 
 ### B8 — The vector half of hybrid retrieval is ranked backwards (P0)
 `FaissVectorStore` is an `IndexFlatL2` and `search` returns `(squared L2 distance, metadata)`
@@ -806,6 +975,52 @@ reloaded session with every thumb unset.
 - **UI:** `ChatWindow.js` renders the stored thumb as selected when it loads a session.
 - **Optional:** make a repeat of the same feedback a no-op instead of a second failed-query row.
 - **Tests:** an API smoke assertion for the field, and a frontend test for the selected thumb.
+
+### B12 — Source chips repeat and don't match the pages the answer cites (P2)
+Found Day 14 (2026-11-13), in the live check on v0.2.2.
+- **What the chips show:** the chat's source chips come from the `metadata` frame's `sources`,
+  which lists the **retrieved chunks** sent as context (`ChatPipeline` → `ChatWindow.js`), one
+  chip per chunk.
+- **Duplicates:** several chunks of the same web page or PDF page each get a chip. One Wikipedia URL
+  appeared ×4, and "p.1" ×2.
+- **Mismatch:** the chips show what was retrieved, not what the answer cites. The answer said
+  "Page 2", but the chips showed only p.1 (page 2's text presumably reached the model through
+  parent-page expansion or a chunk spanning both pages, while the chip carries the chunk's start
+  page).
+
+**Why it matters:** citations are how a student checks an answer. Duplicate chips are noise, and a
+chip list that disagrees with the answer's own "Page N" undermines trust in both.
+
+**Direction:**
+- **Quick fix:** de-duplicate the sources by (document, page) or by URL before they are sent, or in
+  `ChatWindow.js`.
+- **Proper fix:** derive the chips from the citations the answer actually makes. Parse the
+  `[source]` / page references, which the generation eval already checks in code
+  (`eval/generation/citations.py`), and show retrieved-but-uncited sources separately, collapsed.
+- The page mismatch needs a look at how `page_num` is set for chunks that span pages, and for
+  parent-expanded blocks.
+- Backend + `ChatWindow.js` the same day (UI rule). Pairs naturally with the Day 50 PDF citation
+  viewer.
+
+### B13 — PPTX slide-image tables are extracted but never indexed (P2)
+Found Day 16 (2026-11-15), measuring B7.
+- **What happened:** `process_pptx` (`ingestion/parsers/pptx_pipeline.py`) ran
+  `extract_tables_from_pptx_slides` (img2table on every picture of every slide) and returned the
+  result under `"tables"`. But `build_chunks_from_pptx` (`ingestion/chunk_builder.py`) reads only
+  `"slides"`. Nothing else read the key, apart from one test checking it existed. So no table from a
+  slide image ever became a chunk or could be retrieved.
+- **What it cost** (`HPC Lecture.pptx`, 11 pictures, **0 real tables**): 11.4 s of a 143.3 s upload in
+  a fresh process (img2table's first import included), **49%** of the upload's working time once
+  the free tier's 120 s of embedding pacing is left out; 2.8 s warm.
+- **Status: extraction skipped since Day 16.** `process_pptx` no longer calls it or returns
+  `"tables"`. `tables.py` and `extract_tables_from_pptx_slides` are kept as they are.
+  `test_pptx_utils.py` records img2table's `extract_tables` calls (where every path ends; the
+  callers swallow exceptions) and asserts none on a deck with a picture, both for `process_pptx`
+  and for `POST /upload`. A control test shows the old call does reach img2table on that deck. The
+  HPC deck's working time without pacing went 23.3 s → **12.3 s** (parse 12.1 s → 0.7 s).
+- **Direction:** re-enable when tables become chunks (e.g. a table's CSV text as a chunk of its
+  slide, with `doc_type`/metadata saying so). Then measure with E4 on a corpus that has real
+  slide-image tables (this one has none), and decide `borderless_tables` (B7) on that data.
 
 ---
 

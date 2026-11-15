@@ -11,7 +11,7 @@ from app.db.base import Base
 class Session(Base):
     __tablename__ = "sessions"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     title = Column(String, nullable=True)
     topic = Column(String, nullable=True, default="General")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

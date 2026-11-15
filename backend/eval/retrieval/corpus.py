@@ -1,7 +1,9 @@
 """The eval corpus: files in backend/eval/corpus/ (gitignored), pinned by a committed manifest.json.
 
-The files are indexed through the app's own IndexingPipeline into fresh in-memory indexes, under
-one eval user, so the chunks are exactly what an upload would produce.
+The files are indexed through the app's own IndexingService into document_chunks, under one eval
+user that every run deletes and re-creates (Day 15: retrieval runs in Postgres), so the chunks are
+exactly what an upload would produce. The database is EVAL_DATABASE_URL's (eval/retrieval/database.py),
+or the one a test passes in.
 """
 import hashlib
 import json
@@ -9,16 +11,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List
 
-from app.ingestion.indexing_pipeline import IndexingPipeline
+from sqlalchemy import select
+from sqlalchemy.orm import sessionmaker
+
+from app.db.models import Chunk, Document, User
 from app.retrieval.embeddings import EmbeddingService
-from app.retrieval.index_builder import IndexBuilder
-from app.retrieval.keyword_index import BM25KeywordIndex
+from app.services.indexing_service import IndexingService
 from eval.retrieval.metrics import PageKey
 
 CORPUS_DIR = Path(__file__).resolve().parent.parent / "corpus"
 MANIFEST_NAME = "manifest.json"
 SUPPORTED_SUFFIXES = (".pdf", ".pptx")
-EVAL_USER_ID = "eval"
+# .invalid is a reserved TLD: this account can never belong to a real person.
+EVAL_USER_EMAIL = "retrieval-eval@eval.invalid"
 
 
 class CorpusError(RuntimeError):
@@ -35,14 +40,23 @@ class CorpusFile:
 @dataclass
 class IndexedCorpus:
     files: List[CorpusFile]
-    index_builder: IndexBuilder
-    bm25_index: BM25KeywordIndex
+    embedding_service: EmbeddingService
+    session_factory: sessionmaker
+    # A string, like every user id retrieval sees (CLAUDE.md: index metadata keeps string ids).
+    user_id: str
     chunk_counts: Dict[str, int]
 
     @property
     def chunks(self) -> List[Dict[str, Any]]:
-        """Chunk metadata (text, file_name, page_num, …) in indexing order."""
-        return self.index_builder.vector_store.metadata
+        """Chunk text, file_name and page_num in indexing order."""
+        with self.session_factory() as db:
+            rows = db.execute(
+                select(Chunk.text, Document.file_name, Chunk.page)
+                .join(Document, Document.id == Chunk.document_id)
+                .where(Chunk.user_id == int(self.user_id))
+                .order_by(Chunk.id)
+            )
+            return [{"text": text, "file_name": file_name, "page_num": page} for text, file_name, page in rows]
 
     def page_texts(self) -> Dict[PageKey, str]:
         pages: Dict[PageKey, List[str]] = {}
@@ -90,19 +104,43 @@ def verify_corpus(files: List[CorpusFile], corpus_dir: Path = CORPUS_DIR) -> Non
         raise CorpusError("; ".join(problems))
 
 
-def index_corpus(embedding_service: EmbeddingService, corpus_dir: Path = CORPUS_DIR) -> IndexedCorpus:
+def index_corpus(
+    embedding_service: EmbeddingService,
+    corpus_dir: Path = CORPUS_DIR,
+    session_factory: sessionmaker | None = None,
+) -> IndexedCorpus:
     files = load_manifest(corpus_dir)
     verify_corpus(files, corpus_dir)
-    index_builder = IndexBuilder(embedding_service)
-    bm25_index = BM25KeywordIndex()
-    pipeline = IndexingPipeline(index_builder=index_builder, bm25_index=bm25_index)
-    chunk_counts = {
-        f.file_name: pipeline.index_document(
-            str(corpus_dir / f.file_name), user_id=EVAL_USER_ID, document_id=f.document_id, file_name=f.file_name
-        )
-        for f in files
-    }
-    return IndexedCorpus(files, index_builder, bm25_index, chunk_counts)
+    if session_factory is None:
+        from eval.retrieval.database import eval_session_factory
+
+        session_factory = eval_session_factory()
+    indexing = IndexingService(embedding_service)
+
+    with session_factory() as db:
+        # ON DELETE CASCADE takes the previous run's documents and chunks with the user.
+        db.query(User).filter(User.email == EVAL_USER_EMAIL).delete(synchronize_session=False)
+        user = User(email=EVAL_USER_EMAIL)
+        db.add(user)
+        db.flush()
+        chunk_counts: Dict[str, int] = {}
+        for f in files:
+            path = corpus_dir / f.file_name
+            document = Document(
+                user_id=user.id, file_name=f.file_name, file_path=str(path), file_hash=f.sha256,
+                version=1, is_active=True,
+            )
+            db.add(document)
+            db.flush()
+            result = indexing.index_document(
+                db, file_path=str(path), user_id=user.id, document_id=document.id,
+                document_version=1, file_name=f.file_name,
+            )
+            chunk_counts[f.file_name] = result.chunks_indexed
+        db.commit()
+        user_id = str(user.id)
+
+    return IndexedCorpus(files, embedding_service, session_factory, user_id, chunk_counts)
 
 
 if __name__ == "__main__":

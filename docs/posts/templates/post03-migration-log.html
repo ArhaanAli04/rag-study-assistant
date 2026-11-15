@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 03 migration log</title>
+<link rel="stylesheet" href="brand.css">
+<style>
+  /* Crop of the 2850×780 Render log screenshot: the "Nov 13" header row is cut (y < 88) and the
+     right margin is dropped (x 100–2420), then scaled to the 960 px window (s = 0.4138). */
+  .shot {
+    position: relative;
+    height: 286px;
+    background-image: url("../assets/post03-render-migration-log.png");
+    background-repeat: no-repeat;
+    background-size: 1179px 323px;
+    background-position: -41px -36px;
+  }
+  /* Highlight the two lines that matter: the first migration, then the app's own head check. */
+  .shot .hl {
+    position: absolute; left: 0; right: 0; height: 29px;
+    background: var(--good-line); border-left: 3px solid var(--good);
+  }
+  .shot .hl.migrate { top: 58px; }
+  .shot .hl.head { top: 257px; }
+
+  .window .title b { color: var(--good); }
+</style>
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">03</span>
+  </header>
+
+  <main class="stack">
+    <section class="window">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">Render · v0.2.2 · <b>first start on Postgres</b></div>
+      </div>
+      <div class="shot">
+        <div class="hl migrate"></div>
+        <div class="hl head"></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

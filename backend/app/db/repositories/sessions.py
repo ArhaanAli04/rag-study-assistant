@@ -31,6 +31,13 @@ def get_owned(db: Session, session_id: int, user_id: int) -> ChatSession | None:
     )
 
 
+def set_topic(db: Session, session_id: int, user_id: int, topic: str) -> None:
+    """One UPDATE by id: no row is loaded first (CO6, Day 16). The caller commits."""
+    db.query(ChatSession).filter(ChatSession.id == session_id, ChatSession.user_id == user_id).update(
+        {ChatSession.topic: topic}, synchronize_session=False
+    )
+
+
 def delete_with_messages(db: Session, session: ChatSession) -> None:
     """Delete a session and its messages; failed queries logged in it are kept, detached.
 

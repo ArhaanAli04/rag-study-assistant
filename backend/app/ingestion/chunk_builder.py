@@ -1,8 +1,27 @@
+import os
 import uuid
 from typing import List
 from app.ingestion.models import DocumentChunk
 from app.ingestion.parsers.pdf import extract_pdf_text
 from app.ingestion.chunking import chunk_text
+
+
+def build_chunks_for_file(
+    file_path: str,
+    subject_tags: str | None = None,
+    document_id: int | None = None,
+    file_name: str | None = None,
+) -> List[DocumentChunk]:
+    """Parse and chunk one uploaded file by its extension; ``file_name`` is the citation name."""
+    ext = os.path.splitext(file_path)[-1].lower()
+    if ext == ".pdf":
+        return build_chunks_from_pdf(file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name)
+    if ext == ".pptx":
+        return build_chunks_from_pptx(file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name)
+    if ext == ".docx":
+        return build_chunks_from_docx(file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name)
+    raise ValueError(f"Unsupported extension for indexing: {ext}")
+
 
 def _citation_name(file_path: str, file_name: str | None) -> str:
     # Uploads are stored under server-generated names (G7); the path's basename is only the

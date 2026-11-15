@@ -87,9 +87,15 @@ switch ($Command) {
     }
     'test' {
         Assert-EnvFile
-        # --no-deps: the suite needs no Redis. The cache provider is off so pytest doesn't
-        # write .pytest_cache into the bind-mounted tests/ folder.
-        Invoke-Compose (@('run', '--rm', '--no-deps', 'backend',
+        # The suite runs on Postgres (Day 15): the compose Postgres's rag_test database, which the
+        # suite wipes. The password comes from PGPASSWORD (compose sets it), never the URL.
+        # --no-deps: the suite needs no Redis, so only postgres is started. The cache provider is
+        # off so pytest doesn't write .pytest_cache into the bind-mounted tests/ folder.
+        Invoke-Compose @('up', '-d', '--wait', 'postgres')
+        Invoke-Compose (@('run', '--rm', '--no-deps',
+                '-e', 'TEST_DATABASE_URL=postgresql+psycopg://rag_app@postgres:5432/rag_test',
+                '-e', 'TEST_DATABASE_SCHEMA=rag',
+                'backend',
                 'python', '-m', 'pytest', '/app/backend/tests', '-q', '-p', 'no:cacheprovider') + $Rest)
     }
     'shell' {

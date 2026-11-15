@@ -29,19 +29,17 @@ def alembic_config() -> Config:
     return config
 
 
-def version_table_schema(dialect_name: str) -> str | None:
-    """Where alembic_version lives: inside the environment's own schema on Postgres."""
-    return settings.DATABASE_SCHEMA if dialect_name == "postgresql" else None
+def version_table_schema() -> str:
+    """Where alembic_version lives: inside the environment's own schema."""
+    return settings.DATABASE_SCHEMA
 
 
 def assert_expected_schema(connection: Connection) -> None:
-    """Refuse a Postgres connection whose unqualified names would land outside DATABASE_SCHEMA.
+    """Refuse a connection whose unqualified names would land outside DATABASE_SCHEMA.
 
     The schema comes from the role's search_path, not the URL. If that setting is lost, CREATE
     TABLE goes to `public` silently; this turns it into an error before anything is written.
     """
-    if connection.dialect.name != "postgresql":
-        return
     current = connection.execute(text("select current_schema()")).scalar()
     if current != settings.DATABASE_SCHEMA:
         raise WrongSchema(
@@ -56,7 +54,7 @@ def head_revision() -> str | None:
 
 def current_revision(connection: Connection) -> str | None:
     context = MigrationContext.configure(
-        connection, opts={"version_table_schema": version_table_schema(connection.dialect.name)}
+        connection, opts={"version_table_schema": version_table_schema()}
     )
     return context.get_current_revision()
 

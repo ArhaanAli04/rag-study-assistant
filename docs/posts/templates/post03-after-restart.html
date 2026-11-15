@@ -1,0 +1,52 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 03 after restart</title>
+<link rel="stylesheet" href="brand.css">
+<style>
+  .stack { gap: 32px; }
+
+  /* Crops of the 3810×1878 two-window screenshot taken after a Render restart. Left half (x 0–1880,
+     the chat without its scrollbar) and right half (x 1915–3810, the concept-map cards), each scaled
+     to the 960 px window; the chat crop fades out instead of slicing the source chips. */
+  .shot { background-image: url("../assets/post03-after-restart.png"); background-repeat: no-repeat; }
+  .shot.chat {
+    height: 454px;
+    background-size: 1945px 959px;
+    background-position: 0 -202px;
+    -webkit-mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 82%, transparent 100%);
+  }
+  .shot.maps {
+    height: 289px;
+    background-size: 1930px 951px;
+    background-position: -970px -441px;
+  }
+</style>
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">03</span>
+  </header>
+
+  <main class="stack">
+    <section class="window after">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">After a restart · <b>the chat is still there</b></div>
+      </div>
+      <div class="shot chat"></div>
+    </section>
+
+    <section class="window after">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">After a restart · <b>both maps are still there</b></div>
+      </div>
+      <div class="shot maps"></div>
+    </section>
+  </main>
+</body>
+</html>

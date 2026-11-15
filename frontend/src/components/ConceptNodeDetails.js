@@ -1,5 +1,25 @@
 import React, { useMemo } from 'react';
 
+// The backend labels a document source "<file> — p. <page>" (concept_extractor.PAGE_SEPARATOR).
+// Maps saved before Day 17 hold a bare file name, which renders without a page.
+const PAGE_SEPARATOR = ' — p. ';
+
+export const splitDocumentSource = (source) => {
+  const at = source.lastIndexOf(PAGE_SEPARATOR);
+  if (at === -1) return { file: source, page: null };
+  return { file: source.slice(0, at), page: source.slice(at + PAGE_SEPARATOR.length) };
+};
+
+const DocumentSource = ({ source }) => {
+  const { file, page } = splitDocumentSource(source);
+  return (
+    <span className="source-doc">
+      📄 {file}
+      {page && <span className="source-page"> · page {page}</span>}
+    </span>
+  );
+};
+
 const ConceptNodeDetails = ({ node, onClose, allNodes, allEdges }) => {
   // Find related concepts (connected nodes)
   const relatedConcepts = useMemo(() => {
@@ -94,9 +114,7 @@ const ConceptNodeDetails = ({ node, onClose, allNodes, allEdges }) => {
                       🌐 {source.length > 60 ? source.substring(0, 60) + '...' : source}
                     </a>
                   ) : (
-                    <span className="source-doc">
-                      📄 {source}
-                    </span>
+                    <DocumentSource source={source} />
                   )}
                 </div>
               ))}

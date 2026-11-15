@@ -4,8 +4,9 @@ import { useAuth } from "../contexts/AuthContext";
 import TopNav from "../components/TopNav";
 import DocumentList from "../components/DocumentList";
 import DocumentUpload from "../components/DocumentUpload";
-import { FileText, AlertCircle } from "lucide-react";
+import { FileText, AlertCircle, CheckCircle2 } from "lucide-react";
 import { API_BASE_URL } from '../config/api';
+import { deleteNotice, uploadNotice } from "../utils/uploadNotice";
 
 export default function DocumentsPage() {
   const { user, logout } = useAuth();
@@ -14,6 +15,7 @@ export default function DocumentsPage() {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [notice, setNotice] = useState(null);
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -46,7 +48,8 @@ export default function DocumentsPage() {
     try {
       setUploading(true);
       setError(null);
-      
+      setNotice(null);
+
       const token = localStorage.getItem("token");
       const formData = new FormData();
       formData.append("file", file);
@@ -62,6 +65,7 @@ export default function DocumentsPage() {
         throw new Error(error.detail || "Upload failed");
       }
 
+      setNotice(uploadNotice(await response.json()));
       await fetchDocuments();
     } catch (err) {
       setError(err.message);
@@ -72,10 +76,13 @@ export default function DocumentsPage() {
   };
 
   const handleDelete = async (documentId) => {
-    if (!window.confirm("Delete this document? This will remove it from all sessions.")) {
+    if (!window.confirm("Delete this document and all its versions? New answers won't cite it.")) {
       return;
     }
 
+    const fileName = documents.find((d) => d.id === documentId)?.filename;
+    setError(null);
+    setNotice(null);
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
@@ -87,6 +94,8 @@ export default function DocumentsPage() {
         throw new Error("Failed to delete document");
       }
 
+      const result = await response.json();
+      setNotice(deleteNotice(fileName, result.versions_deleted));
       await fetchDocuments();
     } catch (err) {
       setError(err.message);
@@ -122,8 +131,15 @@ export default function DocumentsPage() {
           </div>
 
           {/* Error Alert */}
+          {notice && (
+            <div role="status" className="mb-6 p-4 rounded-lg bg-emerald-500/10 border border-emerald-500/20 flex items-start gap-3">
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 flex-shrink-0 mt-0.5" />
+              <p className="text-sm text-emerald-300">{notice}</p>
+            </div>
+          )}
+
           {error && (
-            <div className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-3">
+            <div role="alert" className="mb-6 p-4 rounded-lg bg-destructive/10 border border-destructive/20 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm text-destructive font-medium">Error</p>

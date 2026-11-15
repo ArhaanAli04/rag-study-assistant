@@ -1,12 +1,16 @@
 import os
 import shutil
 from pathlib import Path
+from typing import Any, List
+
+import pytest
 
 from app.ingestion.parsers.pptx import extract_pptx_text, extract_pptx_metadata
 from app.ingestion.ocr.ocr import extract_text_from_image
 from app.ingestion.tables.tables import extract_tables_from_image, extract_tables_from_pptx_slides
 from app.ingestion.text_preprocessing import normalize_text, clean_text
 from app.ingestion.parsers.pptx_pipeline import process_pptx
+from tests.conftest import Account
 
 # Relative to this file, not the CWD: the Docker test run starts in /app/backend.
 SAMPLES_DIR = os.path.join(os.path.dirname(__file__), "samples")
@@ -76,21 +80,65 @@ def test_pptx_image_ocr_on_slide():
                 # (Optional) Uncomment to require any text for OCR images:
                 # assert len(text) > 0
 
-def test_process_pptx_pipeline_tables_images():
-    # End-to-end: does pipeline return tables and process images for OCR?
-    if os.path.exists(SAMPLE_PPTX):
-        result = process_pptx(SAMPLE_PPTX)
-        assert "tables" in result
-        assert isinstance(result["tables"], list)
-        for table in result["tables"]:
-            print("--- Table extracted as CSV ---")
-            print(table.get("csv"))
-        # Check slides text
-        assert "slides" in result
-        for slide in result["slides"]:
-            print(f"Slide {slide['slide_num']} Title: {slide['title']}")
-            print(f"Cleaned Text: ")
-            print(slide["cleaned_text"])
+@pytest.fixture
+def table_detection_calls(monkeypatch: pytest.MonkeyPatch) -> List[Any]:
+    """Records img2table's table detection, where every path to slide-image tables ends (the
+    callers above it swallow exceptions, so a raising fake would go unnoticed)."""
+    from img2table.document import Image as Img2TableImage
+
+    calls: List[Any] = []
+    monkeypatch.setattr(Img2TableImage, "extract_tables", lambda self, *args, **kwargs: calls.append(self) or [])
+    return calls
+
+
+@pytest.fixture
+def deck_with_a_picture(tmp_path: Path) -> Path:
+    """A one-slide deck with text and a picture: sample2.pptx has no pictures, so table extraction
+    would find nothing to look at there whether it ran or not."""
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    slide = deck.slides.add_slide(deck.slide_layouts[1])
+    slide.shapes.title.text = "Parallel architectures"
+    slide.placeholders[1].text = "SIMD runs one instruction on many data elements at once."
+    slide.shapes.add_picture(os.path.join(SAMPLES_DIR, "sampleimg1.png"), Inches(1), Inches(4), width=Inches(3))
+    path = tmp_path / "deck_with_picture.pptx"
+    deck.save(str(path))
+    return path
+
+
+def test_table_detection_would_see_the_picture(deck_with_a_picture: Path, table_detection_calls: List[Any]) -> None:
+    # The control for the two tests below: called directly, the old extraction does reach img2table.
+    extract_tables_from_pptx_slides(str(deck_with_a_picture))
+
+    assert len(table_detection_calls) == 1
+
+
+def test_process_pptx_does_not_extract_slide_image_tables(
+    deck_with_a_picture: Path, table_detection_calls: List[Any]
+) -> None:
+    # B13 (Day 16): the tables never became chunks, and extracting them took ~half an upload's
+    # working time on the HPC deck. Re-enable together with indexing them.
+    result = process_pptx(str(deck_with_a_picture))
+
+    assert set(result) == {"metadata", "slides"}
+    assert "SIMD" in result["slides"][0]["cleaned_text"]
+    assert table_detection_calls == []
+
+
+def test_a_pptx_upload_does_not_run_table_extraction(
+    client: Any, account: Account, deck_with_a_picture: Path, table_detection_calls: List[Any]
+) -> None:
+    response = client.post(
+        "/upload", headers=account.headers,
+        files={"file": ("slides.pptx", deck_with_a_picture.read_bytes(),
+                        "application/vnd.openxmlformats-officedocument.presentationml.presentation")},
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["chunks_indexed"] > 0
+    assert table_detection_calls == []
 
 
 def test_ocr_on_sample_image():

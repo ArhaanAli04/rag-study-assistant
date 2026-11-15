@@ -19,6 +19,8 @@ anyio==4.11.0
 attrs==25.4.0
 Authlib==1.6.6
 beautifulsoup4==4.14.2
+boto3==1.44.3
+botocore==1.44.3
 cachetools==6.2.2
 camelot-py==1.0.9
 certifi==2025.11.12
@@ -36,7 +38,6 @@ docstring_parser==0.17.0
 ecdsa==0.19.1
 email-validator==2.3.0
 et_xmlfile==2.0.0
-faiss-cpu==1.13.0
 fastapi==0.122.0
 filelock==3.20.0
 frozenlist==1.8.0
@@ -55,6 +56,7 @@ instructor==1.13.0
 itsdangerous==2.2.0
 Jinja2==3.1.6
 jiter==0.11.1
+jmespath==1.1.0
 jsonpatch==1.33
 jsonpointer==3.0.0
 langchain-core==1.1.0
@@ -84,6 +86,7 @@ pandas==2.3.3
 passlib==1.7.4
 pdfminer.six==20251107
 pdfplumber==0.11.8
+pgvector==0.5.1
 pillow==12.0.0
 platformdirs==4.5.1
 pluggy==1.6.0
@@ -114,13 +117,13 @@ python-multipart==0.0.20
 python-pptx==1.0.2
 pytz==2025.2
 PyYAML==6.0.3
-rank-bm25==0.2.2
 redis==7.1.0
 regex==2025.11.3
 requests==2.32.5
 requests-toolbelt==1.0.0
 rich==14.2.0
 rsa==4.9.1
+s3transfer==0.19.3
 setuptools==80.9.0
 shellingham==1.5.4
 six==1.17.0

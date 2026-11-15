@@ -22,11 +22,13 @@ REQUIRED: Dict[str, str] = {
     "GOOGLE_CLIENT_ID": "client-id",
     "GOOGLE_CLIENT_SECRET": "google-secret-value",
     "GOOGLE_REDIRECT_URI": "http://testserver/auth/google/callback",
+    "DATABASE_URL": "postgresql+psycopg://rag_app@localhost:5433/rag",
+    "DATABASE_SCHEMA": "rag",
 }
 OPTIONAL = (
     "TAVILY_API_KEY", "JWT_ALGORITHM", "JWT_EXPIRATION_MINUTES", "REDIS_URL",
     "SEMANTIC_CACHE_REDIS_URL", "BASE_URL", "FRONTEND_URL", "ALLOWED_ORIGINS", "TESSERACT_PATH",
-    "GEMINI_GENERATION_MODEL", "DATABASE_URL", "DATABASE_SCHEMA",
+    "GEMINI_GENERATION_MODEL",
 )
 
 
@@ -159,15 +161,23 @@ def test_env_file_fills_gaps_and_real_environment_wins(monkeypatch: pytest.Monke
     assert s.FRONTEND_URL == "http://from-environment"
 
 
-# T2 (Day 13): one database URL, absolute by default, with the driver and schema made explicit.
+# T2 (Day 13): one database URL with the driver and schema made explicit. Postgres only since Day 15.
 
-def test_default_database_is_the_backend_sqlite_file_whatever_the_cwd(monkeypatch: pytest.MonkeyPatch) -> None:
-    s = load(monkeypatch)
-    backend_dir = Path(__file__).resolve().parents[1]
+@pytest.mark.parametrize("missing", ["DATABASE_URL", "DATABASE_SCHEMA"])
+def test_database_url_and_schema_are_required(monkeypatch: pytest.MonkeyPatch, missing: str) -> None:
+    for name in (*REQUIRED, *OPTIONAL):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in REQUIRED.items():
+        if name != missing:
+            monkeypatch.setenv(name, value)
 
-    assert s.DATABASE_URL.get_secret_value() == f"sqlite:///{(backend_dir / 'data' / 'app.db').as_posix()}"
-    assert s.database_scheme == "sqlite"
-    assert s.DATABASE_SCHEMA is None
+    with pytest.raises(ValidationError, match=missing):
+        Settings(_env_file=None)
+
+
+def test_sqlite_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(ValidationError, match="must be a postgresql\\+psycopg:// URL"):
+        load(monkeypatch, DATABASE_URL="sqlite:///data/app.db")
 
 
 @pytest.mark.parametrize("prefix", ["postgresql", "postgres", "postgresql+psycopg2"])
@@ -180,11 +190,6 @@ def test_postgres_url_without_the_psycopg3_driver_is_refused(monkeypatch: pytest
     assert "pw-secret" not in message
 
 
-def test_postgres_url_needs_a_schema(monkeypatch: pytest.MonkeyPatch) -> None:
-    with pytest.raises(ValidationError, match="DATABASE_SCHEMA is required"):
-        load(monkeypatch, DATABASE_URL="postgresql+psycopg://rag_app:pw@localhost:5433/rag")
-
-
 def test_postgres_url_with_schema_is_accepted_and_stays_secret(monkeypatch: pytest.MonkeyPatch) -> None:
     s = load(monkeypatch, DATABASE_URL="postgresql+psycopg://rag_app:pw-secret@localhost:5433/rag", DATABASE_SCHEMA="rag")
 
@@ -193,8 +198,43 @@ def test_postgres_url_with_schema_is_accepted_and_stays_secret(monkeypatch: pyte
 
 
 def test_unknown_database_scheme_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    with pytest.raises(ValidationError, match="must be sqlite"):
+    with pytest.raises(ValidationError, match="must be a postgresql\\+psycopg:// URL"):
         load(monkeypatch, DATABASE_URL="mysql://u:p@localhost/db")
+
+
+# Day 15: uploads in local storage by default; Supabase Storage needs its whole S3 configuration.
+
+SUPABASE_STORAGE = {
+    "STORAGE_BACKEND": "supabase",
+    "STORAGE_BUCKET": "rag-staging",
+    "SUPABASE_S3_ENDPOINT": "https://project-ref.storage.supabase.co/storage/v1/s3",
+    "SUPABASE_S3_REGION": "ap-south-1",
+    "SUPABASE_S3_ACCESS_KEY_ID": "access-key-id",
+    "SUPABASE_S3_SECRET_ACCESS_KEY": "s3-secret-value",
+}
+
+
+def test_storage_is_local_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in SUPABASE_STORAGE:
+        monkeypatch.delenv(name, raising=False)
+
+    assert load(monkeypatch).STORAGE_BACKEND == "local"
+
+
+def test_supabase_storage_needs_every_s3_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in SUPABASE_STORAGE:
+        monkeypatch.delenv(name, raising=False)
+    partial = {k: v for k, v in SUPABASE_STORAGE.items() if k != "SUPABASE_S3_SECRET_ACCESS_KEY"}
+
+    with pytest.raises(ValidationError, match="SUPABASE_S3_SECRET_ACCESS_KEY"):
+        load(monkeypatch, **partial)
+
+
+def test_supabase_storage_secret_stays_secret(monkeypatch: pytest.MonkeyPatch) -> None:
+    s = load(monkeypatch, **SUPABASE_STORAGE)
+
+    assert s.STORAGE_BACKEND == "supabase"
+    assert "s3-secret-value" not in repr(s) + str(s)
 
 
 def test_env_file_is_the_repo_root_dotenv_whatever_the_cwd() -> None:

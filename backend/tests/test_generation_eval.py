@@ -213,6 +213,7 @@ def _context(tmp_path: Path, judge_replies: List[Reply], llm: Optional[LLMClient
         judge=Judge(_ScriptedClient(judge_replies), cache, sleep=lambda _: None),  # type: ignore[arg-type]
         cache=cache,
         generation_limiter=None,
+        user_id="1",
         sleep=lambda _: None,
     )
 

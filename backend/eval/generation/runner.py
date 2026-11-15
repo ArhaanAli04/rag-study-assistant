@@ -32,7 +32,7 @@ from eval.generation.judge import (
     JudgeFailure,
 )
 from eval.retrieval.configs import CONFIGS, SERVED_TOP_K
-from eval.retrieval.corpus import EVAL_USER_ID, IndexedCorpus
+from eval.retrieval.corpus import IndexedCorpus
 from eval.retrieval.dataset import EvalQuestion
 from eval.retrieval.generate_questions import DailyQuotaExhausted
 from eval.retrieval.metrics import bootstrap_ci
@@ -60,6 +60,8 @@ class EvalContext:
     judge: Judge
     cache: ResultCache
     generation_limiter: Optional[RateLimiter]
+    # The eval corpus's owner: a real users row since Day 15 (document_chunks.user_id is a foreign key).
+    user_id: str
     mode: str = DEFAULT_MODE
     sleep: Callable[[float], None] = time.sleep
 
@@ -98,6 +100,7 @@ def build_context(
         judge=Judge(client, cache, limiters[judge_model], judge_model, faithfulness_version=faithfulness_version),
         cache=cache,
         generation_limiter=limiters[model],
+        user_id=corpus.user_id,
         mode=mode,
     )
 
@@ -106,7 +109,7 @@ def prepare(ctx: EvalContext, question: EvalQuestion) -> PreparedAnswer:
     """The chat's own retrieval → grounding → prompt for one question. No generation call."""
     return prepare_answer(
         ctx.retrieval_service, QueryDecomposer(), SimpleContextCompressor(), ctx.llm_client,
-        query=question.question, user_id=EVAL_USER_ID, doc_version=0, top_k=SERVED_TOP_K,
+        query=question.question, user_id=ctx.user_id, doc_version=0, top_k=SERVED_TOP_K,
         mode=ctx.mode, recent_messages=[],
     )
 

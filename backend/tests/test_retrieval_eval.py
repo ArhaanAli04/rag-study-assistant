@@ -35,8 +35,11 @@ from eval.retrieval.rate_limit import EMBEDDING_RPM, EMBEDDING_TPM, RateLimiter,
 from app.ingestion.models import DocumentChunk
 from google.genai import errors as genai_errors
 from eval.retrieval.runner import evidence_status, render_markdown, run, write_results
+from app.db.session import SessionLocal
 from app.retrieval.context_assembly import AssembledContext
 from tests.fakes import FakeGenaiClient
+
+QUOTA_ERROR = genai_errors.ClientError(429, {"error": {"code": 429, "message": "RESOURCE_EXHAUSTED"}})
 
 SAMPLES = Path(__file__).parent / "samples"
 A1, A2, A3, B1 = ("a.pdf", 1), ("a.pdf", 2), ("a.pdf", 3), ("b.pdf", 1)
@@ -175,7 +178,7 @@ def test_dataset_rejects_duplicate_ids(tmp_path: Path) -> None:
 
 class _FailingModels:
     def embed_content(self, **kwargs: Any) -> Any:
-        raise ConnectionError("quota exceeded")
+        raise QUOTA_ERROR
 
 
 class _FailingClient:
@@ -198,7 +201,7 @@ def test_cache_serves_repeats_without_api_calls(tmp_path: Path) -> None:
     second.close()
 
 
-def test_cache_refuses_zero_vectors(tmp_path: Path) -> None:
+def test_a_failed_call_stops_the_run_and_caches_nothing(tmp_path: Path) -> None:
     cache_path = tmp_path / "e.sqlite"
     failing = CachedEmbeddingService(_FailingClient(), cache_path)  # type: ignore[arg-type]
     with pytest.raises(EmbeddingFailure):
@@ -212,7 +215,7 @@ def test_cache_refuses_zero_vectors(tmp_path: Path) -> None:
 
 
 class _FlakyModels:
-    """Embeds `allowed` texts, then fails like a 429 (EmbeddingService turns that into a zero vector)."""
+    """Embeds `allowed` texts, then fails like a 429 (EmbeddingService raises EmbeddingError)."""
 
     def __init__(self, allowed: int) -> None:
         self.allowed = allowed
@@ -222,17 +225,19 @@ class _FlakyModels:
     def embed_content(self, **kwargs: Any) -> Any:
         self.calls += 1
         if self.calls > self.allowed:
-            raise ConnectionError("429 RESOURCE_EXHAUSTED")
+            raise QUOTA_ERROR
         return self._real.embed_content(**kwargs)
 
 
-def test_blank_text_gets_production_zero_vector_without_a_call(tmp_path: Path) -> None:
+def test_blank_text_is_refused_without_a_call(tmp_path: Path) -> None:
+    # Day 15: indexing skips blank chunks (B10), so a blank text reaching the cache is a bug; it used
+    # to get a zero vector, which document_chunks now refuses.
     service = CachedEmbeddingService(FakeGenaiClient(), tmp_path / "e.sqlite")  # type: ignore[arg-type]
-    vectors = service.embed_texts(["alpha", "", "  \n"])
 
-    assert service.api_calls == 1
-    assert service.blank_texts == 2
-    assert not vectors[1].any() and not vectors[2].any() and vectors[0].any()
+    with pytest.raises(EmbeddingFailure, match="blank"):
+        service.embed_texts(["alpha", "  \n"])
+
+    assert service.api_calls == 0
     service.close()
 
 
@@ -467,7 +472,7 @@ def test_end_to_end_run_is_deterministic(tmp_path: Path) -> None:
     cache_path = tmp_path / "e.sqlite"
 
     embeddings = CachedEmbeddingService(FakeGenaiClient(), cache_path)  # type: ignore[arg-type]
-    corpus = index_corpus(embeddings, corpus_dir)
+    corpus = index_corpus(embeddings, corpus_dir, SessionLocal)
     assert sum(corpus.chunk_counts.values()) > 0
 
     first_chunk = corpus.chunks[0]
@@ -500,8 +505,11 @@ def test_end_to_end_run_is_deterministic(tmp_path: Path) -> None:
     assert "Same page, different wording" in render_markdown(first)
 
     rerun = CachedEmbeddingService(FakeGenaiClient(), cache_path)  # type: ignore[arg-type]
-    index_corpus(rerun, corpus_dir)
+    reindexed = index_corpus(rerun, corpus_dir, SessionLocal)
     assert rerun.api_calls == 0
+    # The previous run's eval user (and with it its chunks) is replaced, not duplicated.
+    assert reindexed.user_id != corpus.user_id
+    assert reindexed.chunk_counts == corpus.chunk_counts == {"samples.pdf": len(reindexed.chunks)}
     rerun.close()
 
     paths = write_results(first, tmp_path / "results", label="test")

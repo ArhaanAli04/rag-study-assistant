@@ -11,10 +11,12 @@ from app.db.base import Base
 class Document(Base):
     __tablename__ = "documents"
     id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     file_name = Column(String, nullable=False)
     file_path = Column(String, nullable=False)
     file_hash = Column(String, nullable=False)
+    # Bytes, stored at upload: the file itself may live in object storage, not on this disk.
+    file_size = Column(Integer, nullable=True)
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

@@ -1,16 +1,65 @@
-import React, { useState } from 'react';
-import { Sparkles, AlertCircle, Globe } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Sparkles, AlertCircle, Globe, FileText } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
+
+// The server explains 422 (nothing found in the chosen sources) and 502 (no concepts came out)
+// in `detail`; anything else gets a generic message.
+async function errorMessage(response) {
+  try {
+    const body = await response.json();
+    if (typeof body.detail === 'string') return body.detail;
+  } catch (parseError) {
+    // A non-JSON error page (a proxy or a crash): fall through to the generic message.
+  }
+  return 'Failed to generate concept map';
+}
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 const CreateMapForm = ({ onMapCreated, onCancel }) => {
   const [topic, setTopic] = useState('');
   const [useWeb, setUseWeb] = useState(true);
-  const [useDocuments] = useState(false);
+  const [useDocuments, setUseDocuments] = useState(false);
+  // 'loading' | 'ready' | 'none' | 'error' — whether the user has documents a map can search.
+  const [documentsState, setDocumentsState] = useState('loading');
+  const [indexedCount, setIndexedCount] = useState(0);
   const [maxConcepts, setMaxConcepts] = useState(15);
   const [maxEdges, setMaxEdges] = useState(20);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadDocuments = async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/documents`, {
+          headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+        });
+        if (!response.ok) throw new Error(`GET /documents returned ${response.status}`);
+        const documents = await response.json();
+        // Rows without chunks ("Not searchable yet") can't contribute to a map.
+        const indexed = documents.filter((d) => d.chunks > 0).length;
+        if (cancelled) return;
+        setIndexedCount(indexed);
+        setDocumentsState(indexed > 0 ? 'ready' : 'none');
+        setUseDocuments(indexed > 0);
+      } catch (loadError) {
+        if (!cancelled) setDocumentsState('error');
+      }
+    };
+    loadDocuments();
+    return () => { cancelled = true; };
+  }, []);
+
+  const documentsAvailable = documentsState === 'ready';
+  const documentsHint = {
+    loading: 'Checking your documents…',
+    ready: `Search your ${plural(indexedCount, 'indexed document')}`,
+    none: 'No indexed documents yet',
+    error: "Couldn't load your documents",
+  }[documentsState];
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -48,8 +97,7 @@ const CreateMapForm = ({ onMapCreated, onCancel }) => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || 'Failed to generate concept map');
+        throw new Error(await errorMessage(response));
       }
 
       setProgress('🧠 Extracting concepts...');
@@ -133,8 +181,48 @@ const CreateMapForm = ({ onMapCreated, onCancel }) => {
               </div>
             </button>
 
-            
+            <button
+              type="button"
+              onClick={() => setUseDocuments(!useDocuments)}
+              disabled={loading || !documentsAvailable}
+              aria-pressed={useDocuments}
+              className={`
+                p-4 rounded-lg border-2 transition-all text-left disabled:cursor-not-allowed
+                ${useDocuments
+                  ? 'border-primary bg-primary/10'
+                  : 'border-border/30 hover:border-border/50 bg-white/5'
+                }
+                ${documentsAvailable ? '' : 'opacity-60'}
+              `}
+            >
+              <div className="flex items-start gap-3">
+                <input
+                  type="checkbox"
+                  checked={useDocuments}
+                  onChange={() => {}}
+                  disabled={loading || !documentsAvailable}
+                  className="mt-1"
+                  aria-label="Use your documents"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <FileText className="w-5 h-5 text-emerald-400" />
+                    <span className="font-medium text-foreground">Your documents</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">{documentsHint}</p>
+                </div>
+              </div>
+            </button>
           </div>
+          {/* Outside the card: a link inside a disabled button can't be clicked. */}
+          {documentsState === 'none' && (
+            <p className="text-xs text-muted-foreground mt-2">
+              <Link to="/documents" className="underline hover:text-foreground">
+                Upload a document first
+              </Link>{' '}
+              to build maps from your own material.
+            </p>
+          )}
         </div>
 
         {/* Advanced Settings */}
@@ -202,7 +290,7 @@ const CreateMapForm = ({ onMapCreated, onCancel }) => {
         {error && (
           <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 flex items-start gap-3">
             <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-            <div>
+            <div role="alert">
               <p className="text-sm text-red-400 font-medium">Error</p>
               <p className="text-sm text-red-400/80">{error}</p>
             </div>

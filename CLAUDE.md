@@ -482,6 +482,7 @@ with one `ValidationError` that lists all of them.
 |---|---|---|
 | `GEMINI_API_KEY` | yes — startup fails without it | LLM, embeddings, topic classifier, concept extractor |
 | `TAVILY_API_KEY` | for web search | `retrieval/web/search_client.py`; if missing, web chunks are silently skipped |
+| `WEB_SEARCH_ENABLED` | no | default `true`; passed into `RetrievalService`'s switch (`services/container.py`); `false` = no web client call anywhere (chat, web-only concept maps). **Set `$env:WEB_SEARCH_ENABLED = "false"` for every local check** (Day 17): `$env:TAVILY_API_KEY = ""` *deletes* the variable in Windows PowerShell, so `.env`'s real key is used — a "web off" run made 21 live Tavily searches |
 | `JWT_SECRET_KEY` | yes | JWT signing (`core/security.py`) and `SessionMiddleware` |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` | yes — settings validation fails without them | `services/oauth_service.py` |
 | `JWT_ALGORITHM`, `JWT_EXPIRATION_MINUTES` | no | `HS256`, `10080` (7 days) |

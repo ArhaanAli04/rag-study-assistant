@@ -1,8 +1,30 @@
 from typing import List, Dict, Any
+import requests
 from tavily import TavilyClient  # [web:56][web:59]
+from tavily.errors import (
+    BadRequestError,
+    ForbiddenError,
+    InvalidAPIKeyError,
+    MissingAPIKeyError,
+    TimeoutError as TavilyTimeoutError,
+    UsageLimitExceededError,
+)
 from urllib.parse import urlparse
 
 from app.core.config import settings
+
+# What a web search can fail with: no key configured (RuntimeError below), Tavily's own errors, or
+# the HTTP layer underneath. Callers that treat web results as optional catch exactly these.
+WEB_SEARCH_ERRORS: tuple[type[Exception], ...] = (
+    RuntimeError,
+    BadRequestError,
+    ForbiddenError,
+    InvalidAPIKeyError,
+    MissingAPIKeyError,
+    TavilyTimeoutError,
+    UsageLimitExceededError,
+    requests.RequestException,
+)
 
 ALLOWED_DOMAINS = [
     "wikipedia.org",

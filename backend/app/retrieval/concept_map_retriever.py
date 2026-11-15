@@ -1,230 +1,107 @@
-"""
-Hybrid Retrieval System for Concept Map Generation
-Wraps existing RetrievalService to provide concept-map-specific retrieval
-"""
+"""Retrieval for concept maps: the app's shared RetrievalService with concept-map settings."""
 
-from typing import List, Dict
 import logging
+from typing import Any, Dict, List
 
+from app.retrieval.embeddings import EmbeddingError
 from app.retrieval.retrieval_service import RetrievalService
+from app.retrieval.web.search_client import WEB_SEARCH_ERRORS
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# A web-only map has no hybrid score to derive confidence from.
+WEB_ONLY_CONFIDENCE = 70.0
+WEB_ONLY_SCORE = 0.8
 
 
 class ConceptMapRetriever:
-    """
-    Specialized retriever for concept map generation
-    Uses existing RetrievalService with concept-map-optimized settings
-    """
-
     def __init__(self, retrieval_service: RetrievalService) -> None:
         # The app's shared service: a private one searched an index /upload never wrote to (R5).
         self.retrieval_service = retrieval_service
 
-    
     def retrieve_for_concept_map(
         self,
         topic: str,
         user_id: str,
-        doc_version: int = 0,
+        doc_version: int,
         use_documents: bool = False,
         use_web: bool = True,
-        max_results: int = 15
-    ) -> Dict:
+        max_results: int = 15,
+    ) -> Dict[str, Any]:
+        """Retrieve context for a concept map.
+
+        doc_version has no default: it is part of the L1 cache key, and a constant one replayed a
+        ranking from before the user's last upload or delete (a deleted file kept appearing in maps).
+
+        Returns combined_results, document_results, web_results, sources (counts and names), topic
+        and confidence.
         """
-        Retrieve context optimized for concept map generation
-        
-        Args:
-            topic: The concept map topic
-            user_id: User ID for document filtering
-            doc_version: Document version for cache invalidation
-            use_documents: Whether to search user documents
-            use_web: Whether to search the web
-            max_results: Maximum number of results to return
-            
-        Returns:
-            Dictionary with:
-                - combined_results: List of all results
-                - document_results: Document-only results
-                - web_results: Web-only results
-                - sources: Source statistics
-                - confidence: Retrieval confidence score
-        """
-        logger.info(f"🔍 Retrieving for concept map: '{topic}'")
-        logger.info(f"   Documents: {use_documents}, Web: {use_web}")
-        
-        all_results = []
-        document_results = []
-        web_results = []
+        logger.info("Concept-map retrieval: documents=%s web=%s", use_documents, use_web)
+
+        all_results: List[Dict[str, Any]] = []
+        document_results: List[Dict[str, Any]] = []
+        web_results: List[Dict[str, Any]] = []
         confidence = 0.0
-        
-        # Case 1: Documents + Web (Full Hybrid)
-        if use_documents and use_web:
-            logger.info("📚🌐 Using full hybrid retrieval")
-            
+
+        if use_documents:
             result = self.retrieval_service.hybrid_retrieve(
                 query=topic,
                 user_id=user_id,
                 doc_version=doc_version,
                 top_k=max_results,
-                rerank_top_k=max_results
+                rerank_top_k=max_results,
+                include_web=use_web,
             )
-            
-            all_results = result.get('results', [])
-            confidence = result.get('confidence', 0.0)
-            
-            # Separate by source type
+            all_results = result.get("results", [])
+            confidence = result.get("confidence", 0.0)
             for r in all_results:
-                source_type = r.get('metadata', {}).get('source_type', 'local')
-                if source_type == 'web':
+                if r.get("metadata", {}).get("source_type", "local") == "web":
                     web_results.append(r)
                 else:
                     document_results.append(r)
-        
-        # Case 2: Documents Only
-        elif use_documents and not use_web:
-            logger.info("📚 Using documents only")
-            
-            # Use hybrid_retrieve but limit web results
-            result = self.retrieval_service.hybrid_retrieve(
-                query=topic,
-                user_id=user_id,
-                doc_version=doc_version,
-                top_k=max_results,
-                rerank_top_k=max_results
-            )
-            
-            # Filter out web results
-            all_results = [
-                r for r in result.get('results', [])
-                if r.get('metadata', {}).get('source_type', 'local') != 'web'
-            ]
-            document_results = all_results
-            confidence = result.get('confidence', 0.0)
-        
-        # Case 3: Web Only
-        elif not use_documents and use_web:
-            logger.info("🌐 Using web search only")
-            
+        elif use_web:
             try:
-                # Get web chunks directly
                 web_chunks = self.retrieval_service.get_web_chunks(
                     query=topic,
                     max_results=max_results,
-                    chunk_size=800,  # Larger chunks for concept maps
-                    overlap=100
+                    chunk_size=800,  # larger than chat's: a map needs whole explanations, not snippets
+                    overlap=100,
                 )
-                
-                # Format as results
-                for chunk in web_chunks:
-                    web_results.append({
-                        'text': chunk['text'],
-                        'metadata': chunk['metadata'],
-                        'score': 0.8  # Default web score
-                    })
-                
+            except (*WEB_SEARCH_ERRORS, EmbeddingError):
+                logger.warning("Web search for a concept map failed", exc_info=True)
+            else:
+                web_results = [
+                    {"text": c["text"], "metadata": c["metadata"], "score": WEB_ONLY_SCORE} for c in web_chunks
+                ]
                 all_results = web_results
-                confidence = 70.0  # Moderate confidence for web-only
-                
-            except Exception as e:
-                logger.error(f"❌ Web search failed: {e}")
-                confidence = 0.0
-        
+                confidence = WEB_ONLY_CONFIDENCE if web_results else 0.0
         else:
-            logger.warning("⚠️ Both use_documents and use_web are False")
-        
-        # Calculate source statistics
+            logger.warning("Concept-map retrieval with both documents and web off")
+
         sources = {
-            'total': len(all_results),
-            'documents': len(document_results),
-            'web': len(web_results),
-            'document_sources': self._extract_document_sources(document_results),
-            'web_sources': self._extract_web_sources(web_results)
+            "total": len(all_results),
+            "documents": len(document_results),
+            "web": len(web_results),
+            "document_sources": self._extract_document_sources(document_results),
+            "web_sources": self._extract_web_sources(web_results),
         }
-        
-        logger.info(f"✅ Retrieved {sources['total']} total results")
-        logger.info(f"   Documents: {sources['documents']}, Web: {sources['web']}")
-        logger.info(f"   Confidence: {confidence:.1f}%")
-        
+        logger.info(
+            "Concept-map retrieval: %d results (%d documents, %d web), confidence %.1f",
+            sources["total"], sources["documents"], sources["web"], confidence,
+        )
         return {
-            'combined_results': all_results,
-            'document_results': document_results,
-            'web_results': web_results,
-            'sources': sources,
-            'topic': topic,
-            'confidence': confidence
+            "combined_results": all_results,
+            "document_results": document_results,
+            "web_results": web_results,
+            "sources": sources,
+            "topic": topic,
+            "confidence": confidence,
         }
-    
-    
-    def _extract_document_sources(self, results: List[Dict]) -> List[str]:
-        """Extract unique document source names"""
-        sources = set()
-        for r in results:
-            metadata = r.get('metadata', {})
-            file_name = metadata.get('file_name') or metadata.get('filename')
-            if file_name:
-                sources.add(file_name)
-        return list(sources)
-    
-    
-    def _extract_web_sources(self, results: List[Dict]) -> List[str]:
-        """Extract unique web URLs"""
-        urls = set()
-        for r in results:
-            metadata = r.get('metadata', {})
-            url = metadata.get('url')
-            if url:
-                urls.add(url)
-        return list(urls)
-    
-    
-    def format_context_for_llm(self, retrieval_result: Dict) -> str:
-        """
-        Format retrieval results into context string for LLM
-        
-        Args:
-            retrieval_result: Output from retrieve_for_concept_map()
-            
-        Returns:
-            Formatted context string optimized for concept extraction
-        """
-        combined = retrieval_result['combined_results']
-        
-        if not combined:
-            return f"No relevant information found for topic: {retrieval_result['topic']}"
-        
-        context_parts = [
-            f"# Context for Topic: {retrieval_result['topic']}",
-            f"# Confidence: {retrieval_result.get('confidence', 0):.1f}%",
-            f"# Total Sources: {len(combined)} ({retrieval_result['sources']['documents']} documents, {retrieval_result['sources']['web']} web)",
-            ""
-        ]
-        
-        # Add document context
-        doc_results = retrieval_result['document_results']
-        if doc_results:
-            context_parts.append("## From Your Documents:")
-            for i, result in enumerate(doc_results[:10], 1):  # Limit to top 10
-                metadata = result.get('metadata', {})
-                source = metadata.get('file_name') or metadata.get('filename', 'Unknown')
-                page = metadata.get('page_num', 'N/A')
-                
-                context_parts.append(f"\n[Document {i}] {source} (Page: {page})")
-                context_parts.append(result.get('text', ''))
-        
-        # Add web context
-        web_results = retrieval_result['web_results']
-        if web_results:
-            context_parts.append("\n## From Web Search:")
-            for i, result in enumerate(web_results[:8], 1):  # Limit to top 8
-                metadata = result.get('metadata', {})
-                title = metadata.get('title', 'Unknown')
-                url = metadata.get('url', 'N/A')
-                
-                context_parts.append(f"\n[Web {i}] {title}")
-                context_parts.append(f"URL: {url}")
-                context_parts.append(result.get('text', ''))
-        
-        return "\n".join(context_parts)
+
+    def _extract_document_sources(self, results: List[Dict[str, Any]]) -> List[str]:
+        names = {r.get("metadata", {}).get("file_name") for r in results}
+        return sorted(name for name in names if name)
+
+    def _extract_web_sources(self, results: List[Dict[str, Any]]) -> List[str]:
+        urls = {r.get("metadata", {}).get("url") for r in results}
+        return sorted(url for url in urls if url)

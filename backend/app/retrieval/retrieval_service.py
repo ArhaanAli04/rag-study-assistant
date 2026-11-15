@@ -79,18 +79,24 @@ class RetrievalService:
         self.web_client: Optional[WebSearchClient] = None
         self.compressor = SimpleContextCompressor()
         # Per instance: a class-level dict was shared by every RetrievalService in the process.
-        self._l1_cache: Dict[Tuple[str, str, int], Dict[str, Any]] = {}
+        # Keyed on every input that changes the result: include_web too, or a documents-only call
+        # (concept maps, Day 17) could replay a ranking that contains web chunks, and vice versa.
+        self._l1_cache: Dict[Tuple[str, str, int, bool], Dict[str, Any]] = {}
 
     def _embed_texts(self, texts: List[str]) -> np.ndarray:
         """The same embedding model as the stored chunks, so local and web scores are comparable."""
         return self.embedding_service.embed_texts(texts)
 
     # -------- L1 exact-match cache (per process) --------
-    def l1_cache_lookup(self, user_id: str, query: str, doc_version: int) -> Optional[Dict[str, Any]]:
-        return self._l1_cache.get((user_id, query, doc_version))
+    def l1_cache_lookup(
+        self, user_id: str, query: str, doc_version: int, include_web: bool = True
+    ) -> Optional[Dict[str, Any]]:
+        return self._l1_cache.get((user_id, query, doc_version, include_web))
 
-    def l1_cache_store(self, user_id: str, query: str, doc_version: int, value: Dict[str, Any]) -> None:
-        self._l1_cache[(user_id, query, doc_version)] = value
+    def l1_cache_store(
+        self, user_id: str, query: str, doc_version: int, value: Dict[str, Any], include_web: bool = True
+    ) -> None:
+        self._l1_cache[(user_id, query, doc_version, include_web)] = value
         if len(self._l1_cache) > L1_CACHE_MAX_ENTRIES:
             # naive eviction: pop oldest
             self._l1_cache.pop(next(iter(self._l1_cache)))
@@ -131,7 +137,12 @@ class RetrievalService:
         Runs web search, filters to credible domains, optionally scrapes,
         chunks content, and returns:
         [{"text": ..., "metadata": {...}, "embedding": [...]}, ...]
+
+        Nothing when web search is off — checked here, not only in hybrid_retrieve, because a
+        web-only concept map calls this directly (WEB_SEARCH_ENABLED=false must mean no web call).
         """
+        if not self.web_search_enabled:
+            return []
         # 1) Redis cache for web search results (without embeddings)
         cached = self.web_cache.get(query)
         if cached is not None:
@@ -221,6 +232,7 @@ class RetrievalService:
         doc_version: int,
         top_k: int = 8,
         rerank_top_k: int = 5,
+        include_web: bool = True,
     ) -> Dict[str, Any]:
         """
         Full retrieval pipeline for chat:
@@ -229,10 +241,16 @@ class RetrievalService:
         - Confidence scoring
         - Optional web fallback flag
         - Cross-encoder reranking
+
+        include_web=False skips web search for this call even when the service has it on: a
+        documents-only concept map would otherwise pay for a Tavily search and embed every web chunk
+        (free-tier quota, counted per text) only to discard them.
         """
 
         # 1. L1 exact-match cache
-        cached = self.l1_cache_lookup(user_id, query, doc_version) if self.l1_cache_enabled else None
+        cached = (
+            self.l1_cache_lookup(user_id, query, doc_version, include_web) if self.l1_cache_enabled else None
+        )
         if cached is not None:
             return {**cached, "from_l1_cache": True}
 
@@ -385,7 +403,7 @@ class RetrievalService:
 
         # 9.5. Add web chunks (if fallback or always-on)
         web_chunks: List[Dict[str, Any]] = []
-        if self.web_search_enabled:
+        if self.web_search_enabled and include_web:
             try:
                 if fallback_used:
                     web_chunks = self.get_web_chunks(query, max_results=3)
@@ -444,7 +462,7 @@ class RetrievalService:
         # A degraded (keyword-only) result isn't cached: the same question should get full retrieval
         # once embeddings work again, not a replay of the degraded ranking until the next upload.
         if self.l1_cache_enabled and query_embedding is not None:
-            self.l1_cache_store(user_id, query, doc_version, result_payload)
+            self.l1_cache_store(user_id, query, doc_version, result_payload, include_web)
 
         return result_payload
     

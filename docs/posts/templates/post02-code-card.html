@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 02 code card</title>
+<link rel="stylesheet" href="brand.css">
+<style>
+  /* Simplified from commit 31b4a18 (retrieval_service.py, B8): the tuple handling is trimmed to the
+     lines that matter; the score expression is the real one. */
+  pre { font-size: 21px; }
+</style>
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">02</span>
+  </header>
+
+  <main class="stack">
+    <section class="window before">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">retrieval_service.py · <b>before</b></div>
+      </div>
+<pre><span class="ln">score, metadata = item   <span class="c"># FAISS: squared L2 distance</span></span><span class="ln bad">vector_results.<span class="fn">append</span>({<span class="s">"score"</span>: <span class="fn">float</span>(score), ...})</span><span class="ln"><span class="c bad"># lower distance = closer, but fusion treats</span></span><span class="ln"><span class="c bad"># a higher score as better → ranked backwards</span></span></pre>
+    </section>
+
+    <section class="window after">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">retrieval_service.py · <b>after</b></div>
+      </div>
+<pre><span class="ln">distance, metadata = item</span><span class="ln"><span class="c"># unit vectors: d² = 2 − 2·cos  →  cos = 1 − d²/2</span></span><span class="ln good">vector_results.<span class="fn">append</span>(</span><span class="ln good">    {<span class="s">"score"</span>: <span class="num">1.0</span> - <span class="fn">float</span>(distance) / <span class="num">2.0</span>, ...})</span></pre>
+    </section>
+  </main>
+</body>
+</html>

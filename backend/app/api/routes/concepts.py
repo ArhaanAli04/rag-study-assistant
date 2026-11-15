@@ -2,6 +2,7 @@ import logging
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
@@ -14,6 +15,7 @@ from app.schemas.concept_maps import (
     ListConceptMapsResponse,
     SourceStatistics,
 )
+from app.services.concept_map_service import ConceptExtractionFailed, NoConceptContext
 from app.services.container import Services
 
 logger = logging.getLogger("rag_assistant.api.concepts")
@@ -35,20 +37,26 @@ async def generate_concept_map(
     - Saves to database
     - Returns structured concept map
     """
+    if not request.use_documents and not request.use_web:
+        raise HTTPException(status_code=422, detail="Choose at least one source: your documents or web search.")
     try:
         return services.concept_map_service.generate_concept_map(
             topic=request.topic,
             user_id=current_user.id,
+            # The retrieval cache keys on it: without it a deleted document kept appearing in maps.
+            doc_version=current_user.doc_version,
             db=db,
             use_documents=request.use_documents,
             use_web=request.use_web,
             max_concepts=request.max_concepts,
             max_edges=request.max_edges
         )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"Failed to generate concept map: {e}")
+    except NoConceptContext as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ConceptExtractionFailed as e:
+        raise HTTPException(status_code=502, detail=str(e))
+    except SQLAlchemyError:
+        logger.exception("Failed to save a concept map")
         raise HTTPException(status_code=500, detail="Failed to generate concept map")
 
 

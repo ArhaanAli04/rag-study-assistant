@@ -339,11 +339,11 @@ WIKI_URL = "https://en.wikipedia.org/wiki/Retrieval-augmented_generation"
 CONCEPT_MAP_JSON = {
     "nodes": [
         {"id": "rag", "label": "Retrieval-augmented generation", "definition": "Answering with retrieved context.",
-         "source_type": "web", "sources": [WIKI_URL]},
+         "source_ids": ["W1"]},
         {"id": "embedding", "label": "Embedding", "definition": "A vector that represents text.",
-         "source_type": "web", "sources": []},
+         "source_ids": []},
         {"id": "bm25", "label": "BM25", "definition": "A keyword ranking function.",
-         "source_type": "web", "sources": []},
+         "source_ids": []},
     ],
     "edges": [
         {"from": "rag", "to": "embedding", "label": "retrieves with"},
@@ -378,18 +378,23 @@ def test_concept_map_generate_list_get_and_delete(
     assert [m["id"] for m in client.get("/api/concepts/maps", headers=account.headers).json()["maps"]] == [map_id]
     detail = client.get(f"/api/concepts/maps/{map_id}", headers=account.headers)
     assert detail.status_code == 200
-    assert len(detail.json()["nodes"]) == 3
+    stored = {n["id"]: n for n in detail.json()["nodes"]}
+    assert len(stored) == 3
+    # The cited id resolved to the page it named and survived the round trip through storage.
+    assert (stored["rag"]["source_type"], stored["rag"]["sources"]) == ("web", [WIKI_URL])
+    assert (stored["bm25"]["source_type"], stored["bm25"]["sources"]) == ("unknown", [])
     assert client.get("/api/concepts/statistics", headers=account.headers).status_code == 200
 
     assert client.delete(f"/api/concepts/maps/{map_id}", headers=account.headers).status_code == 200
     assert client.get("/api/concepts/maps", headers=account.headers).json()["maps"] == []
 
 
-def test_concept_map_without_context_is_empty_and_skips_the_llm(
+def test_a_concept_map_without_context_is_refused_and_not_saved(
     client: Any, account: Account, gemini: FakeGemini
 ) -> None:
     generated = client.post("/api/concepts/generate", headers=account.headers, json={"topic": "Quantum chromodynamics"})
 
-    assert generated.status_code == 200, generated.text
-    assert generated.json()["nodes"] == []
+    assert generated.status_code == 422, generated.text
+    assert "Web search found nothing" in generated.json()["detail"]
     assert gemini.prompts == []
+    assert client.get("/api/concepts/maps", headers=account.headers).json()["maps"] == []

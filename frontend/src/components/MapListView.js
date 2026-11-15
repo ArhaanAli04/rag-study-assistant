@@ -1,5 +1,6 @@
 import React, { useState,useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { formatConfidence } from '../utils/formatConfidence';
 const MapListView = ({ maps, loading, onViewMap, onDeleteMap }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest'
@@ -151,7 +152,7 @@ const MapListView = ({ maps, loading, onViewMap, onDeleteMap }) => {
                     {map.topic}
                   </h3>
                   <span className="px-3 py-1 rounded-full bg-green-500/10 text-green-500 text-xs font-medium whitespace-nowrap">
-                    {map.confidence}% confident
+                    {formatConfidence(map.confidence)} confident
                   </span>
                 </div>
 

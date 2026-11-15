@@ -33,6 +33,15 @@ def no_context_message(use_documents: bool, use_web: bool) -> str:
     return "Web search found nothing usable on this topic. Try another topic or use your documents."
 
 
+def off_topic_message(topic: str, use_documents: bool, use_web: bool) -> str:
+    """The model found passages but judged none of them to be about the topic."""
+    if use_documents and use_web:
+        return f"Neither your documents nor the web results seem to cover '{topic}'. Try another topic."
+    if use_documents:
+        return f"Your documents don't seem to cover '{topic}'. Try another topic or turn on web search."
+    return f"The web results don't seem to cover '{topic}'. Try another topic."
+
+
 def encode_sources(sources: List[str]) -> str:
     # A JSON array: the comma-joined form split "notes, week 3.pdf" into two sources.
     return json.dumps(sources)
@@ -74,9 +83,10 @@ class ConceptMapService:
     ) -> Dict[str, Any]:
         """Retrieve → extract → save; returns map_id, nodes, edges, sources, metadata, created_at.
 
-        Raises NoConceptContext when the selected sources return nothing, and ConceptExtractionFailed
-        when no concept comes out of what they returned — in both cases nothing is saved, instead of
-        a 0-concept map in the user's list.
+        Raises NoConceptContext when the selected sources return nothing or the model flags what they
+        returned as off-topic (vector search always returns the nearest chunks, Day 17 live check: a
+        "French Revolution" map was built from photosynthesis notes), and ConceptExtractionFailed when
+        no concept comes out — in every case nothing is saved, instead of a 0-concept or wrong map.
         """
         logger.info("Generating concept map for user %s", user_id)
         retrieval_result = self.retriever.retrieve_for_concept_map(
@@ -96,6 +106,8 @@ class ConceptMapService:
             max_concepts=max_concepts,
             max_edges=max_edges,
         )
+        if concept_map_data.get("off_topic") is True:
+            raise NoConceptContext(off_topic_message(topic, use_documents, use_web))
         if not concept_map_data.get("nodes"):
             raise ConceptExtractionFailed(
                 "Couldn't build a concept map from the passages found. Try again or rephrase the topic."

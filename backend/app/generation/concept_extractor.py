@@ -27,33 +27,45 @@ def document_label(metadata: Dict[str, Any]) -> str:
     return f"{file_name}{PAGE_SEPARATOR}{page}" if page is not None else file_name
 
 
+def _page_number(page: Any) -> Optional[int]:
+    try:
+        return int(page)
+    except (TypeError, ValueError):
+        return None
+
+
 class Evidence:
-    """The numbered context blocks the model may cite: id → (kind, display label)."""
+    """The numbered context blocks the model may cite: id → (kind, display label, sort key)."""
 
     def __init__(self) -> None:
-        self.blocks: Dict[str, Tuple[str, str]] = {}
+        self.blocks: Dict[str, Tuple[str, str, Tuple[int, str, int]]] = {}
 
-    def add(self, evidence_id: str, kind: str, label: str) -> None:
-        self.blocks[evidence_id] = (kind, label)
+    def add(self, evidence_id: str, kind: str, label: str, file_or_url: str = "", page: Optional[int] = None) -> None:
+        # Documents before web pages, then by file, then by page number ("p. 2" before "p. 10").
+        sort_key = (0 if kind == "document" else 1, file_or_url or label, page if page is not None else -1)
+        self.blocks[evidence_id] = (kind, label, sort_key)
 
     def resolve(self, raw_ids: Any) -> Tuple[str, List[str]]:
-        """Map the model's cited ids to (source_type, labels); ids that weren't in the context are dropped."""
+        """Map the model's cited ids to (source_type, labels); ids that weren't in the context are dropped.
+
+        Labels come back sorted by file and page, then URLs, whatever order the model cited them in.
+        """
         if not isinstance(raw_ids, list):
             return "unknown", []
         kinds: List[str] = []
-        labels: List[str] = []
+        cited: Dict[str, Tuple[int, str, int]] = {}
         for raw in raw_ids:
             match = _EVIDENCE_ID.match(str(raw).strip())
             block = self.blocks.get(match.group(1).upper()) if match else None
             if block is None:
                 continue
-            kind, label = block
+            kind, label, sort_key = block
             if kind not in kinds:
                 kinds.append(kind)
-            if label not in labels:
-                labels.append(label)
+            cited.setdefault(label, sort_key)
         if not kinds:
             return "unknown", []
+        labels = sorted(cited, key=lambda label: cited[label])
         return ("both" if len(kinds) > 1 else kinds[0]), labels
 
 
@@ -80,8 +92,12 @@ class ConceptExtractor:
         if doc_results:
             parts.append("## From Documents:\n")
             for i, result in enumerate(doc_results, 1):
-                label = document_label(result.get("metadata", {}))
-                evidence.add(f"D{i}", "document", label)
+                metadata = result.get("metadata", {})
+                label = document_label(metadata)
+                evidence.add(
+                    f"D{i}", "document", label,
+                    file_or_url=metadata.get("file_name") or "", page=_page_number(metadata.get("page_num")),
+                )
                 parts.append(f"\n[D{i}] {label}:")
                 parts.append(result.get("text", ""))
 
@@ -91,7 +107,7 @@ class ConceptExtractor:
             for i, result in enumerate(web_results, 1):
                 metadata = result.get("metadata", {})
                 url = metadata.get("url") or "N/A"
-                evidence.add(f"W{i}", "web", url)
+                evidence.add(f"W{i}", "web", url, file_or_url=url)
                 parts.append(f"\n[W{i}] {metadata.get('title', 'Unknown')} ({url}):")
                 parts.append(result.get("text", ""))
 
@@ -136,11 +152,17 @@ Create a concept map by identifying:
   - Concepts not explained in the context
   - Duplicate or redundant concepts
 
+# When the context is about something else:
+Search returns the closest passages it has, even when none of them is about "{topic}". If the context
+does not discuss "{topic}", do not build a map from it and do not use your own knowledge instead:
+return exactly {{"topic": "{topic}", "off_topic": true, "nodes": [], "edges": []}}
+
 # Output Format:
 Return ONLY a valid JSON object with this exact structure (no markdown, no code blocks, just raw JSON):
 
 {{
   "topic": "{topic}",
+  "off_topic": false,
   "nodes": [
     {{
       "id": "concept_1",
@@ -307,7 +329,14 @@ Now extract the concept map:"""
         concept_map = self._parse_llm_response(response.text or "")
         if not concept_map:
             return self._create_empty_concept_map(topic, "Failed to parse LLM response")
+        # Vector search always returns the nearest chunks, so an unrelated topic still gets context; the
+        # model is the judge of whether it covers the topic (no calibrated similarity threshold, B2).
+        if concept_map.get("off_topic") is True:
+            off_topic = self._create_empty_concept_map(topic, "Context does not cover the topic")
+            off_topic["off_topic"] = True
+            return off_topic
 
+        concept_map.pop("off_topic", None)
         concept_map = self._validate_and_clean_concept_map(concept_map)
         concept_map = self._attribute_sources(concept_map, evidence)
         concept_map = self._add_source_summary(concept_map, retrieval_result)

@@ -351,6 +351,27 @@ deployment. It is not known whether it was ever hit: the cache logs hits by user
   flush first (CLAUDE.md, Redis key schema).
 - A version or epoch prefix in the cache keys, or CO5's per-entry TTLs, would make that automatic.
 
+### G10 — JWT in the SSE query string (P2)
+Found Day 17 (2026-11-15). The chat stream authenticates with the user's JWT as a query parameter,
+`GET /chat/stream?token=<JWT>` (`api/deps.py`, `get_user_from_query_token`), because a browser
+`EventSource` can't send an `Authorization` header (`ChatWindow.js`). The token is the full 7-day
+access token (`JWT_EXPIRATION_MINUTES`), and `/auth/logout` revokes nothing.
+- **The app's own logs are clean** (G8): the request-log middleware logs the path only,
+  `StripQueryStringFilter` drops the query string from `uvicorn.access` records, and
+  `RedactSecretsFilter` scrubs `token=` / JWTs from every handler. Verified Day 17: **0 occurrences** of
+  `token=` or `eyJ` in `app.log` and in three uvicorn console logs holding 32 `/chat/stream` requests
+  (every access line reads `"GET /chat/stream HTTP/1.1" 200 OK`). `test_log_redaction.py` covers it,
+  including an end-to-end test through the real `uvicorn.access` logger and a handler.
+- **URLs may be logged outside the app** (unverified): Render's edge / load balancer, and any proxy
+  between a user and Render (a campus or corporate proxy), can record full request URLs — query string
+  included — in logs the app doesn't control and can't scrub.
+- **Why it matters:** anyone who can read such a log could use the token for up to 7 days.
+- **Direction (later):** keep the JWT out of the URL — a short-lived, single-use stream ticket obtained
+  with an authenticated `POST` (the ticket, not the JWT, goes in the query string, valid for seconds),
+  or an HTTP-only cookie the `EventSource` sends by itself (needs CSRF care), or a fetch-based SSE
+  client that can send an `Authorization` header. Changes both `ChatWindow.js` and the endpoint the same
+  day (SSE contract rule).
+
 ---
 
 ## 6. Context & Token Management
@@ -513,6 +534,29 @@ calls `retrieval_service.hybrid_retrieve` one at a time, even though `/chat` is 
 pay the full retrieval latency multiple times in series instead of once, in parallel.
 **Direction:** use `asyncio.gather` (or run the sync retrieval calls in a thread pool)
 to parallelize sub-query retrieval.
+
+**Day 17 measurement (2026-11-15, not fixed today): live web search dominates the pre-stream time.**
+Today the loop is in `retrieval/context_assembly.py` (`assemble_context`), and every sub-query's
+`hybrid_retrieve` runs a **live Tavily search** (`search_depth="advanced"`) before the `metadata` frame,
+on every turn: web search is always on (2 results above confidence 60, 3 below).
+- Setup: venv backend, eval Gemini key, local `rag` (round trips ≈ 0.1 ms, so no database cost to
+  speak of), a throwaway account with no documents, `backend/scripts/measure_latency.py`, 15 distinct
+  questions in one session. Tavily was live by accident (Windows PowerShell deletes an empty
+  `$env:TAVILY_API_KEY`, so `.env`'s key was used — hence `WEB_SEARCH_ENABLED`, Day 17).
+- Server-side time to the `metadata` frame: **5.4 s median for the 11 one-sub-query turns; 9.2–11.1 s
+  for the 4 two-sub-query turns** — about 4.3 s more per extra sub-query, paid in series.
+- Steps timed in-process for 2 turns with Tavily forced off (web results from the Redis cache the run
+  filled): semantic-cache lookup ~0.5 s, query embedding ~0.5 s and search ~55–60 ms per sub-query,
+  web-chunk embedding 0–0.75 s, the rest ~0 → **~1.1 s per one-sub-query turn**. So **live Tavily ≈
+  3.8–4.3 s per sub-query**, three quarters or more of the turn.
+- It explains most of Day 14's chat latency on Render (chat → `metadata` 9.2 s p50 on v0.2.2, of
+  which the database round trips CO6 removed were ≈ 2.1 s).
+- Two directions:
+  1. **Parallelize** sub-queries and their web searches (this item): a two-part question would cost
+     one Tavily wait instead of two.
+  2. **Search the web only when it's needed** instead of on every turn. That needs a retrieval signal
+     that actually predicts relevance — today's confidence doesn't (B2, AUC 0.332; a fully covering
+     PDF scored 46, an unrelated one 72) — so it depends on Day 26's confidence replacement.
 
 ### CO3 — No embedding cache keyed by content hash (P2)
 Nothing in `embedding_service.py` or `index_builder.py` caches embeddings by a hash of
@@ -713,6 +757,20 @@ gets "strict" grounding, so it is never logged as a failed query.
 - For Day 26: judge relevance on an absolute signal (raw cosine of the best chunk, or a reranker /
   LLM relevance check), not on a score normalised within the candidate set; include a
   "one small unrelated document" case in the eval.
+
+**Day 17 evidence (2026-11-15, live, concept maps):** the same score is wrong in the other direction
+too — it doesn't rise when the documents fully cover the topic.
+- Setup: local `rag`, venv backend with the eval key, web search off, one throwaway account whose only
+  document was a 3-page demo PDF on photosynthesis (light-dependent reactions, Calvin cycle, limiting
+  factors — one per page).
+- A documents-only concept map on "Photosynthesis" — a topic the PDF covers completely, nodes citing
+  the right pages — was stored with **confidence 46.28** (shown as "46% confident").
+- Unrelated topics ("French Revolution", "Cellular respiration") also retrieve chunks, since vector
+  search always returns the nearest ones; the map is refused only because the extractor model flags
+  the passages as off-topic (Day 17), not because of the score. Day 17 deliberately did not add a
+  similarity threshold: there is no calibration data (see E4 above).
+- So the heuristic neither drops for unrelated context (Day 16) nor rises for complete coverage (Day 17):
+  more evidence for replacing it on Day 26 rather than re-tuning it.
 
 ### B3 — Image and PPTX table extraction is silently disabled by an OpenCV wheel clash (P1)
 Three OpenCV wheels are pinned in `requirements.txt`: `opencv-python`, `opencv-python-headless`

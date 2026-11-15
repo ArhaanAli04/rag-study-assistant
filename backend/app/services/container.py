@@ -84,6 +84,7 @@ def build_services() -> Services:
         chunk_search=PgChunkSearch(ReadOnlyAutocommitSession),
         query_cache=QueryCache(redis_client),
         web_cache=WebCache(redis_client),
+        web_search_enabled=settings.WEB_SEARCH_ENABLED,
     )
     generation_model = settings.GEMINI_GENERATION_MODEL
     llm_client = LLMClient(gemini_client, generation_model)

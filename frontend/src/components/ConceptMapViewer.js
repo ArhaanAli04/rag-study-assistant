@@ -12,6 +12,7 @@ import dagre from 'dagre';
 import { toPng, toJpeg } from 'html-to-image';
 import 'reactflow/dist/style.css';
 import ConceptNodeDetails from './ConceptNodeDetails';
+import { formatConfidence } from '../utils/formatConfidence';
 import ConceptMapControls from './ConceptMapControls';
 
 const ConceptMapViewerInner = ({ mapData, onBack, onDelete }) => {
@@ -346,7 +347,7 @@ const ConceptMapViewerInner = ({ mapData, onBack, onDelete }) => {
         <div className="metadata-item">
           <span className="metadata-label">Confidence:</span>
           <span className="metadata-value">
-            {mapData.metadata.confidence}%
+            {formatConfidence(mapData.metadata.confidence)}
           </span>
         </div>
       </div>

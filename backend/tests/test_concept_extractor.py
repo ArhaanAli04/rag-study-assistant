@@ -45,7 +45,8 @@ def test_the_context_numbers_each_block_with_file_and_page(extractor: ConceptExt
     assert "[D1] biology_notes.pdf — p. 4:" in context
     assert "[D3] week 3, plants.pdf — p. 2:" in context
     assert f"[W1] Photosynthesis ({WIKI}):" in context
-    assert evidence.blocks["D3"] == ("document", "week 3, plants.pdf — p. 2")
+    kind, label, _ = evidence.blocks["D3"]
+    assert (kind, label) == ("document", "week 3, plants.pdf — p. 2")
 
 
 @pytest.mark.parametrize(("cited", "expected"), [
@@ -62,6 +63,35 @@ def test_cited_ids_resolve_to_blocks_and_unknown_ones_are_dropped(
     _, evidence = extractor.build_context(RETRIEVAL)
 
     assert evidence.resolve(cited) == expected
+
+
+def test_sources_are_sorted_by_file_and_page_then_urls() -> None:
+    # The model cites in any order; the node details read best in page order ("p. 2" before "p. 10").
+    retrieval = {
+        "document_results": [
+            _doc("notes.pdf", 10, "Limiting factors. " * 10),
+            _doc("notes.pdf", 3, "Calvin cycle. " * 10),
+            _doc("notes.pdf", 2, "Light reactions. " * 10),
+            _doc("atlas.pdf", 7, "Leaves. " * 10),
+        ],
+        "web_results": [{"text": "Web text. " * 10, "metadata": {"url": WIKI, "title": "Photosynthesis"}}],
+    }
+    _, evidence = ConceptExtractor(FakeGenaiClient(), "fake-model").build_context(retrieval)
+
+    assert evidence.resolve(["W1", "D1", "D2", "D4", "D3"]) == ("both", [
+        "atlas.pdf — p. 7", "notes.pdf — p. 2", "notes.pdf — p. 3", "notes.pdf — p. 10", WIKI,
+    ])
+
+
+def test_an_off_topic_reply_returns_no_nodes_and_the_flag(gemini: FakeGemini) -> None:
+    gemini.replies.append(json.dumps({"topic": "French Revolution", "off_topic": True, "nodes": [], "edges": []}))
+
+    result = ConceptExtractor(FakeGenaiClient(), "fake-model").extract_concepts_from_hybrid_sources(
+        "French Revolution", RETRIEVAL
+    )
+
+    assert result["off_topic"] is True
+    assert result["nodes"] == []
 
 
 def test_a_page_less_chunk_is_labelled_by_file_name() -> None:

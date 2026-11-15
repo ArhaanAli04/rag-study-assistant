@@ -122,3 +122,23 @@ per-user filtering in one move.
   - [ ] Terminal card: reindex dry run → `--apply` → `--all` with "0 embedding requests"
 - Lesson / quote: "I trusted the API's own `retryDelay` and it told me 0 seconds. The limit counts every text in a batch, so the client has to pace itself — the server's hint only says when one request might get through."
 - Concept source: docs/briefs/day16.md#the-concept
+
+### Day 17 — 2026-11-15 — Concept maps use your documents (R5) — release v0.3.0 (entry before the release; release numbers added after it)
+- Takeaway: concept maps can now be built from your own uploaded notes, and every concept says which file and page it came from. The model cites numbered passages and the app looks them up, so it can't invent a source; and when your notes don't cover a topic, it says so instead of stretching unrelated notes into a map.
+- Numbers:
+  - Live check (eval key, local, a 3-page demo PDF: light reactions / Calvin cycle / limiting factors, one per page): every concept of a "Photosynthesis" map cited the right page (Light-Dependent Reactions → p. 1 + p. 3, Calvin Cycle → p. 2 + p. 3, Limiting Factors → p. 3).
+  - Before the off-topic fix, "French Revolution" on that photosynthesis PDF still produced a map: vector search always returns the nearest passages, so retrieval never comes back empty while the user has any document. After it: refused ("Your documents don't seem to cover 'French Revolution'…"), and so was "Cellular respiration"; "Calvin cycle" (narrower, covered) still built 11 concepts / 11 connections.
+  - The same map's stored retrieval confidence: 46 (out of 100) for a PDF that covers the topic completely; a 3-page unrelated document scored 72 on Day 16. The confidence score doesn't track relevance (B2, replaced on Day 26).
+  - Bug found by a test: a constant `doc_version` = 0 in the concept-map call kept serving a deleted document's chunks from the retrieval cache (the test fails with the old constant, passes with the fix).
+  - Tests 363 → 381 (backend), 20 → 42 (frontend).
+  - Render latency (CO6, Day 16's 33 → 11 round trips): to be measured at the release with `backend/scripts/measure_latency.py`; Day 14's v0.2.2 baseline is `/me` 256 ms p50, chat → metadata 9.2 s p50.
+- Capture now (only what depends on today's app state and can't be recreated later):
+  - [x] `docs/posts/assets/post03-concept-map-documents.png` — the "Photosynthesis" map built from the demo PDF, with an open node showing "📄 file · page N" (owner, local live check)
+  - [ ] At the release: the Documents page after re-uploading `f1_deferred_fixes.pdf` ("searchable again", badge gone), and the latency report from Render
+- Make when writing the post (recreatable any time from git, the brief or this log):
+  - [ ] Diagram: numbered evidence — `[D1] notes.pdf — p. 4` in the prompt → the model returns `source_ids` → code resolves them, drops unknown ids
+  - [ ] Before/after card: "French Revolution" on a photosynthesis PDF — a map from unrelated notes vs. the off-topic message
+  - [ ] Code card: the cache key `(user, query, doc_version, include_web)` and the one-line bug (`doc_version=0`)
+  - [ ] Table card: Render latency before (v0.2.2, Day 14) / after (v0.3.0) for `/me`, chat → metadata, chat → total
+- Lesson / quote: "My plan said an unrelated topic would get 'nothing found'. Vector search always finds something, so the empty state never happened until we asked the model whether the passages were actually about the topic."
+- Concept source: docs/briefs/day17.md#the-concept

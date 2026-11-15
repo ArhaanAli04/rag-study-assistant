@@ -90,6 +90,7 @@ test("if the documents can't be loaded the card says so and web search still wor
 
 test.each([
   [422, "No passages in your documents match this topic. Try another topic or turn on web search."],
+  [422, "Your documents don't seem to cover 'French Revolution'. Try another topic or turn on web search."],
   [502, "Couldn't build a concept map from the passages found. Try again or rephrase the topic."],
 ])("a %i from generate shows the server's message in the error box", async (status, detail) => {
   mockApi({ documents: () => respond(200, [INDEXED]), generate: () => respond(status, { detail }) });

@@ -1,0 +1,74 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Post 02 retrieval to answers</title>
+<link rel="stylesheet" href="brand.css">
+<style>
+  /* Numbers: docs/posts/02-measuring-retrieval.md, Day 12 material log (generation eval, faith-v2 judge).
+     Series colors validated with the dataviz palette script on the window surface #1e1e2e (all checks pass). */
+  :root { --s1: #4f86e8; --s2: #d9723a; }
+
+  .lead { font-size: 40px; font-weight: 700; letter-spacing: -0.8px; line-height: 1.15; }
+  .lead span { color: var(--ink-soft); font-weight: 500; font-size: 22px; display: block; margin-top: 12px; letter-spacing: 0; }
+
+  .chart { padding: 30px 40px 34px; color: var(--code); }
+  .legend { display: flex; gap: 32px; font-size: 18px; margin-bottom: 64px; }
+  .legend i { display: inline-block; width: 14px; height: 14px; border-radius: 4px; margin-right: 10px; vertical-align: -1px; }
+
+  .plot { position: relative; height: 340px; display: flex; gap: 70px; padding: 0 40px; border-bottom: 1px solid rgba(205,214,244,0.25); }
+  .grid { position: absolute; left: 0; right: 0; border-top: 1px dashed rgba(205,214,244,0.10); }
+  .grid b { position: absolute; left: -34px; top: -10px; font: 400 14px "JetBrains Mono", monospace; color: var(--code-muted); }
+  .group { flex: 1; display: flex; align-items: flex-end; justify-content: center; gap: 4px; position: relative; z-index: 1; }
+  .col { width: 120px; border-radius: 6px 6px 0 0; position: relative; }
+  .col.s1 { background: var(--s1); }
+  .col.s2 { background: var(--s2); }
+  .col span { position: absolute; top: -36px; left: 0; right: 0; text-align: center; font: 600 24px "JetBrains Mono", monospace; color: var(--code); }
+  .labels { display: flex; gap: 70px; padding: 14px 40px 0; }
+  .labels div { flex: 1; text-align: center; font-size: 20px; font-weight: 500; }
+  .note { margin-top: 18px; font-size: 15px; color: var(--code-muted); }
+  .foot { font-size: 18px; color: var(--ink-soft); line-height: 1.5; }
+</style>
+</head>
+<body>
+  <header class="brand">
+    <span class="mark"><i></i>RAG Study Assistant</span>
+    <span class="post">02</span>
+  </header>
+
+  <main class="stack">
+    <div class="lead">Better retrieval → better answers.
+      <span>55 answerable questions, each answer graded claim by claim by an LLM judge</span></div>
+
+    <section class="window">
+      <div class="bar">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <div class="title">generation eval · <b>did the right page reach the model?</b></div>
+      </div>
+      <div class="chart">
+        <div class="legend">
+          <span><i style="background: var(--s1)"></i>Right page in the context (n = 50)</span>
+          <span><i style="background: var(--s2)"></i>Right page missing (n = 5)</span>
+        </div>
+        <!-- 340px plot = 0..1; bar heights are value × 340 -->
+        <div class="plot">
+          <div class="grid" style="top: 0"><b>1.0</b></div>
+          <div class="grid" style="top: 170px"><b>0.5</b></div>
+          <div class="group">
+            <div class="col s1" style="height: 332px"><span>0.976</span></div>
+            <div class="col s2" style="height: 258px"><span>0.760</span></div>
+          </div>
+          <div class="group">
+            <div class="col s1" style="height: 340px"><span>100%</span></div>
+            <div class="col s2" style="height: 272px"><span>80%</span></div>
+          </div>
+        </div>
+        <div class="labels"><div>Faithfulness<br><small style="color: var(--code-muted); font-size: 15px; font-weight: 400">claims backed by the context</small></div><div>Fully relevant answers<br><small style="color: var(--code-muted); font-size: 15px; font-weight: 400">answers the question asked</small></div></div>
+        <div class="note">n = 5 is small: read the gap as a direction, not a precise size.</div>
+      </div>
+    </section>
+
+    <p class="foot">If the right chunk never reaches the prompt, no prompt change can fix the answer.</p>
+  </main>
+</body>
+</html>

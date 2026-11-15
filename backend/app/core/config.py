@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     GEMINI_GENERATION_MODEL: str = DEFAULT_GENERATION_MODEL
     # Empty means web search is off: WebSearchClient refuses and retrieval skips web chunks.
     TAVILY_API_KEY: SecretStr = SecretStr("")
+    # The switch for local checks (Day 17): Windows PowerShell can't hold an empty variable
+    # (`$env:TAVILY_API_KEY = ""` deletes it), so "no key" fell back to .env's real one and a "web
+    # off" run made 21 live Tavily searches. false = no web client call anywhere in retrieval.
+    WEB_SEARCH_ENABLED: bool = True
 
     JWT_SECRET_KEY: SecretStr
     JWT_ALGORITHM: str = "HS256"

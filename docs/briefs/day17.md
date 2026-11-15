@@ -234,47 +234,191 @@ local numbers can't, because local round trips are ~0.1 ms instead of ~63 ms.
 
 - `python -m pytest -q` on `rag_test` (suite 363 → ~370), `ruff check .`, `npm test -- --watchAll=false`
   (20 → ~25), `npm run build`.
-- Live, local Docker stack with the fake-free stack (real Gemini dev key): upload a demo PDF → generate
-  a documents-only map on its subject → every node shows the PDF and a page that exists; generate with
-  web off on an unrelated topic → the 422 message; delete the PDF → same topic → 422.
+- **Live, in a real browser** (owner's change 1, 2026-11-15) — **never the Docker backend**: it reads
+  `.env`'s production Gemini key. The venv backend on a spare port (:8001) with the **eval** key on local
+  `rag`; a second frontend dev server (:3001) with `REACT_APP_API_URL=http://localhost:8001`; a
+  throwaway account, deleted afterwards (confirmed); a demo PDF only. **Correction:** the plan said
+  "Tavily off", started as `$env:TAVILY_API_KEY = ""` — in Windows PowerShell that *deletes* the
+  variable, so the app used `.env`'s real Tavily key on every :8001 run. Effect: **none in this
+  concept-map check** (documents-only maps skip the web — `include_web=False` — and no `websearch:*`
+  key from its time window exists), **21 live Tavily searches in the latency run** (below). Since then
+  the switch is `WEB_SEARCH_ENABLED=false` in the shell (new setting, Day 17), for every local check:
+  1. before any upload: the card says "No indexed documents yet", the link goes to `/documents`;
+  2. upload a small PDF → "Search your 1 indexed document", on by default;
+  3. documents-only map on the PDF's subject → open 2–3 nodes: each shows the PDF and a page, and the
+     page really covers that concept (spot-check against the PDF). Screenshot (map + an open node with
+     "📄 file · page N") to `docs/posts/assets/` (gitignored) for post 3;
+  4. documents-only map on an unrelated topic → the 422 message in the error box;
+  5. delete the PDF → the same topic → 422.
+
+  **Results (2026-11-15, owner in the browser; :8001 eval key + :3001; account 27; demo PDF
+  `photosynthesis-demo.pdf`, 3 pages built with PyMuPDF — light reactions / Calvin cycle / limiting
+  factors, one per page):**
+  1. pass — "No indexed documents yet", link to `/documents`.
+  2. pass — "Search your 1 indexed document", on by default.
+  3. pass — "Photosynthesis": Light-Dependent Reactions → p. 1 + p. 3, Calvin Cycle → p. 3 + p. 2,
+     Limiting Factors → p. 3. The right page always present; the extra p. 3 justified (it covers light
+     and CO₂ limiting those stages). Screenshot `docs/posts/assets/post03-concept-map-documents.png`.
+  4. **fail, then fixed** — "French Revolution", documents only, built a map from photosynthesis text:
+     vector search always returns the nearest chunks, so "nothing found" (422) only happens with no
+     chunks at all. Owner's fix (no similarity threshold — no calibration data, B2): the extractor
+     prompt asks the model for `off_topic: true` + no concepts when the passages don't discuss the
+     topic; the service turns it into 422 "Your documents don't seem to cover '<topic>'. Try another
+     topic or turn on web search.", nothing saved. Also: node sources sorted by file and page, then URLs.
+     Re-run after the fix: "French Revolution" → that message (pass); "Photosynthesis" → still a map,
+     Calvin Cycle now "page 2, page 3" (pass); "Calvin cycle" → 11 concepts / 11 connections, so a
+     narrower topic isn't refused (pass); "Cellular respiration" → refused with the off-topic message
+     (correct: the PDF doesn't cover it).
+  5. pass — after deleting the PDF the "Your documents" card is disabled ("No indexed documents yet" +
+     the upload link), so the UI never sends the request; the API's 422 for it is covered by
+     `test_concept_maps.py`.
+  - Found: the map list showed "46.282801862394514% confident" → rounded to a whole percent in the list
+    and the viewer (`utils/formatConfidence.js`). The 46 itself, for a PDF that fully covers the topic,
+    is recorded under B2 in `docs/improvements.md` (Day 26 replaces the heuristic).
+  - Clean-up: account 27 deleted through `DELETE /user/delete` (4 maps; the PDF was already deleted);
+    afterwards 0 rows for user 27 in all 7 tables, no orphaned map nodes, no `backend/uploads/27/`, no
+    `semantic_cache:27` in Redis DB 0 or 1; login refused (401). Both servers stopped.
 - No retrieval-quality change: `hybrid_retrieve`'s default path is untouched (`include_web=True`), so no
   E4 re-run is needed; one E4 baseline run is optional as a regression check (0 API calls, cached).
-- Release (CP4): CO6 on Render — `/me` n = 30 and chat n ≥ 15, compared with Day 14's numbers in the
-  Day 14 brief; the live checks in the runbook.
+- Release (CP4): CO6 on Render with `backend/scripts/measure_latency.py` (owner's change 2): warm-up
+  first and discarded; 30 × `/health`, 30 × `/me`; **15 distinct chat questions** (a repeat is replayed
+  from the semantic cache, CO5 — the script also detects a replay and excludes it); per turn the time to
+  the first `metadata` frame and to `[DONE]`; median / p90 for `/me`, chat → metadata, chat → total. The
+  token comes from `RAG_LATENCY_TOKEN` and is never printed (httpx's URL logging is silenced: chat URLs
+  carry `?token=`). Compared in the Outcome with Day 14's v0.2.2 numbers: `/me` 256.4 ms p50, chat →
+  metadata 9170 ms p50 (+1.45 s over SQLite). Method note: all turns go to one session created by the
+  warm-up turn, so none pays for topic tagging; Day 14's n = 5 turns don't record which they did.
+- **Script check, local (2026-11-15):** :8001 (venv, eval key, local `rag`), throwaway account 28
+  (deleted afterwards: 0 rows in 7 tables, no Redis key, login 401), `--n 3 --chat 15`. 15 fresh turns,
+  0 replayed, 0 failed — confirmed server-side: `semantic_cache:28` held 16 entries (one per fresh
+  answer), 1 session, 32 messages, 16 distinct questions. Report: `/me` p50 15.4 / p90 20.1 ms; chat →
+  metadata p50 8113 / p90 12018 ms; chat → [DONE] p50 9604 / p90 13573 ms. **Not CO6 numbers** (local
+  round trips ≈ 0.1 ms), and inflated by two things found when the owner asked where 8 s went:
+  - **The script itself, ~2.05 s per turn on turns 2–15** (client time − the server's
+    `REQ GET /chat/stream … ms`, which matched within 15 ms on turn 1; the /health p90 of 2079 ms is
+    the same). It stopped reading each stream at `[DONE]`, so httpx closed the connection and every
+    next request reconnected — on Windows' `localhost` apparently ~2 s (IPv6 tried first, uvicorn on
+    127.0.0.1; not verified), on Render a TLS handshake. **Fixed:** read to the end;
+    `tests/test_measure_latency.py` runs a real local HTTP/1.1 server and counts connections (3 → 1);
+    re-run below.
+  - **Live Tavily on every sub-query** (the PowerShell mistake above): 21 searches = 16 questions + 5
+    second sub-queries; all 21 `websearch:*` keys created 18:34–18:37. Step breakdown, from the run's
+    log plus a scratch harness that timed 2 turns in-process (Tavily forced off, web results from that
+    Redis cache, throwaway user 29 deleted): semantic-cache lookup ~0.5 s (its embedding), open turn
+    ~25–35 ms, per sub-query query embedding ~0.5 s + search ~55–60 ms, web-chunk embedding 0–0.75 s
+    (47 cached web texts over 21 searches; median 0 — the domain allowlist drops most results),
+    topic tagging 0 (849 ms when it runs), prompt build ~0. A 1-sub-query turn took 5.4 s server-side
+    (median of 11) vs ~1.1 s in the harness → **live Tavily ≈ 3.8–4.3 s per sub-query**; the 4
+    two-sub-query turns took 9.2–11.1 s. Recorded under CO2 in `docs/improvements.md`; production
+    does this on every turn (web search is always on), which explains most of Day 14's chat latency.
+  - **No 429 / retry** in the run's log or the harness; the Day 16 pacing (100 texts / 60 s) and the
+    60 s 429 wait apply only to the upload embedder (`container.py`: the chat-path embedder has
+    `max_attempts=1`, no `texts_per_minute`).
+- **Re-run with the fixed script and `WEB_SEARCH_ENABLED=false`** (same setup, throwaway account 30,
+  deleted afterwards: 0 rows in 7 tables, no Redis key, login 401): 15 fresh, 0 replayed, 0 failed
+  (`semantic_cache:30` 16 entries, 16 distinct questions); `websearch:*` keys 21 → 21, so 0 Tavily
+  calls. **Client − server per turn: 4–6 ms on all 15 turns** (was 2019–2088 ms on turns 2–15).
+  | Metric (local, eval key, no web) | p50 ms | p90 ms |
+  |---|---|---|
+  | /health (n = 3) | 3.7 | 5.2 |
+  | /me (n = 3) | 13.9 | 16.9 |
+  | chat → metadata (n = 15) | 971.9 | 1442.9 |
+  | chat → [DONE] (n = 15) | 2640.7 | 3062.6 |
+
+  The four ~1.43 s turns are the four two-sub-query questions (one more ~0.47 s query embedding each).
 
 ## Release runbook v0.3.0 (owner-run)
 
+PowerShell from the repo root unless a step says otherwise. Never print a URL, key or `.env` value:
+every secret goes into an env var through `Read-Host -AsSecureString` (not echoed, not on any command
+line, not in shell history) and is removed afterwards.
+
 1. **Before the PR:** Day 17 merged into `develop`, CI green. `rag_staging` at `21f0595f83d5`
    (`alembic current` in a staging shell).
-2. **Render env vars, before merging to master** (Render → service → Environment):
+2. **Back up production's `rag` schema** (owner's change 3) with the compose image's `pg_dump`
+   (`pgvector/pgvector:0.8.2-pg17`, Postgres 17 = Supabase's 17.11, nothing to install). Production's
+   URL isn't in `.env`: copy `rag_app`'s session-pooler URL from Render's `DATABASE_URL`. The dump goes
+   to `backend/data/backups/` (gitignored by `data/`, checked with `git check-ignore`):
+   ```powershell
+   $secure = Read-Host "Production DATABASE_URL (rag_app, session pooler)" -AsSecureString
+   # pg_dump wants libpq's scheme, not SQLAlchemy's postgresql+psycopg://
+   $env:DUMP_URL = ([System.Net.NetworkCredential]::new('', $secure).Password) -replace '^postgresql\+psycopg://', 'postgresql://'
+   Remove-Variable secure
+   New-Item -ItemType Directory -Force backend\data\backups | Out-Null
+   # -e DUMP_URL without a value passes the variable from this shell; it never appears on the command line
+   docker run --rm -e DUMP_URL -v "${PWD}\backend\data\backups:/backup" pgvector/pgvector:0.8.2-pg17 sh -c 'pg_dump "$DUMP_URL" --schema=rag --format=custom --no-owner --file=/backup/rag-prod-v0.2.2-2026-11-15.dump'
+   Remove-Item Env:DUMP_URL
+   # Verify: table names from the dump's table of contents — no rows are printed
+   docker run --rm -v "${PWD}\backend\data\backups:/backup" pgvector/pgvector:0.8.2-pg17 pg_restore --list /backup/rag-prod-v0.2.2-2026-11-15.dump | Select-String ' TABLE (DATA )?rag '
+   ```
+   Expect 8 tables, each as `TABLE` and `TABLE DATA`: `users`, `sessions`, `messages`, `documents`,
+   `failed_queries`, `concept_maps`, `concept_map_nodes` and `alembic_version` (no `document_chunks`
+   yet — v0.2.2 is at `7cb8829683ab`). A non-zero exit or a missing table → stop.
+3. **Render env vars, before merging to master** (Render → service → Environment):
    `STORAGE_BACKEND=supabase`, `STORAGE_BUCKET=rag-prod`, `SUPABASE_S3_ENDPOINT`, `SUPABASE_S3_REGION`,
    `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY` (values from `.env`; pasted only into
-   Render). Check the `rag-prod` bucket exists and is private. Saving env vars redeploys **v0.2.2**,
-   which ignores them — harmless.
-3. **Release PR:** `gh pr create --base master --head develop --title "release v0.3.0"`; CI green;
-   `gh pr merge <N> --merge`. Render auto-deploys `master`; the CMD runs `alembic upgrade head`
-   (three revisions; `document_chunks` is empty, so the HNSW build is instant).
-4. **Watch the deploy log:** three "Running upgrade" lines, then uvicorn up; `GET /health` 200.
-5. **Live check (demo documents only):** log in → Documents shows v0.2.2 rows "Not searchable yet" →
-   upload a demo PDF (status `new`, passages > 0) → chat question cites it → **restart the Render
-   service** → a *new* question still cites it → concept map with "Your documents" on → nodes cite the
-   PDF with pages → delete the PDF → Supabase dashboard → Storage → `rag-prod`: the object is gone.
-6. **Reindex dry run** from a dev shell with production's `DATABASE_URL` / `DATABASE_SCHEMA=rag` /
-   `STORAGE_BACKEND=supabase` (+ bucket `rag-prod`) for that shell only:
-   `cd backend; python -m scripts.reindex_all` → expect "skipped: file missing" for v0.2.2 rows. No
-   `--apply`.
-7. **CO6 latency:** `python -m scripts.measure_latency --base-url https://rag-study-assistant-api.onrender.com`
-   with a demo account's token in the env var; warm the service first; n = 30 `/me`, n = 15 chat turns.
-8. **Tag:** `git checkout master; git pull origin master; git tag v0.3.0; git push origin v0.3.0`.
-9. **Then** a PR `master` → `develop` is not needed (release merge only).
+   Render). Saving env vars redeploys **v0.2.2**, which ignores them — harmless.
+   **Then check the bucket** (owner's change 5): Supabase dashboard → Storage → `rag-prod` exists and is
+   marked **Private** (not Public). If it's missing or public, stop: without it every upload returns 503.
+4. **Release PR:** `gh pr create --base master --head develop --title "release v0.3.0" --body "…"`;
+   wait for `backend`, `frontend`, `docker` green (`gh pr checks <N> --watch`); then
+   `gh pr merge <N> --merge` — **never `--delete-branch`** (it would delete `develop`). Render
+   auto-deploys `master`; the CMD runs `alembic upgrade head` (three revisions: `9e72706d7449`,
+   `500c410270f5`, `21f0595f83d5`; `document_chunks` is empty, so the HNSW build is instant).
+5. **Watch the deploy log:** three "Running upgrade" lines, then uvicorn up; `GET /health` 200.
+6. **Live check** (a demo account and demo documents, plus one real v0.2.2 document — owner's change 4):
+   1. log in → Documents shows the v0.2.2 rows with "Not searchable yet";
+   2. **re-upload `f1_deferred_fixes.pdf`** (one of the owner's v0.2.2 rows) → notice says it is
+      searchable again (status `reindexed`), the badge is gone → a **new** question about it cites it;
+   3. upload a demo PDF (status `new`, passages > 0) → a chat question cites it;
+   4. **restart the Render service** (Manual Deploy → Restart) → a *new* question still cites it;
+   5. Concept maps → "Your documents" is on → a documents-only map on the demo PDF's subject → nodes
+      show the PDF with pages;
+   6. delete the demo PDF → Supabase dashboard → Storage → `rag-prod` → `uploads/<user id>/`: its object
+      is gone (the re-uploaded `f1_deferred_fixes.pdf` stays).
+7. **Reindex dry run** (owner's change 5) — production's settings for this shell only, **no `--apply`**:
+   ```powershell
+   .\venv\Scripts\Activate.ps1
+   Set-Location backend
+   $secure = Read-Host "Production DATABASE_URL (rag_app, postgresql+psycopg://)" -AsSecureString
+   $env:DATABASE_URL = [System.Net.NetworkCredential]::new('', $secure).Password
+   Remove-Variable secure
+   $env:DATABASE_SCHEMA = "rag"; $env:STORAGE_BACKEND = "supabase"; $env:STORAGE_BUCKET = "rag-prod"
+   python -m scripts.reindex_all
+   Remove-Item Env:DATABASE_URL, Env:DATABASE_SCHEMA, Env:STORAGE_BACKEND, Env:STORAGE_BUCKET
+   Set-Location ..
+   ```
+   The S3 credentials come from `.env` (the same key serves both buckets). Expect every v0.2.2 row
+   "skipped: file missing" except the one re-uploaded in step 6 (it has chunks, so it isn't listed).
+8. **CO6 latency** (a demo account; its token from the browser's `localStorage` after login). On Render
+   web search is on, as in production, so the chat numbers include ~4 s of Tavily per sub-query — the
+   same as Day 14's, so the before/after stays comparable; CO6's change shows as the difference:
+   ```powershell
+   .\venv\Scripts\Activate.ps1
+   Set-Location backend
+   $secure = Read-Host "Demo account JWT" -AsSecureString
+   $env:RAG_LATENCY_TOKEN = [System.Net.NetworkCredential]::new('', $secure).Password
+   Remove-Variable secure
+   python -m scripts.measure_latency --base-url https://rag-study-assistant-api.onrender.com
+   Remove-Item Env:RAG_LATENCY_TOKEN
+   Set-Location ..
+   ```
+   16 chat turns (1 warm-up + 15) spend production's Gemini free tier; run it once.
+9. **Tag** (owner's change 5 — annotated):
+   ```powershell
+   git checkout master; git pull origin master
+   git tag -a v0.3.0 -m "v0.3.0 - persistent search and files, faster uploads and chat, concept maps from your documents"
+   git push origin v0.3.0
+   ```
 10. **Release notes:** documents uploaded before v0.3.0 must be uploaded again ("Not searchable yet");
-    from now on uploads survive restarts and deploys.
+    from now on uploads survive restarts and deploys; concept maps can use your documents.
 - **No Redis flush** (user ids weren't reset; G9's condition doesn't apply).
 - **Rollback:** the v0.2.2 image refuses to start on a schema at `21f0595f83d5`
   (`assert_schema_at_head`), so redeploying it is not a rollback. Plan: forward-fix on a hotfix branch.
   Storage-only problem: set `STORAGE_BACKEND=local` on Render (uploads work but don't survive restarts —
   v0.2.2's behaviour). Last resort: an owner-run `alembic downgrade 7cb8829683ab` on `rag` (drops
-  `document_chunks` — loses every chunk indexed since the deploy), then redeploy v0.2.2.
+  `document_chunks` — loses every chunk indexed since the deploy), then redeploy v0.2.2; step 2's dump
+  restores the v0.2.2 rows if a downgrade goes wrong (`pg_restore --clean --schema=rag`).
 
 ## Risks & open questions
 
@@ -284,9 +428,10 @@ local numbers can't, because local round trips are ~0.1 ms instead of ~63 ms.
   production's Gemini free tier (per text) — use a small demo PDF.
 - **Render free tier spin-down** inflates the first latency samples — warm up first, discard the first
   request.
-- The three untracked `docs/posts/templates/post02-*.html` files are from an earlier day (post 2) — not
-  part of Day 17; commit them separately or leave them.
+- The three untracked `docs/posts/templates/post02-*.html` files (post 2 images) go in the Checkpoint 3
+  commit (owner's change 6), docs only.
 - Timeline wording to fix later (not today): "two revisions" → three; "run the reindex" → dry run.
-- `ConceptExtractor` still uses bare `except Exception` in `extract_concepts_from_context` (`:347`) for
-  the Gemini call; narrowing it means knowing `google-genai`'s error types — done only if I touch that
-  block for D1 (I will), otherwise recorded.
+- Resolved in CP1: `ConceptExtractor`'s Gemini call now catches `genai_errors.APIError` and
+  `httpx.HTTPError` only.
+- Found in CP1, left as is: `retrieval_service.py`'s web step in `hybrid_retrieve` still catches bare
+  `Exception`; it could use `WEB_SEARCH_ERRORS` now.

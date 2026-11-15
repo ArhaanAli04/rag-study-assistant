@@ -137,7 +137,12 @@ class RetrievalService:
         Runs web search, filters to credible domains, optionally scrapes,
         chunks content, and returns:
         [{"text": ..., "metadata": {...}, "embedding": [...]}, ...]
+
+        Nothing when web search is off — checked here, not only in hybrid_retrieve, because a
+        web-only concept map calls this directly (WEB_SEARCH_ENABLED=false must mean no web call).
         """
+        if not self.web_search_enabled:
+            return []
         # 1) Redis cache for web search results (without embeddings)
         cached = self.web_cache.get(query)
         if cached is not None:

@@ -17,6 +17,8 @@ TOPIC = "retrieval augmented generation pipeline for uploaded documents"
 
 def concept_reply(*source_ids: str) -> str:
     return json.dumps({
+        "topic": TOPIC,
+        "off_topic": False,
         "nodes": [
             {"id": "rag", "label": "RAG pipeline", "definition": "Retrieve, then generate.", "source_ids": list(source_ids)},
             {"id": "chunking", "label": "Chunking", "definition": "Splitting documents.", "source_ids": ["D99"]},
@@ -55,6 +57,24 @@ def test_a_documents_only_map_cites_the_uploaded_file_and_page_and_never_searche
 
     detail = client.get(f"/api/concepts/maps/{body['map_id']}", headers=account.headers).json()
     assert {n["id"]: n["sources"] for n in detail["nodes"]}["rag"] == nodes["rag"]["sources"]
+
+
+def test_a_topic_the_documents_dont_cover_is_refused_and_not_saved(
+    client: Any, account: Account, gemini: FakeGemini
+) -> None:
+    # Day 17 live check: vector search returned the nearest (photosynthesis) chunks for "French
+    # Revolution" and a map was built from them. The model now flags it and nothing is saved.
+    assert upload(client, account).status_code == 200
+    gemini.replies.append(json.dumps({"topic": "French Revolution", "off_topic": True, "nodes": [], "edges": []}))
+
+    generated = generate(client, account, topic="French Revolution")
+
+    assert generated.status_code == 422, generated.text
+    assert generated.json()["detail"] == (
+        "Your documents don't seem to cover 'French Revolution'. Try another topic or turn on web search."
+    )
+    assert "off_topic" in gemini.prompts[-1]  # the model was asked to judge the passages
+    assert client.get("/api/concepts/maps", headers=account.headers).json()["maps"] == []
 
 
 def test_a_deleted_document_stops_appearing_in_maps(client: Any, account: Account, gemini: FakeGemini) -> None:

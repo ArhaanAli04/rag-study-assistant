@@ -10,9 +10,11 @@ from dataclasses import dataclass
 from typing import Any, Dict, List, Sequence
 
 import numpy as np
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.repositories import chunks as chunks_repo
+from app.db.repositories import documents as documents_repo
 from app.db.repositories.chunks import NewChunk
 from app.ingestion.chunk_builder import build_chunks_for_file
 from app.ingestion.models import DocumentChunk
@@ -33,13 +35,36 @@ class IndexingResult:
     texts_embedded: int = 0
 
 
-def content_hash(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+class PendingWrites(RuntimeError):
+    """index_document was handed a session with uncommitted writes, which it would have to commit."""
 
 
-def _storable_text(text: str) -> str:
+class DocumentDeleted(Exception):
+    """The document was deleted while it was being embedded; nothing was written."""
+
+
+def content_hash(chunk_text: str) -> str:
+    return hashlib.sha256(chunk_text.encode("utf-8")).hexdigest()
+
+
+def _storable_text(chunk_text: str) -> str:
     # Postgres text can't hold NUL characters, which some PDFs' text layers contain.
-    return text.replace("\x00", "")
+    return chunk_text.replace("\x00", "")
+
+
+def _end_read_transaction(db: Session) -> None:
+    """Commit the session's read-only transaction, so its connection goes back to the pool.
+
+    Refuses pending writes, unflushed or flushed (Postgres assigns a transaction id at the first
+    write), rather than committing them on the caller's behalf.
+    """
+    if db.new or db.dirty or db.deleted:
+        raise PendingWrites("index_document needs a session without pending writes: commit them first")
+    if not db.in_transaction():
+        return
+    if db.execute(text("SELECT pg_current_xact_id_if_assigned() IS NOT NULL")).scalar_one():
+        raise PendingWrites("index_document needs a session without uncommitted writes: commit them first")
+    db.commit()
 
 
 def _stored_metadata(chunk: DocumentChunk) -> Dict[str, Any]:
@@ -71,6 +96,13 @@ class IndexingService:
         ``reuse_embeddings=False`` embeds everything (after a model change, via the reindex script).
         Raises EmbeddingError if any embedding call fails: nothing is written or deleted then, so a
         document is either fully indexed or not at all, and its old chunks stay as they were.
+
+        Transactions (v0.3.1): embedding can take minutes (Day 16's pacing), so no pooled connection
+        may be held through it. After the reuse lookup this **ends the caller's read transaction**
+        (a commit with nothing to write, which also expires the session's loaded objects), and
+        raises PendingWrites instead if the session holds uncommitted writes. The delete + insert
+        then run in a new transaction that the caller commits. It locks the document row first and
+        raises DocumentDeleted, having written nothing, if the document was deleted meanwhile.
         """
         parsed = build_chunks_for_file(
             file_path, subject_tags=subject_tags, document_id=document_id, file_name=file_name
@@ -89,8 +121,12 @@ class IndexingService:
         )
         reused = sum(1 for h in hashes if h in vectors)
         to_embed = {h: c.text for h, c in zip(hashes, kept) if h not in vectors}
+        _end_read_transaction(db)
         if to_embed:
             vectors.update(zip(to_embed, self.embedding_service.embed_texts(list(to_embed.values()))))
+
+        if documents_repo.lock_owned(db, document_id, user_id) is None:
+            raise DocumentDeleted(f"Document {document_id} was deleted while it was being indexed")
 
         rows = [
             NewChunk(

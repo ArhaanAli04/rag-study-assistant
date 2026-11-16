@@ -9,12 +9,14 @@ from app.api.deps import get_current_user, get_db, get_services
 from app.db.models import User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
+from app.db.repositories import users as users_repo
 from app.ingestion.upload_storage import StorageError, UnsafeUploadPath, display_name
 from app.retrieval.embeddings import EmbeddingError
 from app.schemas.documents import SearchRequest
 from app.services import document_service
 from app.services.container import Services
 from app.services.document_service import register_upload
+from app.services.indexing_service import DocumentDeleted
 
 logger = logging.getLogger("rag_assistant.api.documents")
 router = APIRouter(tags=["Documents"])
@@ -23,8 +25,12 @@ ALLOWED_EXTENSIONS = {".pdf", ".pptx", ".docx"}
 MAX_FILE_SIZE_MB = 50
 
 
-async def validate_upload(file: UploadFile) -> None:
-    # Extension check
+def read_validated_upload(file: UploadFile) -> bytes:
+    """The upload's bytes, once its extension and size are checked.
+
+    FastAPI has already received the whole body into file.file (memory or a temp file), so this
+    sync read waits on no network; the route is a plain def and runs in the threadpool anyway.
+    """
     filename = file.filename or ""
     ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
     ext = f".{ext}"
@@ -34,36 +40,34 @@ async def validate_upload(file: UploadFile) -> None:
             detail=f"File type not allowed. Allowed: {', '.join(ALLOWED_EXTENSIONS)}"
         )
 
-    # Size check: read stream into memory once for size (ok for <= 50MB)
-    content = await file.read()
+    content = file.file.read()
     size_mb = len(content) / (1024 * 1024)
     if size_mb > MAX_FILE_SIZE_MB:
         raise HTTPException(
             status_code=413,
             detail=f"File too large ({size_mb:.1f} MB). Max {MAX_FILE_SIZE_MB} MB."
         )
-
-    # Reset file for later processing
-    file.file.seek(0)
+    return content
 
 
 @router.post("/upload")
-async def upload_file(
+def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    await validate_upload(file)
+    content = read_validated_upload(file)
     original_name = display_name(file.filename)
-    content = await file.read()
+    # Plain values: index_document ends the session's transaction, which expires current_user.
+    user_id, doc_version = current_user.id, current_user.doc_version
     try:
-        registered = register_upload(current_user.id, content, original_name, services.file_storage)
+        registered = register_upload(user_id, content, original_name, services.file_storage)
     except (StorageError, UnsafeUploadPath):
-        logger.error("Could not store an upload of user %s", current_user.id, exc_info=True)
+        logger.error("Could not store an upload of user %s", user_id, exc_info=True)
         raise HTTPException(status_code=503, detail="Could not store the file right now. Please try again.")
     doc = registered.document
-    logger.info("Upload %s by user %s: %s, stored as %s", original_name, current_user.id, registered.status, doc.file_path)
+    logger.info("Upload %s by user %s: %s, stored as %s", original_name, user_id, registered.status, doc.file_path)
     if not registered.needs_indexing:
         # I6: an identical re-upload that is already indexed. Re-indexing would re-embed every chunk,
         # and a doc_version bump would empty the user's caches for nothing.
@@ -73,7 +77,7 @@ async def upload_file(
             "status": registered.status,
             "version": doc.version,
             "chunks_indexed": 0,
-            "doc_version": current_user.doc_version,
+            "doc_version": doc_version,
         }
 
     try:
@@ -82,7 +86,7 @@ async def upload_file(
             indexed = services.indexing_service.index_document(
                 db,
                 file_path=str(local_path),
-                user_id=current_user.id,
+                user_id=user_id,
                 document_id=doc.id,
                 document_version=doc.version,
                 file_name=original_name,
@@ -91,13 +95,20 @@ async def upload_file(
     except (EmbeddingError, StorageError):
         # Nothing was written: the row stays without chunks, and re-uploading the file indexes it.
         db.rollback()
-        logger.warning("Indexing document %s of user %s failed", doc.id, current_user.id, exc_info=True)
+        logger.warning("Indexing document %s of user %s failed", doc.id, user_id, exc_info=True)
         raise HTTPException(
             status_code=502, detail="The file was saved but could not be indexed. Please upload it again."
         )
+    except DocumentDeleted:
+        # Nothing was written, and the delete removed the row and its stored files.
+        db.rollback()
+        logger.info("Document %s of user %s was deleted while it was being indexed", doc.id, user_id)
+        raise HTTPException(
+            status_code=409, detail="The file was deleted while it was being indexed. Upload it again to use it."
+        )
 
     # One commit for the chunks and the version bump: caches never see the new version without them.
-    current_user.doc_version += 1
+    new_doc_version = users_repo.increment_doc_version(db, user_id)
     db.commit()
     return {
         "filename": original_name,
@@ -105,36 +116,37 @@ async def upload_file(
         "status": registered.status,
         "version": doc.version,
         "chunks_indexed": indexed.chunks_indexed,
-        "doc_version": current_user.doc_version
+        "doc_version": new_doc_version,
     }
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(
+def delete_document(
     doc_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    deleted = document_service.delete_document(db, current_user.id, doc_id, services.file_storage)
+    user_id = current_user.id  # delete_document commits, which expires current_user
+    deleted = document_service.delete_document(db, user_id, doc_id, services.file_storage)
     if deleted is None:
         raise HTTPException(status_code=404, detail="Document not found")
 
     # The document set changed: every cache keyed on doc_version stops matching, so the deleted
     # file is never cited again, not even from a cached answer.
-    current_user.doc_version += 1
+    new_doc_version = users_repo.increment_doc_version(db, user_id)
     db.commit()
 
     return {
         "status": "deleted",
         "document_id": doc_id,
         "versions_deleted": deleted.versions,
-        "doc_version": current_user.doc_version,
+        "doc_version": new_doc_version,
     }
 
 
 @router.get("/documents")
-async def get_documents(
+def get_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
@@ -162,7 +174,7 @@ async def get_documents(
 
 
 @router.post("/search")
-async def semantic_search(
+def semantic_search(
     body: SearchRequest,
     current_user: User = Depends(get_current_user),
     services: Services = Depends(get_services),

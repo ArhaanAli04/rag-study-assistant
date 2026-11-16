@@ -25,13 +25,13 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.core.gemini import build_gemini_client
-from app.db.models import User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
+from app.db.repositories import users as users_repo
 from app.ingestion.upload_storage import FileStorage, StorageError
 from app.retrieval.embeddings import EMBED_TEXTS_PER_MINUTE, EmbeddingError, EmbeddingService
 from app.services.document_service import stored_copy_is_usable
-from app.services.indexing_service import IndexingService
+from app.services.indexing_service import DocumentDeleted, IndexingService
 
 logger = logging.getLogger("rag_assistant.reindex")
 
@@ -116,10 +116,9 @@ def _index_one(
                     superseded_document_ids=superseded, reuse_embeddings=not re_embed,
                 )
             # Same commit as the chunks, as on /upload: caches keyed on doc_version see both or neither.
-            owner = db.get(User, row.user_id)
-            owner.doc_version += 1
+            users_repo.increment_doc_version(db, row.user_id)
             db.commit()
-        except (EmbeddingError, StorageError) as error:
+        except (EmbeddingError, StorageError, DocumentDeleted) as error:
             db.rollback()
             row.action = f"failed: {type(error).__name__}"
             logger.warning("Document %s of user %s: %s", row.document_id, row.user_id, error)

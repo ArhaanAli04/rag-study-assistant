@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/concepts", tags=["Concept Maps"])
 
 
 @router.post("/generate", response_model=GenerateConceptMapResponse)
-async def generate_concept_map(
+def generate_concept_map(
     request: GenerateConceptMapRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -61,7 +61,7 @@ async def generate_concept_map(
 
 
 @router.get("/maps", response_model=ListConceptMapsResponse)
-async def list_concept_maps(
+def list_concept_maps(
     limit: int = Query(default=50, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     current_user: User = Depends(get_current_user),
@@ -94,7 +94,7 @@ async def list_concept_maps(
 
 
 @router.get("/maps/{map_id}", response_model=ConceptMapDetail)
-async def get_concept_map(
+def get_concept_map(
     map_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -127,7 +127,7 @@ async def get_concept_map(
 
 
 @router.delete("/maps/{map_id}", response_model=DeleteConceptMapResponse)
-async def delete_concept_map(
+def delete_concept_map(
     map_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -163,7 +163,7 @@ async def delete_concept_map(
 
 
 @router.get("/statistics", response_model=SourceStatistics)
-async def get_concept_map_statistics(
+def get_concept_map_statistics(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),

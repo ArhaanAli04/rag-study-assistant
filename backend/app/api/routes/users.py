@@ -15,7 +15,7 @@ router = APIRouter(prefix="/user", tags=["Users"])
 
 
 @router.get("/profile")
-async def get_profile(
+def get_profile(
     current_user: User = Depends(get_current_user)
 ) -> Dict[str, Any]:
     return {
@@ -29,7 +29,7 @@ async def get_profile(
 
 
 @router.put("/profile")
-async def update_profile(
+def update_profile(
     profile: ProfileUpdate,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -46,7 +46,7 @@ async def update_profile(
 
 
 @router.get("/stats")
-async def get_user_stats(
+def get_user_stats(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> Dict[str, Any]:
@@ -68,7 +68,7 @@ async def get_user_stats(
 
 
 @router.delete("/delete")
-async def delete_account(
+def delete_account(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),

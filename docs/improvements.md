@@ -1022,6 +1022,52 @@ Found Day 16 (2026-11-15), measuring B7.
   slide, with `doc_type`/metadata saying so). Then measure with E4 on a corpus that has real
   slide-image tables (this one has none), and decide `borderless_tables` (B7) on that data.
 
+### B14 — Routes blocked the event loop: health checks failed and Render restarted mid-stream (P0)
+Found 2026-11-17 in the v0.3.0 latency run on Render; fixed in hotfix v0.3.1.
+- **What happened:** 3 of 15 chat turns were cut mid-stream (`RemoteProtocolError` ×2, a stream
+  ending without `[DONE]`). Render's events: "Instance failed: HTTP health check failed (timed out
+  after 5 seconds)", then "Service recovered". The app logged no errors.
+- **Cause:** 25 routes were `async def` but did sync work directly on the event loop: DB, Gemini,
+  Tavily, and on `/upload` Day 16's pacing (`time.sleep(60)` on a 429). `chat_stream` ran
+  `ChatPipeline.answer` (5–17 s before streaming) on the loop. The SSE generators were async
+  generators that iterated the sync Gemini stream and committed through SQLAlchemy. With one uvicorn
+  worker nothing else was served meanwhile, not even `/health`, so Render killed the instance and the
+  open streams with it. A large upload (minutes of paced embedding) would have had the instance
+  killed mid-upload. **Pre-existing since at least v0.2.2**, not a v0.3.0 regression.
+- **Fix (v0.3.1):**
+  - Routes are plain `def`, which FastAPI runs in its threadpool. Only `/health`, `/auth/logout`,
+    `/auth/google/login` and `/auth/google/callback` stay `async`; the callback's DB work goes
+    through `run_in_threadpool`.
+  - The chat's event generators are sync, so Starlette iterates them in the threadpool. The SSE
+    contract is unchanged.
+  - `/upload` reads the file once from `file.file`.
+  - `index_document` ends the caller's read transaction before embedding, so no pooled connection
+    is held through minutes of pacing. It refuses a session with pending writes (`PendingWrites`)
+    instead of committing them.
+  - The chunks are written in a fresh transaction under a `FOR UPDATE` lock on the document row. A
+    document deleted while it was being embedded gives `DocumentDeleted` → **409** "The file was
+    deleted while it was being indexed", with nothing written.
+  - `doc_version` is bumped with one `UPDATE … RETURNING` (`users_repo.increment_doc_version`):
+    with parallel requests, `+= 1` could lose a bump.
+- **Tests:** `tests/test_event_loop.py`, which fails on v0.3.0:
+  - `/health` answers in < 1 s during a slow upload, a slow retrieval, a slow token stream and a
+    slow cached replay (3.0–4.0 s before the fix).
+  - 0 connections are checked out while the upload embeds (1 before) and while tokens stream (0
+    before too: CO6 already released them).
+  - The `PendingWrites` refusal, the delete-during-embedding 409 (no rows, chunks or files left),
+    and a guard that fails on any `async def` route outside the allowlist.
+- **Live (local venv, eval key, web off):** `/health` was polled every second while account A
+  uploaded `HPC Lecture.pptx` (242 chunks, **136.2 s**, 200) and account B sent one chat turn 40 s
+  in. All 135 polls answered 200; the **worst was 0.47 s**, and 0 took ≥ 1 s. B's chat completed with
+  the full contract and reached `metadata` in **9.5 s**, against 4.1 s for the same question on an
+  idle server. The extra ~5 s was not attributed: that run's app log was empty because of a uvicorn
+  `--log-level warning` flag.
+- **E4** after the eval corpus change (documents committed before indexing): Hit@5 50/55, MRR@5
+  0.808, 0 API calls, identical to Day 16.
+- **Residual:** the DB pool (5 + 5, 30 s timeout) is now shared by parallel requests (threadpool of
+  40). That is fine while no request holds a connection through a slow call. Watch for pool-timeout
+  errors as usage grows.
+
 ---
 
 ## 11. Tooling & Repo Hygiene

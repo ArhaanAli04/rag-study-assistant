@@ -10,7 +10,7 @@ router = APIRouter(tags=["Chat"])
 
 
 @router.get("/chat/stream")
-async def chat_stream(
+def chat_stream(
     query: str,
     session_id: int = 0,
     top_k: int = 5,
@@ -20,6 +20,9 @@ async def chat_stream(
     services: Services = Depends(get_services),
 ) -> StreamingResponse:
     """The SSE answer stream (event order in app/services/chat_pipeline.py). The JWT comes as
-    ?token= because EventSource can't send headers."""
+    ?token= because EventSource can't send headers.
+
+    A plain def, with sync event generators: FastAPI runs the pre-stream work in its threadpool and
+    Starlette iterates the frames there, so the event loop (and /health) is never blocked (v0.3.1)."""
     chat = services.chat_pipeline.answer(db, current_user, query, session_id, top_k, mode)
     return StreamingResponse(chat.events, media_type="text/event-stream", headers=chat.headers)

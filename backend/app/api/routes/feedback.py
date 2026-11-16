@@ -12,7 +12,7 @@ router = APIRouter(tags=["Feedback"])
 
 
 @router.post("/messages/{message_id}/feedback")
-async def submit_feedback(
+def submit_feedback(
     message_id: int,
     body: FeedbackRequest,
     current_user: User = Depends(get_current_user),
@@ -45,7 +45,7 @@ async def submit_feedback(
 
 
 @router.get("/analytics/failed-queries")
-async def get_failed_queries(
+def get_failed_queries(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     limit: int = 50

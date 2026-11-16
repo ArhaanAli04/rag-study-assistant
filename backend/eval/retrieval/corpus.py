@@ -123,22 +123,29 @@ def index_corpus(
         user = User(email=EVAL_USER_EMAIL)
         db.add(user)
         db.flush()
+        eval_user_id = user.id
+        # index_document refuses uncommitted writes (it ends the read transaction before embedding,
+        # v0.3.1), so the user and each document row are committed before their chunks. A run that
+        # stops halfway leaves a partial eval user, which the next run deletes first.
+        db.commit()
         chunk_counts: Dict[str, int] = {}
         for f in files:
             path = corpus_dir / f.file_name
             document = Document(
-                user_id=user.id, file_name=f.file_name, file_path=str(path), file_hash=f.sha256,
+                user_id=eval_user_id, file_name=f.file_name, file_path=str(path), file_hash=f.sha256,
                 version=1, is_active=True,
             )
             db.add(document)
             db.flush()
+            document_id = document.id
+            db.commit()
             result = indexing.index_document(
-                db, file_path=str(path), user_id=user.id, document_id=document.id,
+                db, file_path=str(path), user_id=eval_user_id, document_id=document_id,
                 document_version=1, file_name=f.file_name,
             )
+            db.commit()
             chunk_counts[f.file_name] = result.chunks_indexed
-        db.commit()
-        user_id = str(user.id)
+        user_id = str(eval_user_id)
 
     return IndexedCorpus(files, embedding_service, session_factory, user_id, chunk_counts)
 

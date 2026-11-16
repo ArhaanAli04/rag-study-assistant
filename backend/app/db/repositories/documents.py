@@ -8,6 +8,19 @@ def get_owned(db: Session, document_id: int, user_id: int) -> Document | None:
     return db.query(Document).filter(Document.id == document_id, Document.user_id == user_id).first()
 
 
+def lock_owned(db: Session, document_id: int, user_id: int) -> Document | None:
+    """The document row, locked (FOR UPDATE) until the transaction ends; None if it is gone.
+
+    Writing a document's chunks holds this lock, so a concurrent delete waits for that commit and
+    then removes the chunks with the row, instead of racing the insert."""
+    return (
+        db.query(Document)
+        .filter(Document.id == document_id, Document.user_id == user_id)
+        .with_for_update()
+        .first()
+    )
+
+
 def list_active(db: Session, user_id: int) -> list[Document]:
     """Newest first. Ordered by id, which grows with every upload."""
     return (

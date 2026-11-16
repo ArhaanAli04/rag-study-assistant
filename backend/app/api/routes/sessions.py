@@ -11,7 +11,7 @@ router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
 
 @router.get("")
-async def get_sessions(
+def get_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
@@ -29,7 +29,7 @@ async def get_sessions(
 
 
 @router.get("/{session_id}/messages")
-async def get_session_messages(
+def get_session_messages(
     session_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -51,7 +51,7 @@ async def get_session_messages(
 
 
 @router.delete("/{session_id}")
-async def delete_session(
+def delete_session(
     session_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -68,7 +68,7 @@ async def delete_session(
 
 
 @router.patch("/{session_id}/rename")
-async def rename_session(
+def rename_session(
     session_id: int,
     new_title: str = Body(..., embed=True),
     current_user: User = Depends(get_current_user),

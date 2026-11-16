@@ -14,7 +14,7 @@ router = APIRouter(tags=["Quiz"])
 
 
 @router.post("/quiz")
-async def generate_quiz(
+def generate_quiz(
     body: QuizRequest,
     current_user: User = Depends(get_current_user),
     services: Services = Depends(get_services),

@@ -13,7 +13,7 @@ import datetime
 import json
 import logging
 from dataclasses import dataclass
-from typing import Any, AsyncIterator, Dict, Iterator, List, Optional, Union
+from typing import Any, Dict, Iterator, List, Optional
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -61,9 +61,13 @@ class _Turn:
 
 @dataclass
 class ChatStream:
-    """What the route wraps in a StreamingResponse."""
+    """What the route wraps in a StreamingResponse.
 
-    events: Union[Iterator[str], AsyncIterator[str]]
+    Sync iterators only: Starlette iterates them in its threadpool, and every frame may wait on
+    Gemini or the database. An async generator would run that blocking work on the event loop.
+    """
+
+    events: Iterator[str]
     headers: Dict[str, str]
 
 
@@ -173,7 +177,7 @@ class ChatPipeline:
         turn = self._open_turn(db, user_id_int, session_id, query, load_history=False)
         topic = self._classify_topic(turn, query, cached=True)
 
-        async def cached_stream() -> AsyncIterator[str]:
+        def cached_stream() -> Iterator[str]:
             metadata = {
                 "session_id": turn.session_id,
                 "confidence": cached.get("confidence", 100),
@@ -220,7 +224,7 @@ class ChatPipeline:
             db.rollback()
             logger.exception("Could not store the failed query after a stream error")
 
-    async def _generate(
+    def _generate(
         self,
         db: Session,
         user_id_int: int,
@@ -234,7 +238,7 @@ class ChatPipeline:
         any_fallback: bool,
         grounding_level: str,
         topic: Optional[str],
-    ) -> AsyncIterator[str]:
+    ) -> Iterator[str]:
         try:
             metadata = {
                 "session_id": chat_session_id,

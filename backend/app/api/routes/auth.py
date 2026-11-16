@@ -2,6 +2,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends, status
 from fastapi.responses import RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 from typing import Any, Dict
 from app.api.deps import get_current_user, get_db
 from app.schemas.auth import PasswordChange, UserCreate
@@ -19,7 +20,7 @@ router = APIRouter(tags=["Authentication"])
 
 
 @router.post("/register")
-async def register(user: UserCreate, db: Session = Depends(get_db)) -> Dict[str, Any]:
+def register(user: UserCreate, db: Session = Depends(get_db)) -> Dict[str, Any]:
     if users_repo.get_by_email(db, user.email):
         raise HTTPException(status_code=400, detail="Email already registered")
 
@@ -31,7 +32,7 @@ async def register(user: UserCreate, db: Session = Depends(get_db)) -> Dict[str,
 
 
 @router.post("/login")
-async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> Dict[str, str]:
+def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)) -> Dict[str, str]:
     user = authenticate_user(db, form_data.username, form_data.password)
     if not user:
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -40,7 +41,7 @@ async def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = 
 
 
 @router.post("/change-password")
-async def change_password(
+def change_password(
     password_data: PasswordChange,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
@@ -80,7 +81,7 @@ async def change_password(
 
 
 @router.get("/me")
-async def read_me(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
+def read_me(current_user: User = Depends(get_current_user)) -> Dict[str, Any]:
     return {"id": current_user.id, "email": current_user.email}
 
 
@@ -102,6 +103,26 @@ async def google_login(request: Request):
     except Exception as e:
         logger.error(f"Error in google_login: {str(e)}")
         raise HTTPException(status_code=500, detail=f"OAuth initiation failed: {str(e)}")
+
+
+def _upsert_google_user(db: Session, email: str, name: str, picture: str | None) -> int:
+    """Create or update the Google user; returns its id."""
+    user = users_repo.get_by_email(db, email)
+    if not user:
+        user_id = users_repo.create_oauth_user(db, email, name, picture, provider="google").id
+        db.commit()
+        logger.info(f"Created new OAuth user {user_id}")
+        return user_id
+
+    user.username = name
+    user.name = name
+    user.profile_picture = picture
+    if not user.oauth_provider:
+        user.oauth_provider = "google"
+    user_id = user.id
+    db.commit()
+    logger.info(f"Updated existing OAuth user {user_id}")
+    return user_id
 
 
 @router.get("/auth/google/callback")
@@ -127,39 +148,25 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         
         if not email:
             raise HTTPException(status_code=400, detail="Email not provided by Google")
-        
+
         # No identity here: the user row (and its id) isn't loaded yet, and emails stay out of logs.
         logger.info("Google OAuth callback received")
-        
-        user = users_repo.get_by_email(db, email)
 
-        if not user:
-            user = users_repo.create_oauth_user(db, email, name, picture, provider="google")
-            db.commit()
-            db.refresh(user)
-            logger.info(f"Created new OAuth user {user.id}")
-        else:
-            # Update existing user info
-            user.username = name
-            user.name = name
-            user.profile_picture = picture
-            if not user.oauth_provider:
-                user.oauth_provider = "google"
-            db.commit()
-            logger.info(f"Updated existing OAuth user {user.id}")
-        
+        # The route must stay async (Authlib awaits), so its sync DB work goes to the threadpool.
+        user_id = await run_in_threadpool(_upsert_google_user, db, email, name, picture)
+
         # Create JWT token
         access_token = create_access_token(
-            data={"sub": user.email},
+            data={"sub": email},
             expires_delta=timedelta(minutes=settings.JWT_EXPIRATION_MINUTES)
         )
-        
+
         # Redirect to frontend with token
         frontend_url = settings.FRONTEND_URL
         redirect_url = f"{frontend_url}/auth/callback?token={access_token}"
-        
+
         # The redirect URL carries the JWT, and emails are personal data: log the id only (G8).
-        logger.info(f"Redirecting user {user.id} to the frontend OAuth callback")
+        logger.info(f"Redirecting user {user_id} to the frontend OAuth callback")
         
         return RedirectResponse(url=redirect_url)
         

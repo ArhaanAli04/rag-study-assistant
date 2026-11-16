@@ -10,6 +10,10 @@ from sqlalchemy.orm import sessionmaker
 from app.core.config import settings
 
 # The Supabase free tier's pooler caps client connections; one Render instance needs few.
+# Since v0.3.1 routes are plain def and run in parallel in FastAPI's threadpool (40 threads), so more
+# requests than connections can want one at once; the 11th waits up to pool_timeout (30 s). That is
+# fine as long as no request holds a connection through a slow external call: the chat stream and
+# the upload's embedding phase hold none (tests/test_event_loop.py checks both).
 POSTGRES_POOL_SIZE = 5
 POSTGRES_MAX_OVERFLOW = 5
 # Poolers and the free tier close idle connections; recycling before that turns a dropped connection

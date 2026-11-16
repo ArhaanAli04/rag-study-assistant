@@ -435,3 +435,134 @@ line, not in shell history) and is removed afterwards.
   `httpx.HTTPError` only.
 - Found in CP1, left as is: `retrieval_service.py`'s web step in `hybrid_retrieve` still catches bare
   `Exception`; it could use `WEB_SEARCH_ERRORS` now.
+
+## Outcome
+
+### Checkpoints 1–3 — R5 and release prep (2026-11-15, PR #23 → `develop`)
+- **Commits:** `cff9c33` (backend: D1, D2, D3, D4), `2cca9cb` (frontend), `73192f0` (off-topic refusal,
+  sources ordered by page, latency script connection reuse, `WEB_SEARCH_ENABLED`, rounded confidence,
+  G10 and CO2 recorded, post 2 templates). Merged in PR #23.
+- **D1–D5 as recommended (all A):**
+  - Concept maps cite numbered evidence (`[D1] file — p. N`, `[W1] url`), and the code resolves the
+    model's `source_ids`, dropping unknown ids.
+  - Node sources are stored as a real JSON array, and legacy comma-joined rows are still read.
+  - `include_web` is a per-call switch and part of the L1 key. Documents-only maps make 0 Tavily calls.
+  - A map with no context returns 422 and nothing is saved.
+  - `backend/scripts/measure_latency.py` is committed.
+- **Added during the live check (owner's fix, Verification step 4):**
+  - The extractor returns `off_topic: true` when the passages don't discuss the topic, and that becomes
+    a 422 "Your documents don't seem to cover '<topic>'…".
+  - Node sources are sorted by file and page, then URLs.
+- **Bug found by a test:** with the constant `doc_version = 0`, a deleted document's chunks kept coming
+  from the L1 cache. The test fails with the old constant and passes with the fix.
+- **Checks:** backend suite 363 → **381**, frontend 20 → **42**, `ruff check .` clean, `npm run build`
+  ok, CI green on PR #23 and on the release PR #24.
+
+### UI integration (as shipped)
+
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| `use_documents` retrieves the user's chunks (doc_version in the L1 key, no web search when off) | `CreateMapForm.js` | a "Your documents" card. It is on by default and says "Search your N indexed documents" when there are indexed documents. With none, it is disabled with "No indexed documents yet" and a link to `/documents`. While loading it shows "Checking your documents…", and on a failed fetch "Couldn't load your documents" (web stays usable) |
+| Node sources resolved from cited ids to `file — p. N`, sorted by file and page | `ConceptNodeDetails.js` | `📄 notes.pdf · page 4` under Sources; web sources stay links; legacy plain strings still render |
+| No context or off-topic → 422 with a message | `CreateMapForm.js` (existing error box) | "Your documents don't seem to cover '<topic>'. Try another topic or turn on web search." instead of a saved map |
+| Map confidence (unchanged backend value) | `MapListView.js`, `ConceptMapViewer.js` (`utils/formatConfidence.js`) | a whole percent ("46% confident") instead of "46.282801862394514%" |
+| `WEB_SEARCH_ENABLED` setting, `measure_latency.py` | backend-only (an operator switch and an operator script) | — |
+
+### Release v0.3.0 (2026-11-17, PR #24 `develop` → `master`, annotated tag `v0.3.0` on `3325a89`)
+- **Step 2 — backup:**
+  - `pg_dump` of production's `rag` schema taken before the deploy.
+  - `pg_restore --list` showed **8 tables, each as `TABLE` and `TABLE DATA`**, as expected.
+  - The dump stays in `backend/data/backups/` (gitignored).
+- **Step 3 — config before code:**
+  - The six storage variables were set on Render.
+  - `rag-prod` exists and is **private** (checked in the Supabase dashboard).
+  - `/health` was ok before and after the env-var redeploy (still v0.2.2).
+- **Steps 4–5 — deploy:**
+  - CI green, and the release merged as a merge commit.
+  - Render's log shows three migrations, `7cb8829683ab → 9e72706d7449 → 500c410270f5 → 21f0595f83d5`,
+    then "Database schema is at head", then live.
+- **Step 6 — live check on production:**
+  1. `f1_deferred_fixes.pdf` (a real v0.2.2 row) showed "Not searchable yet".
+  2. Re-uploading it gave the notice "searchable again — indexed 8 passages" (`reindexed`) and the
+     badge went away. The size now shows 10.78 KB and the row is still Version 1, because a reindex
+     doesn't bump the version. A **new** question about it cited pages 1–3.
+  3. A demo PDF was uploaded, and the RuBisCO question cited page 2.
+  4. After a **Render restart**, a new question still cited the demo PDF (page 3). This is the
+     durability v0.3.0 exists for (I4).
+  5. A documents-only concept map was built: 14 concepts, 67% confidence, 2 documents.
+  6. The demo PDF was deleted, and only the F1 file is left in `rag-prod` (I5 on the real bucket).
+- **Step 7 — reindex dry run on production:**
+  - Result: **1 active document in total**, 0 would be indexed, 1 skipped (has chunks), 0 "file missing".
+  - **Not what the runbook expected.** It assumed several v0.2.2 rows, all "skipped: file missing".
+    Production had only one active document, the F1 row re-uploaded in step 6, so there was nothing
+    for the reindex to report as missing.
+- **No Redis flush** (user ids were not reset; G9 doesn't apply).
+
+### CO6 on Render — latency, v0.2.2 (Day 14) vs v0.3.0
+Measured with `python -m scripts.measure_latency` against production, after the release. There was a
+warm-up turn first, which was discarded. Web search was on, as in production and as on Day 14.
+
+| Metric (p50) | v0.2.2 (Day 14) | v0.3.0 (Day 17) | p90 v0.3.0 |
+|---|---|---|---|
+| `/health` | — | 63.2 ms | — |
+| `/me` (n = 30) | 256 ms | **188 ms** | 193.9 ms |
+| `/me` − `/health` | 190 ms | **125 ms** | — |
+| chat → `metadata` | ~9.2 s (n = 5) | **8426 ms** (n = 12) | 13100 ms |
+| chat → `[DONE]` | 11.0 s (n = 5) | **10811 ms** (n = 12) | 19285 ms |
+
+- **n = 12 of 15 turns.** Three turns were cut: `RemoteProtocolError` ×2, and one stream ended
+  without `[DONE]`.
+  - Render's events show "Instance failed: health check timed out after 5 seconds", then recovery.
+  - The cause was **B14**: `async def` routes did blocking work on the event loop, so `/health`
+    couldn't answer during a chat and Render killed the instance. Pre-existing, not a v0.3.0
+    regression. Fixed by hotfix v0.3.1 (below).
+- **`/me`: 256 → 188 ms.** The gap over `/health` went from 190 to 125 ms, about **2 round trips** at
+  ~63 ms. `test_round_trips.py` counts **3** for `/me`. The number is recorded as measured, not
+  attributed.
+- **Chat → `metadata`: about 0.75 s faster (9.2 → 8.4 s).** That is the same direction as Day 16's
+  estimate but **smaller** (the estimate was ≈ 2.1 → 0.7 s, so ≈ 1.4 s saved). This is not a
+  confirmation of the estimate:
+  - n = 12, against Day 14's n = 5;
+  - live Tavily dominates each turn (≈ 4 s per sub-query, measured locally in this brief's
+    Verification);
+  - the p90 is 13.1 s.
+  Removing web-search latency (CO2) is the bigger lever.
+
+### Hotfix v0.3.1 (2026-11-17, PR #25 → `master`, tag `v0.3.1` on `24e4e4a`; back-merged to `develop` in PR #26)
+- B14 fixed. Details and measurements are in `docs/improvements.md` (B14) and the tracker:
+  - routes are plain `def`, and the SSE generators are sync;
+  - an upload holds no DB connection while it embeds;
+  - deleting a document during indexing returns 409;
+  - `doc_version` is bumped atomically.
+  - Live (local): the worst `/health` was 0.47 s during a 136 s upload plus a chat turn.
+- The CO6 chat numbers above were taken on v0.3.0, before this fix. A re-run on v0.3.1 would give the
+  full n = 15. It is not done yet (it spends production's free tier).
+
+### Found during the live check
+- **B15 (new, P1): source chips turn into a plain "Source" after the first answer of a new chat.**
+  - When a new session id arrives, `ChatWindow.js` refetches `GET /sessions/{id}/messages`.
+  - That endpoint returns `sources` as comma-split strings (`routes/sessions.py`), because
+    `messages.sources` stores a comma-joined list of file names or URLs (`chat_pipeline.py`).
+  - `MessageList.js` renders `source.file_name || source.url || 'Source'`, and a string has neither
+    field.
+  - Pre-existing (the same code is in v0.2.2). The chips are visible on every new chat. Recorded in
+    `docs/improvements.md` and the tracker. Related: B11, B12.
+
+### Release notes (v0.3.0 + v0.3.1)
+- **Your uploads now survive restarts and deploys.** Files live in cloud storage and the searchable
+  passages in the database. Before, every server restart made uploaded documents unsearchable.
+- **Upload documents from before v0.3.0 again.** They show "Not searchable yet", and re-uploading the
+  same file makes it searchable without a new version.
+- **Concept maps can use your documents.** Each concept shows the file and page it came from. A topic
+  your documents don't cover is refused with a message instead of producing a map from unrelated text.
+- **Faster uploads:** embeddings in batches, unchanged passages reused, and a notice on large files.
+  Chat makes a third as many database round trips.
+- **v0.3.1:** the server keeps answering health checks during long chats and uploads, so Render no
+  longer restarts it mid-answer.
+
+### Left open
+- B15 (chips), B11 (feedback on reload), B12 (chip duplicates). The three should be fixed together on
+  one day, backend + `ChatWindow.js` / `MessageList.js`.
+- A CO6 chat re-measure on v0.3.1 with n = 15.
+- Timeline wording ("two revisions", "run the reindex") is still to fix, as noted in Risks.
+- `hybrid_retrieve`'s web step still catches bare `Exception` (Risks).

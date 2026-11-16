@@ -62,8 +62,9 @@ per-user filtering in one move.
   - Latency, Render Singapore → Supabase Mumbai (p50, v0.2.1 SQLite → v0.2.2 Postgres): `/me` − `/health` 0.2 → 190.3 ms (3 round trips × ~63 ms; n = 30); chat to first frame 7720 → 9170 ms, to done 8621 → 11019 ms (n = 5, noisy). Server-side statement time ≤ 0.05 ms: the cost is all round trips (CO6, fixed on Day 16).
   - Ids: the last SQLite-era test account got id 1 (wiped database); the first two Postgres accounts got ids 1 and 2, and Postgres never hands an id out twice.
 - Capture now (only what depends on today's app state and can't be recreated later):
-  - [ ] Render Logs at the v0.2.2 deploy: `Running upgrade -> 7cb8829683ab, baseline schema` → "Database schema is at head" → "Application startup complete" (the first migration of production `rag` happens only once)
-  - [ ] The app after the 17:34 UTC restart: the session and concept maps still listed, using demo data only
+  - [x] Render Logs at the v0.2.2 deploy: `Running upgrade -> 7cb8829683ab, baseline schema` → "Database schema is at head" → "Application startup complete" (the first migration of production `rag` happens only once) — `docs/posts/assets/post03-render-migration-log.png`, framed as `post03-migration-log-framed.png`
+  - [x] The app after the 17:34 UTC restart: the chat and both concept maps still listed, using demo data only — `docs/posts/assets/post03-after-restart.png`, framed as `post03-after-restart-framed.png`
+  - Frames made with the templates in `docs/posts/templates/post03-*.html`
 - Make when writing the post (recreatable any time from git, the brief or this log):
   - [ ] Table card: the latency before/after table above, with the "3 round trips × 63 ms" breakdown
   - [ ] Diagram: Render (Singapore) ↔ Supabase (Mumbai), one arrow per round trip of a `/me` request (BEGIN, SELECT, ROLLBACK)
@@ -123,7 +124,7 @@ per-user filtering in one move.
 - Lesson / quote: "I trusted the API's own `retryDelay` and it told me 0 seconds. The limit counts every text in a batch, so the client has to pace itself — the server's hint only says when one request might get through."
 - Concept source: docs/briefs/day16.md#the-concept
 
-### Day 17 — 2026-11-15 — Concept maps use your documents (R5) — release v0.3.0 (entry before the release; release numbers added after it)
+### Day 17 — 2026-11-15 / 2026-11-17 — Concept maps use your documents (R5) — releases v0.3.0 and v0.3.1
 - Takeaway: concept maps can now be built from your own uploaded notes, and every concept says which file and page it came from. The model cites numbered passages and the app looks them up, so it can't invent a source; and when your notes don't cover a topic, it says so instead of stretching unrelated notes into a map.
 - Numbers:
   - Live check (eval key, local, a 3-page demo PDF: light reactions / Calvin cycle / limiting factors, one per page): every concept of a "Photosynthesis" map cited the right page (Light-Dependent Reactions → p. 1 + p. 3, Calvin Cycle → p. 2 + p. 3, Limiting Factors → p. 3).
@@ -131,14 +132,39 @@ per-user filtering in one move.
   - The same map's stored retrieval confidence: 46 (out of 100) for a PDF that covers the topic completely; a 3-page unrelated document scored 72 on Day 16. The confidence score doesn't track relevance (B2, replaced on Day 26).
   - Bug found by a test: a constant `doc_version` = 0 in the concept-map call kept serving a deleted document's chunks from the retrieval cache (the test fails with the old constant, passes with the fix).
   - Tests 363 → 381 (backend), 20 → 42 (frontend).
-  - Render latency (CO6, Day 16's 33 → 11 round trips): to be measured at the release with `backend/scripts/measure_latency.py`; Day 14's v0.2.2 baseline is `/me` 256 ms p50, chat → metadata 9.2 s p50.
+  - **Release v0.3.0 on production (2026-11-17):**
+    - A backup was taken before touching anything: `pg_dump` of `rag`, 8 tables.
+    - Then three migrations ran on deploy (`7cb8829683ab → 9e72706d7449 → 500c410270f5 → 21f0595f83d5`), followed by "Database schema is at head".
+    - A real document from v0.2.2 (`f1_deferred_fixes.pdf`) showed "Not searchable yet". Re-uploading it gave "searchable again — indexed 8 passages", the badge went away, and it stayed Version 1. A new question about it cited pages 1–3.
+    - **The point of the whole phase:** after a Render restart, a new question still cited the demo PDF (page 3). On v0.2.2 a restart made every upload unsearchable.
+    - A documents-only concept map on production: 14 concepts from 2 documents.
+    - Deleting the demo PDF left only the F1 file in the storage bucket.
+    - Reindex dry run: 1 active document, already indexed, 0 missing files.
+  - **Render latency** (CO6, Day 16's 33 → 11 round trips; p50, v0.2.2 on Day 14 → v0.3.0):
+
+    | Request | v0.2.2 | v0.3.0 | p90 v0.3.0 |
+    |---|---|---|---|
+    | `/me` (n = 30) | 256 ms | 188 ms | 194 ms |
+    | `/me` minus `/health` | 190 ms | 125 ms | — |
+    | chat → first frame | ~9.2 s (n = 5) | 8.4 s (n = 12) | 13.1 s |
+    | chat → done | 11.0 s (n = 5) | 10.8 s (n = 12) | 19.3 s |
+
+    - The `/me` gain is real: −68 ms.
+    - The chat gain (~0.75 s) is half the 1.4 s the round-trip count predicted. With 12 turns and ~4 s of live web search per sub-query, it isn't a confirmation. Web search is the bigger lever (CO2).
+  - **The latency run found a bigger problem.** 3 of the 15 chat turns were cut mid-answer, and Render logged "health check timed out after 5 seconds". Routes declared `async` did blocking work on the event loop, so `/health` couldn't answer during a chat and Render restarted the instance (B14).
+    - Fixed in hotfix v0.3.1 the same day.
+    - Locally, the worst `/health` during a 136 s upload plus a chat went from 3–4 s to 0.47 s.
+  - Also found live: source chips in a new chat turn into a plain "Source" after the first answer (B15, open), because message sources are stored as one comma-joined string.
 - Capture now (only what depends on today's app state and can't be recreated later):
   - [x] `docs/posts/assets/post03-concept-map-documents.png` — the "Photosynthesis" map built from the demo PDF, with an open node showing "📄 file · page N" (owner, local live check)
-  - [ ] At the release: the Documents page after re-uploading `f1_deferred_fixes.pdf` ("searchable again", badge gone), and the latency report from Render
+  - [x] `docs/posts/assets/post03-reupload-reindexed.png` — the Documents page after re-uploading `f1_deferred_fixes.pdf` on production ("searchable again", badge gone)
+  - [ ] The latency report from Render isn't saved as an image. The table above is the source; make the card from it
 - Make when writing the post (recreatable any time from git, the brief or this log):
   - [ ] Diagram: numbered evidence — `[D1] notes.pdf — p. 4` in the prompt → the model returns `source_ids` → code resolves them, drops unknown ids
   - [ ] Before/after card: "French Revolution" on a photosynthesis PDF — a map from unrelated notes vs. the off-topic message
   - [ ] Code card: the cache key `(user, query, doc_version, include_web)` and the one-line bug (`doc_version=0`)
-  - [ ] Table card: Render latency before (v0.2.2, Day 14) / after (v0.3.0) for `/me`, chat → metadata, chat → total
+  - [ ] Table card: Render latency before (v0.2.2, Day 14) / after (v0.3.0) for `/me`, chat → metadata, chat → total (table above, with "predicted −1.4 s, measured −0.75 s")
+  - [ ] Before/after card: "Not searchable yet" → re-upload → "searchable again — indexed 8 passages" (the screenshot) next to "after a restart, still cited"
+- Lesson / quote (release): "The latency script was meant to show the database work paid off. What it actually caught was the server killing itself: routes marked async were blocking the event loop, so the health check timed out mid-answer. The measurement found more than it was built to look for."
 - Lesson / quote: "My plan said an unrelated topic would get 'nothing found'. Vector search always finds something, so the empty state never happened until we asked the model whether the passages were actually about the topic."
 - Concept source: docs/briefs/day17.md#the-concept

@@ -1068,6 +1068,33 @@ Found 2026-11-17 in the v0.3.0 latency run on Render; fixed in hotfix v0.3.1.
   40). That is fine while no request holds a connection through a slow call. Watch for pool-timeout
   errors as usage grows.
 
+### B15 — Source chips turn into a plain "Source" after the first answer of a new chat (P1)
+Found 2026-11-17 in the v0.3.0 live check on production. Pre-existing: the same code is in v0.2.2.
+- **What happens:** in a new chat, the first answer streams with proper chips (file name / URL from
+  the `metadata` frame). Moments later every chip on it reads "Source".
+- **Cause:**
+  - When the first turn creates the session, `ChatWindow.js` gets the new session id and reloads the
+    conversation from `GET /sessions/{id}/messages`.
+  - `messages.sources` is a single `Text` column holding a **comma-joined** list of file names or
+    URLs (`ChatPipeline` writes `",".join(...)`, `services/chat_pipeline.py`, both the live and the
+    cached path). `api/routes/sessions.py` returns `m.sources.split(',')`, which is a list of
+    **strings**.
+  - `MessageList.js` renders `source.file_name || source.url || 'Source'`. A string has neither
+    property, so every chip falls back to "Source".
+  - The page and the URL/file distinction are lost on storage, and a file name containing a comma
+    splits into two chips.
+- **Why it matters:** it happens on **every new chat** and on every reloaded one. Citations are how a
+  student checks an answer (as in B12), and a chip that says only "Source" can't be checked.
+- **Direction:**
+  - Store `sources` as a JSON array of `{file_name, page, url}` objects, the same approach as R5's D2
+    for concept-map node sources. Return the objects from the session-messages endpoint.
+  - For legacy rows (comma-joined strings), the backend returns them as `{file_name}` / `{url}`
+    objects, or `MessageList.js` renders a plain string as its own label. Never "Source".
+  - Backend + `ChatWindow.js` / `MessageList.js` the same day (UI rule). Tests: an API assertion on the
+    object shape and a legacy row, plus a frontend test that a reloaded message shows its file name.
+  - Natural to fix together with B11 (feedback missing from the same endpoint) and B12 (chip
+    duplicates).
+
 ---
 
 ## 11. Tooling & Repo Hygiene

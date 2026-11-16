@@ -31,33 +31,21 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  7d5db67 on feature/day16-batch-embeddings (draft PR #22 → develop, CI green on every push):
-              cc0c02d batched embeddings, 2d23c6e CO3 reuse + tie order, ab158bc CO6 round trips,
-              7d5db67 reindex script + live chat check. develop = 61b4c63 (Day 15, PR #21 merged)
-Pushed:       master = v0.2.2 (tagged on 1e84de8; production still FAISS in memory + files on Render's disk).
-              develop = Day 15. Day 16 = PR #22, not merged yet
-Uncommitted:  Checkpoint 5: upload pacing (100 texts / 60 s, 429 waits 60 s) + "Large files can take a few
-              minutes to index." UI, B13 (PPTX table extraction skipped), brief Outcome, tracker rows, this
-              file, improvements (B13, B7), posts 3 and 9. docs/learning/ updated (gitignored)
+Last commit:  92a2ffd (PR #26: master → develop back-merge of hotfix v0.3.1). Branch docs/day17-outcome
+              from it, docs only, not pushed yet
+Pushed:       master = v0.3.1 (tag v0.3.1 on 24e4e4a, hotfix PR #25; v0.3.0 = tag on 3325a89, release PR
+              #24). develop = 92a2ffd (Day 17 + the hotfix). Production = v0.3.1: pgvector chunks in
+              Supabase rag + files in the rag-prod bucket, persistent across restarts and deploys
+Uncommitted:  Day 17 close-out (docs): brief Outcome (release, latency, B15), tracker (R5 Done, CO6 Render
+              numbers, B15), improvements (B15), this file, posts 1 (owner's published text), 3 and 9.
+              docs/learning/ updated (gitignored)
 Untracked:    none. Local only (gitignored): the old SQLite files + backups in backend/data/ (refused by
-              Settings since Day 15); backend/eval/corpus/* except manifest.json, eval/.cache/,
+              Settings since Day 15), the v0.2.2 production dump in backend/data/backups/;
+              backend/eval/corpus/* except manifest.json, eval/.cache/,
               eval/results/*.json, eval/datasets/{drafts, sheets, hard_candidates.jsonl}, docs/learning/.
               .env holds DATABASE_URL / DATABASE_SCHEMA (venv → compose Postgres), POSTGRES_PASSWORD,
               RAG_APP_PASSWORD, RAG_STAGING_DATABASE_URL, STORAGE_BUCKET=rag-staging + the four SUPABASE_S3_*
               values (never STORAGE_BACKEND). Compose Postgres has rag (dev), rag_test, rag_eval
-Day 15:       Chunks table + Supabase Storage (I4, I5, I6, I1, I2, B10). document_chunks: halfvec(3072) +
-              HNSW cosine, generated tsvector + GIN, CHECKs against zero vectors / blank text; every user_id FK
-              CASCADE, failed_queries.session_id SET NULL, concept_map_nodes CASCADE (found: it blocked user
-              deletes) — revisions 9e72706d7449 + 500c410270f5, both on rag_staging (at head). Postgres-only
-              app and suite. PgChunkSearch (user filter in the query, one session per retrieval) replaced FAISS
-              + BM25 after E4 parity (hybrid Hit@5 50→50/55, MRR@5 0.801→0.806; vector-only 0 flips;
-              keyword-only MRR −0.043); faiss-cpu / rank-bm25 removed; HNSW recall@10 = 1.000. IndexingService
-              in services/; query-embedding failure → keyword-only (not cached). Uploads: new / changed /
-              unchanged / reindexed; delete = all versions + chunks + files; UI notice + "Not searchable yet"
-              badge. FileStorage: local or Supabase S3 (boto3; DeleteObjects rejected → per-object deletes).
-              Live: Docker stack and rag_staging + rag-staging bucket — restart keeps search (new question
-              still cites), re-upload unchanged, delete leaves 0 files. CO6: a chat turn = 33 round trips
-              (≈ 2.1 s on Render). Suite 271 → 325, frontend 11 → 19. Notes in docs/briefs/day15.md
 Day 16:       Faster ingestion (I3, CO3, CO6, B7 → Done; B13 new). Embeddings in batches of ≤ 100; the free
               tier counts per text, so uploads pace under 100 texts / 60 s and a 429 waits 60 s (3 attempts;
               chat path 1 attempt). BCT PDF 24.1 → 3.7 s; HPC deck (217 texts) 143.3 s, 0 rejected batches;
@@ -69,10 +57,20 @@ Day 16:       Faster ingestion (I3, CO3, CO6, B7 → Done; B13 new). Embeddings 
               extraction never reached chunks → skipped (HPC working time 23.3 → 12.3 s). Found: CO5 triple
               query embedding (quota), B2 strict confidence on an unrelated doc. Suite 325 → 363, frontend 19 →
               20. Notes in docs/briefs/day16.md
-Next:         /pre-commit + /ship commit Checkpoint 5, then /ship merge PR #22. Then Day 17 (/run-day 17):
-              R5 + release v0.3.0. Day 16's release items are in the brief's "Day 17 release checklist":
-              CO6 Render latency (n = 30 /me, n ≥ 15 chat turns; re-create the latency script), reindex
-              against production as a dry run only (v0.2.2 rows → "file missing")
+Day 17:       Concept maps use your documents (R5 → Done) + releases v0.3.0 and v0.3.1. doc_version reaches
+              the L1 key (a constant 0 replayed deleted documents), include_web per call (documents-only maps:
+              0 Tavily calls), node sources = numbered evidence resolved in code (file — p. N), no context or
+              off-topic → 422; UI "Your documents" card + "📄 file · page N". WEB_SEARCH_ENABLED setting,
+              scripts/measure_latency.py. v0.3.0 (2026-11-17): rag dumped first (8 tables), 3 migrations on
+              Render, live: v0.2.2 row re-uploaded → reindexed (8 passages), restart keeps citing, delete leaves
+              only the F1 file in rag-prod; reindex dry run 1 active document, 0 file missing. CO6 on Render
+              (p50 vs Day 14): /me 256 → 188 ms, chat → metadata ~9.2 → 8.4 s (n = 12; smaller than the 1.4 s
+              estimate, Tavily dominates). 3 of 15 turns cut → B14 (blocking async routes) → hotfix v0.3.1.
+              Found: B15 (chips → "Source" after the first answer). Suite 363 → 381 (Day 17) → 396 (v0.3.1),
+              frontend 20 → 42. Notes in docs/briefs/day17.md
+Next:         /pre-commit + /ship commit this close-out (docs/day17-outcome → develop). Then Day 18
+              (/run-day 18): Projects start (Days 18–20). Open from Day 17: CO6 chat re-measure on v0.3.1
+              (n = 15), B15 with B11 / B12 on one day
 Blockers:     none. Every `docker compose` command needs POSTGRES_PASSWORD and RAG_APP_PASSWORD in .env. Every
               pytest run needs TEST_DATABASE_URL / TEST_DATABASE_SCHEMA (rag_test); evals need EVAL_DATABASE_URL
               (rag_eval) and $env:GEMINI_API_KEY = the eval key. Never print .env values, connection strings
@@ -213,9 +211,11 @@ before the response starts, so a retrieval failure is a normal HTTP 500; generat
 7. SSE events: `metadata` → `token`… → `message_id` → `[DONE]`; then the answer is stored in the semantic cache. Queries with confidence < 30 are logged to `failed_queries`.
 
 **Concept map** — `POST /api/concepts/generate` → `ConceptMapService` → `ConceptMapRetriever`
-(web by default; since Day 9 it shares the app's `RetrievalService`, but the UI hard-codes
-`useDocuments = false` — R5, Day 17) → `ConceptExtractor` (Gemini,
-JSON parsed by hand) → saved as `ConceptMap` / `ConceptMapNode` → React Flow + dagre layout.
+(the app's shared `RetrievalService`; documents and/or web, chosen in `CreateMapForm.js` — R5, Day 17:
+the user's `doc_version` in the L1 key, documents-only passes `include_web=False`) → `ConceptExtractor`
+(Gemini, JSON parsed by hand; the context is numbered evidence `[D1] file — p. N` / `[W1] url`, the model
+cites `source_ids` and code resolves them; no context or `off_topic` → 422, nothing saved) → saved as
+`ConceptMap` / `ConceptMapNode` (node sources a JSON array) → React Flow + dagre layout.
 
 **Quiz** — `POST /quiz`: a single Gemini prompt built from the topic alone (general knowledge,
 not the user's documents); returns plain text, unparsed and not persisted.
@@ -226,12 +226,13 @@ not the user's documents); returns plain text, unparsed and not persisted.
 
 ### Working
 - Email/password and Google OAuth login; profile, change password, user stats
-- PDF/PPTX/DOCX upload, hash-based versioning, per-user hybrid retrieval — persistent since Day 15: chunks and vectors in Postgres (`document_chunks`), files in `FileStorage` (Supabase Storage in production from v0.3.0, Day 17). Re-uploads report `new` / `changed` / `unchanged` / `reindexed` (I6); deleting a document removes every version, its chunks and files (I5); the Documents page shows the upload notice and a "Not searchable yet" badge for rows without chunks
+- PDF/PPTX/DOCX upload, hash-based versioning, per-user hybrid retrieval — persistent since Day 15: chunks and vectors in Postgres (`document_chunks`), files in `FileStorage` (Supabase Storage bucket `rag-prod` in production since v0.3.0, Day 17; verified live: a restart keeps search, a delete removes the object). Re-uploads report `new` / `changed` / `unchanged` / `reindexed` (I6); deleting a document removes every version, its chunks and files (I5); the Documents page shows the upload notice and a "Not searchable yet" badge for rows without chunks
 - Streaming chat with citations, confidence, grounding levels, three answer modes (`quick` / `detailed` / `step_by_step`; the frontend sends `step-by-step`, normalized since Day 2 — before that it silently got the detailed prompt), multi-turn history (commit 73d8bae)
 - Tavily web augmentation with a domain allowlist; Redis web-result cache (1 h)
 - Sessions: list, rename, delete, automatic topic tags; chat export to Markdown / PDF (frontend)
 - Thumbs up/down feedback → `messages.feedback` and `failed_queries`; `GET /analytics/failed-queries`
-- Concept maps from web context: generate, list, view, delete, statistics; PNG / JPEG export
+- Concept maps from your documents and/or the web (R5, Day 17): generate, list, view, delete, statistics; PNG / JPEG export. Node sources show file and page (`📄 file · page N`); topics the documents don't cover are refused with a message
+- Health checks answer during long chats and uploads (B14, hotfix v0.3.1): routes are plain `def` (threadpool), SSE generators sync, no DB connection held while embedding
 - Quiz generation by topic and difficulty
 - LLM retry with backoff (non-streaming) and a circuit breaker; user-friendly error messages
 - Docker images and docker-compose (backend, frontend, Redis)
@@ -246,7 +247,8 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Evaluation: retrieval eval since Day 11 (E4; its `web` config hasn't been run yet) and generation eval with a calibrated Gemini judge since Day 12 (E1/E2 done; RAGAS and the word-overlap metrics were removed). Partial: the judge is the same model as the generator, `faith-v2` was tuned on its 20-answer calibration set, and there is no answer-correctness metric or CI gate yet (E3, Day 26)
 - Concept extraction hand-parses JSON (S1); sub-queries are retrieved serially (CO2); a chat turn embeds its question up to 3 times (CO5, Day 16 finding: latency and free-tier quota)
 - PPTX slide-image tables are not extracted since Day 16 (B13): they never became chunks. Re-enable with indexing them
-- Production still runs v0.2.2 until the Day 17 release: there, rows persist but files and vectors don't (Render has no disk; FAISS/BM25 in memory). `develop` has the fix since Day 15 (pgvector + Supabase Storage). v0.2.2's documents have no chunks and no stored file, so after v0.3.0 they show "Not searchable yet" until the user re-uploads them (the Day 16 reindex can't help: their files are gone)
+- Documents uploaded on v0.2.2 or earlier have no chunks and no stored file, so they show "Not searchable yet" until the user re-uploads them (status `reindexed`; the reindex script can't help, their files are gone). At the v0.3.0 release production had one active document, re-uploaded in the live check (reindex dry run: 0 file missing)
+- Chat source chips turn into a plain "Source" after the first answer of a new chat, and in any reloaded chat: `messages.sources` is stored comma-joined and returned as strings (B15, P1)
 
 ### Not present
 - Token counting and budgets (C1); token-usage logging (CO4)
@@ -255,7 +257,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
 - Query expansion / HyDE (R3); agentic tool use (A1). (I1 — an ANN index with the user filter inside the query — exists since Day 15; CO3 — reuse of stored embeddings by content hash — since Day 16)
 - Rate limiting, refresh tokens, quiz persistence
-- Frontend tests beyond 6 files / 19 tests: `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5), `pages/DocumentsPage.test.js` (upload notices, 502 error, "Not searchable yet" badge, Day 15). No tests for concept maps, quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
+- Frontend tests beyond 9 files / 42 tests (Day 17): `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5), `pages/DocumentsPage.test.js` (upload notices, 502 error, "Not searchable yet" badge, Day 15), `components/CreateMapForm.test.js`, `ConceptNodeDetails.test.js`, `MapListView.test.js` (Day 17). No tests for quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
 
 ---
 
@@ -292,8 +294,8 @@ Found while writing this file; evidence and direction live under each ID.
 
 | Issue | ID | Priority |
 |---|---|---|
-| Fixed Day 15 (in production from v0.3.0, Day 17): chunks and vectors live in Postgres (`document_chunks`) and files in `FileStorage`, so a restart keeps search. Verified on the Docker stack and on `rag_staging` + the `rag-staging` bucket: after a restart a *new* question still cites the uploaded PDF | I4 | Done |
-| Concept maps search a separate, empty index, so "use documents" finds nothing | R5 | P0 |
+| Fixed Day 15, in production since v0.3.0 (Day 17): chunks and vectors live in Postgres (`document_chunks`) and files in `FileStorage`, so a restart keeps search. Verified on the Docker stack, on `rag_staging` + the `rag-staging` bucket, and on production after the release: after a Render restart a *new* question still cited the demo PDF | I4 | Done |
+| Fixed Day 17 (v0.3.0): concept maps search the user's documents through the shared `RetrievalService` with the real `doc_version` (a constant 0 replayed a deleted document's chunks from the L1 cache); documents-only maps skip web search; node sources are cited ids resolved to file + page in code; no context / off-topic → 422. UI: "Your documents" card. Live on production: a documents-only map of 14 concepts from 2 documents | R5 | Done |
 | Fixed Day 15: deleting a document removes every version of that file name, their chunks (ON DELETE CASCADE) and the stored files, then bumps `doc_version`; it is never cited again (API test + live checks: 0 files left in the volume / bucket) | I5 | Done |
 | Fixed Day 15: an identical re-upload with chunks is `unchanged` (no re-embedding, no `doc_version` bump, same chunk count); a changed file deletes the previous version's chunks | I6 | Done |
 | Fixed Day 3: uploads go to `uploads/{user_id}/{uuid}{ext}` with a containment check. Residual: rows created before Day 3 still point at flat `uploads/<name>` paths, one of them shared by users 1 and 2 (rebuilt Day 16) | G7 | Done |
@@ -315,9 +317,10 @@ Found while writing this file; evidence and direction live under each ID.
 | Fixed Day 14: an identical re-upload whose existing row's file was gone (Render has no disk) deleted the new copy and indexed a missing file, so that file could never be uploaded again. `register_upload` re-links the row to the new copy | — | Done |
 | Found Day 14 (security): Render's SQLite reset user ids on every deploy / restart / idle spin-down while Render's Redis kept `semantic_cache:{user_id}` (no TTL), so a new user with a reused id could get a previous user's cached answers and their document text. Fixed by flushing Render Redis right before the v0.2.2 deploy (2026-11-13: DB 0 5 → 0 keys, DB 1 empty), after which Postgres never reuses an id; any future database reset needs the same flush | G9 | Done |
 | `GET /sessions/{id}/messages` omits each message's `feedback`, so a reloaded chat shows no thumb already given (and a repeat thumbs-down logs a second failed query). Fix the backend field and `ChatWindow.js` rendering the same day | B11 | P2 |
-| Every DB round trip crosses regions (Render Singapore → Supabase Mumbai, ~63 ms); server-side statement time is ≤ 0.05 ms. `/me` = 4 round trips counted Day 15 (pre-ping, BEGIN, query, ROLLBACK); on Render it measured +190 ms over `/health` on Day 14. A chat turn was **33 round trips** (6 pool pre-pings, 6 BEGIN, 15 statements, 6 COMMIT/ROLLBACK ≈ 2.1 s on Render). Fixed Day 16: **33 → 11** (follow-up 23 → 11), `/me` **4 → 3** — two transactions per turn, no reloads after commit, no `pool_pre_ping`, retrieval reads in autocommit; `test_round_trips.py` asserts the counts (matched against Postgres's own log). Render latency measured at the Day 17 release | CO6 | Done |
+| Every DB round trip crosses regions (Render Singapore → Supabase Mumbai, ~63 ms); server-side statement time is ≤ 0.05 ms. `/me` = 4 round trips counted Day 15 (pre-ping, BEGIN, query, ROLLBACK); on Render it measured +190 ms over `/health` on Day 14. A chat turn was **33 round trips** (6 pool pre-pings, 6 BEGIN, 15 statements, 6 COMMIT/ROLLBACK ≈ 2.1 s on Render). Fixed Day 16: **33 → 11** (follow-up 23 → 11), `/me` **4 → 3** — two transactions per turn, no reloads after commit, no `pool_pre_ping`, retrieval reads in autocommit; `test_round_trips.py` asserts the counts (matched against Postgres's own log). On Render at the v0.3.0 release (p50 vs Day 14): `/me` 256 → 188 ms (`/me` − `/health` 190 → 125 ms, ≈ 2 round trips where the test counts 3 — not attributed); chat → `metadata` ~9.2 → 8.4 s, n = 12 (smaller than the ≈ 1.4 s estimate; Tavily dominates; re-measure on v0.3.1) | CO6 | Done |
 | Source chips list retrieved chunks, not cited sources: duplicates (one URL ×4, p.1 ×2) and pages the answer cites can be missing (answer "Page 2", chips only p.1) | B12 | P2 |
-| A semantic-cache hit replays its original `sources`. After a Render restart (rows and `doc_version` kept, index gone, I4) a repeated question still cites a document that is no longer indexed; a new question shows the real state. Day 15 removes the gap in `develop` (the index persists; deletes bump `doc_version`); production keeps it until v0.3.0. Noted under CO5 | CO5 | P1 |
+| Found Day 17 (v0.3.0 live check; pre-existing in v0.2.2): source chips turn into a plain "Source" after the first answer of every new chat. On the new session id `ChatWindow.js` refetches `GET /sessions/{id}/messages`, which returns `sources` as comma-split strings (`messages.sources` stores a comma-joined list), so `MessageList.js`'s `source.file_name` is undefined. Fix: store sources as JSON objects (`file_name`, `page`, `url`) like R5's node sources, render strings for legacy rows; with B11 / B12 | B15 | P1 |
+| A semantic-cache hit replays its original `sources`. On v0.2.2, after a Render restart (rows and `doc_version` kept, index gone, I4), a repeated question still cited a document that was no longer indexed. Since v0.3.0 the index persists and deletes bump `doc_version`, so that gap is closed; a cached answer still replays its original sources (no TTL). Noted under CO5 | CO5 | P1 |
 | Fixed Day 15: `concept_map_nodes.map_id` had no ON DELETE rule, so once every `user_id` cascaded, a user delete through the schema was blocked by the user's concept-map nodes. Revision `500c410270f5` cascades it (on `rag_staging` already) | — | Done |
 | Found Day 15: Supabase's S3 endpoint rejects `DeleteObjects` from boto3 1.44.3 (`InvalidRequest`, also with `request_checksum_calculation="when_required"`); CRC32 vs `Content-MD5` suspected, unconfirmed. `S3FileStorage.delete_prefix` lists and deletes one object at a time (account deletion only); the fake S3 client has no `delete_objects`, so batch delete can't come back unnoticed. Revisit on a boto3 / Supabase change (brief Risk 17) | — | P2 |
 
@@ -409,7 +412,12 @@ cd backend; python -m scripts.reindex_all                  # list active documen
 python -m scripts.reindex_all --user 42 --apply            # index them (one user)
 python -m scripts.reindex_all --all --apply                # re-chunk every active document (0 API calls if unchanged)
 python -m scripts.reindex_all --all --re-embed --apply     # after an embedding model / dimension change
-# Production: dry run only so far (Day 17: v0.2.2 rows have no files and show "file missing")
+# Production: dry run only so far (v0.3.0, Day 17: 1 active document, already indexed; 0 file missing).
+# Runbook with Read-Host secrets: docs/briefs/day17.md, "Release runbook v0.3.0", step 7
+
+# Render latency (Day 17) — from backend/; token of a demo account in RAG_LATENCY_TOKEN (never printed);
+# spends production's Gemini free tier (16 chat turns), so run it once per release
+python -m scripts.measure_latency --base-url https://rag-study-assistant-api.onrender.com
 
 # Redis — must be running before the first chat request
 docker compose up redis                   # or a local redis-server
@@ -495,7 +503,7 @@ with one `ValidationError` that lists all of them.
 | `DATABASE_SCHEMA` | **yes** (since Day 15) | the schema the role's `search_path` resolves to (`rag`, `rag_staging`); Alembic and the app refuse a connection whose `current_schema()` differs, and `alembic_version` lives in it. `rag` on Render, in `.env` and in compose |
 | `TEST_DATABASE_URL`, `TEST_DATABASE_SCHEMA` | for tests | not `Settings` fields: read by `backend/tests/conftest.py`; required since Day 15 (the suite runs only on Postgres). The database name must end in `_test` (it is wiped every run). CI: `rag_app@localhost:5432/rag_test`, schema `rag`; `dev.ps1 test`: `rag_app@postgres:5432/rag_test` (password from `PGPASSWORD`). Never put them in `.env` |
 | `EVAL_DATABASE_URL` | for the retrieval / generation eval | not a `Settings` field: read by `backend/eval/retrieval/database.py` (Day 15). The database name must end in `_eval`; the eval migrates it and re-creates its eval user every run. Locally the compose Postgres's `rag_eval`. Set per shell |
-| `STORAGE_BACKEND` | no | `local` (default: `backend/uploads/`, the Docker `uploads` volume) or `supabase` (Day 15). **Render** sets `supabase` from v0.3.0 (Day 17). Never in `.env`: compose passes `.env` into the Docker backend, and tests pin `local` |
+| `STORAGE_BACKEND` | no | `local` (default: `backend/uploads/`, the Docker `uploads` volume) or `supabase` (Day 15). **Render** sets `supabase` since v0.3.0 (Day 17, with `STORAGE_BUCKET=rag-prod` and the four `SUPABASE_S3_*`). Never in `.env`: compose passes `.env` into the Docker backend, and tests pin `local` |
 | `STORAGE_BUCKET`, `SUPABASE_S3_ENDPOINT`, `SUPABASE_S3_REGION`, `SUPABASE_S3_ACCESS_KEY_ID`, `SUPABASE_S3_SECRET_ACCESS_KEY` | with `STORAGE_BACKEND=supabase` | Supabase Storage over its S3 API (the secret is a `SecretStr`). Buckets `rag-prod` (Render) and `rag-staging` (`.env`, manual checks), both private. The S3 key reaches Storage only (not the database), but every bucket in the project — today only these two (the other app has none; revisit if it adds some) |
 | `POSTGRES_PASSWORD`, `RAG_APP_PASSWORD` | for compose | not `Settings` fields: compose reads them for the local `postgres` service (superuser and `rag_app`); used once, when the `pgdata` volume is first initialised. No defaults — compose refuses to run without them |
 | `RAG_STAGING_DATABASE_URL` | no | not a `Settings` field: the Supabase staging URL kept in `.env` for manual Alembic runs (copied into `DATABASE_URL` for one session) |
@@ -524,15 +532,17 @@ uses `node:24-alpine`. Changing one means changing all three. (The local machine
 | Users, sessions, messages, documents, failed queries, concept maps | Postgres since Day 14: Supabase `rag` in production (from v0.2.2), the compose Postgres's `rag` locally (Docker backend and venv). Both started empty — nothing was copied. The old SQLite files are unused: `backend/data/app.db` (stamped Day 13), the Docker `data` volume, and the backups `backend/data/app.backup-2026-11-11.db`, `app.docker-backup-2026-11-11.db` | yes |
 | Local Postgres | compose `postgres` service, named volume `pgdata`, host port 5433: database `rag` (the app's dev data, disposable), `rag_test` (the suite's, wiped every run) and `rag_eval` (the eval's, Day 15); schema `rag`, role `rag_app` in both; `scripts/postgres/init-rag-schema.sh` (re-runnable since Day 14) creates them | yes (volume) |
 | Supabase | existing project (`ap-south-1`): schemas `rag` (production since v0.2.2) and `rag_staging` (at head, Day 13); `vector` in `extensions` | yes |
-| Uploaded files | `FileStorage` (Day 15) under the key `uploads/{user_id}/{uuid}{ext}` (older rows: flat `uploads/<name>`), held in `Document.file_path`; display name in `Document.file_name`. Local backend: relative to the CWD (`backend/`); Docker: named volume `uploads` at `/app/backend/uploads`. Supabase: private bucket `rag-prod` (Render, from v0.3.0) / `rag-staging` | yes (Render until v0.3.0: no disk, lost on every restart while the row survives; an identical re-upload re-links it) |
+| Uploaded files | `FileStorage` (Day 15) under the key `uploads/{user_id}/{uuid}{ext}` (older rows: flat `uploads/<name>`), held in `Document.file_path`; display name in `Document.file_name`. Local backend: relative to the CWD (`backend/`); Docker: named volume `uploads` at `/app/backend/uploads`. Supabase: private bucket `rag-prod` (Render, since v0.3.0) / `rag-staging` | yes (on Render since v0.3.0; before it, files on Render's disk were lost on every restart while the row survived — an identical re-upload re-links it) |
 | Chunks: text, embedding (halfvec 3072), full-text `tsv`, metadata | Postgres `document_chunks` (Day 15; replaced in-memory FAISS + BM25) | yes |
-| L1 retrieval cache (≤ 256 entries) | class-level dict in `RetrievalService` | no |
+| L1 retrieval cache (≤ 256 entries) | instance dict on the one shared `RetrievalService` (Day 9), key `(user_id, query, doc_version, include_web)` (Day 17) | no |
 | Logs | `backend/logs/app.log` (rotating, 5 MB × 3, `[request_id]` on every line since Day 7; Docker: named volume `logs` at `/app/backend/logs`) | yes |
 
 Render (free plan, region Singapore) has **no persistent disk** — confirmed 2026-11-13 ("Disks
 are not supported"). Its filesystem is wiped on every deploy, restart and idle spin-down, so
-nothing durable may live there: the database is Supabase, and files go to Supabase Storage
-(`STORAGE_BACKEND=supabase`, bucket `rag-prod`) from the Day 17 release.
+nothing durable may live there: the database is Supabase, and files are in Supabase Storage
+(`STORAGE_BACKEND=supabase`, bucket `rag-prod`) since the v0.3.0 release (Day 17). Production's
+`rag` was dumped before that release (`backend/data/backups/`, gitignored; restore with
+`pg_restore --clean --schema=rag`).
 
 ### Redis key schema
 
@@ -620,7 +630,7 @@ so a Gemini outage fails fast instead of stacking retries. State is per process.
 - **Migrations — decided 2026-11-11 (Day 13, T2):** Alembic is the only path. Migrations run as their own step (`alembic upgrade head` before uvicorn), never from the app; the app only checks it is at head. Driver psycopg 3; repositories are plain functions and the caller commits.
 - **Database hosting — decided 2026-11-11 (Day 13):** the owner's existing Supabase project, isolated by schema (`rag` / `rag_staging`, one login role each, `search_path` set on the role as `<schema>, extensions`, not exposed to the Data API). `USAGE` on `public` stays inherited from `PUBLIC` (no project-wide revoke: another app shares the project). Through MCP, Claude reads catalog metadata only, never rows outside `rag` / `rag_staging`; schema and role changes go through reviewed SQL the owner runs.
 - **Chat endpoints — decided 2026-11-08 (Day 9):** `POST /chat` deleted; one `ChatPipeline` behind `/chat/stream`. A JSON endpoint, if one is ever needed, must call the same pipeline.
-- **Index persistence — decided 2026-11-04, built Day 15:** pgvector (halfvec(3072), HNSW) + Postgres full-text in `document_chunks`, uploaded files in Supabase Storage over its S3 API with S3 access keys (Storage only, not the database — Day 15 Decision 5B), local disk in dev and tests. Render's filesystem is ephemeral, so nothing durable stays on it. Reaches production with v0.3.0 (Day 17).
+- **Index persistence — decided 2026-11-04, built Day 15:** pgvector (halfvec(3072), HNSW) + Postgres full-text in `document_chunks`, uploaded files in Supabase Storage over its S3 API with S3 access keys (Storage only, not the database — Day 15 Decision 5B), local disk in dev and tests. Render's filesystem is ephemeral, so nothing durable stays on it. In production since v0.3.0 (Day 17).
 - **Dependencies — decided 2026-11-08 (Day 10):** unused packages removed; those tied to planned items kept (`tiktoken` → C1, `instructor` → S1, `langsmith` → O1, `langgraph` → A1); `src/requirements.txt` deleted. `ragas` (and the langchain packages it pulls in) waits for the Day 12 RAGAS-vs-judge decision.
 - **Dead code — done Day 10.** Still open: the Tesseract installer is untracked but still in git history; purging it needs a history rewrite and force-push (decided on Day 60).
 

@@ -29,23 +29,31 @@ should scope everything.
 - [x] Screenshot: two accounts, the same question, each sees only its own PDF — framed: `docs/posts/assets/post01-two-accounts-framed.png` (raw capture: `post01-day03-two-account-isolation.png`)
 - [ ] Optional third image: diagram of one shared cache list (before) vs. one list per user (after)
 
-## Draft — post text (2026-11-06)
+## Draft — post text (final, 2026-11-15)
 Images, in this order: `post01-code-card-falsy-zero.png`, then `post01-two-accounts-framed.png`.
+Optional: drop the "Ten days later…" paragraph and the "And a user id…" sentence to avoid saying
+publicly that production could have leaked (whether it ever did is unknown, G9).
 
-> I audited my own RAG study assistant before building anything new, and the first thing I found was that its semantic cache could serve one student an answer built from another student's private notes.
+> I audited my vibe-coded RAG project, and the first thing I found was that it could serve one student an answer built from another student's private notes.
 >
-> The cache matched questions on document version and answer mode, but not on the user. The filter was `if not version`, and new users start at version 0. Zero is falsy, so for every new account the filter quietly turned itself off.
+> The first version answered questions, cited my notes, and looked great in a demo, so I shipped it. The leak was in its semantic cache.
 >
-> The same audit turned up three more ways data could cross between users:
+> A semantic cache saves money and time: if a new question means the same as one already answered, it reuses the old answer instead of calling the model again. The catch is that a cached answer is built from someone's documents. Reuse it for the wrong person and you've handed them that person's notes.
+>
+> Mine matched questions on document version and answer mode, but not on the user. The filter was `if not version`, and new users start at version 0. Zero is falsy, so for every new account the filter quietly turned itself off.
+>
+> That's the thing about vibe-coded software: it works on the happy path, and the bugs live exactly where nobody looked. The same audit turned up three more ways data could cross between users:
 > 🔑 login tokens written to logs in three places (420 lines locally → 0)
-> 📁 one shared upload folder where two students' `notes.pdf` overwrote each other
+> 📁 one shared upload folder where two students' notes.pdf overwrote each other
 > 🌐 a CORS setup that echoed back any origin, even with credentials
 >
-> All four are fixed and deployed. After the fix, a second account received 0 of the first account's sources. Every fix is backed by tests: the backend suite went from 26 to 81 tests over these three days.
+> All four are fixed and deployed. After the fix, a second account received 0 of the first account's sources, and the backend tests went from 26 to 81.
 >
-> The rule I'm keeping: in a multi-tenant RAG app, every cache key, search filter and file path carries the user, and there's a test that proves it.
+> Ten days later I found the leak that fix didn't close. Production's database reset its user ids on every restart, while the cache kept its keys. So a new "user 1" could inherit the old user 1's cached answers. Moving to Postgres, where an id is never reused, closed it for good.
 >
-> This is post 1 of a series on rebuilding this app properly: evals, pgvector, observability, agents.
+> The rule I'm keeping: in a multi-tenant RAG app, every cache key, search filter and file path carries the user. And a user id is only a safe key if it means one person forever.
+>
+> So I'm rebuilding this app properly, in public: evals, pgvector, observability, agents. This is post 1.
 >
 > #RAG #AIEngineering #LLM #Security #Python
 

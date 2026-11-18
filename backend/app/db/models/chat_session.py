@@ -12,6 +12,10 @@ class Session(Base):
     __tablename__ = "sessions"
     id = Column(Integer, primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    # NULL = no project: the chat searches the user's unassigned documents (Day 18, Decision 1A).
+    # Set when the session is created; moved only by an explicit PATCH. A deleted project's chats
+    # move to no project (Decision 4A).
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True, index=True)
     title = Column(String, nullable=True)
     topic = Column(String, nullable=True, default="General")
     created_at = Column(DateTime, default=datetime.datetime.utcnow)

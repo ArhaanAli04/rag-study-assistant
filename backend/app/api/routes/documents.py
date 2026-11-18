@@ -1,11 +1,17 @@
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db, get_services
+from app.api.routes.projects import (
+    ARCHIVED_PROJECT,
+    PROJECT_NOT_FOUND,
+    file_name_clash_error,
+    require_project_target,
+)
 from app.db.models import User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories import documents as documents_repo
@@ -13,10 +19,12 @@ from app.db.repositories import users as users_repo
 from app.ingestion.upload_storage import StorageError, UnsafeUploadPath, display_name
 from app.retrieval.embeddings import EmbeddingError
 from app.schemas.documents import SearchRequest
-from app.services import document_service
+from app.schemas.projects import MoveToProject
+from app.services import document_service, project_service
 from app.services.container import Services
 from app.services.document_service import register_upload
 from app.services.indexing_service import DocumentDeleted
+from app.services.project_service import DocumentNotFound, FileNameClash, ProjectArchived, ProjectNotFound
 
 logger = logging.getLogger("rag_assistant.api.documents")
 router = APIRouter(tags=["Documents"])
@@ -53,16 +61,21 @@ def read_validated_upload(file: UploadFile) -> bytes:
 @router.post("/upload")
 def upload_file(
     file: UploadFile = File(...),
+    project_id: Optional[int] = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
     services: Services = Depends(get_services),
 ) -> Dict[str, Any]:
-    content = read_validated_upload(file)
-    original_name = display_name(file.filename)
     # Plain values: index_document ends the session's transaction, which expires current_user.
     user_id, doc_version = current_user.id, current_user.doc_version
+    # Before reading the body: a refused project stores and indexes nothing.
+    require_project_target(db, user_id, project_id)
+    content = read_validated_upload(file)
+    original_name = display_name(file.filename)
     try:
-        registered = register_upload(user_id, content, original_name, services.file_storage)
+        registered = register_upload(
+            user_id, content, original_name, services.file_storage, project_id=project_id
+        )
     except (StorageError, UnsafeUploadPath):
         logger.error("Could not store an upload of user %s", user_id, exc_info=True)
         raise HTTPException(status_code=503, detail="Could not store the file right now. Please try again.")
@@ -145,15 +158,37 @@ def delete_document(
     }
 
 
+@router.patch("/documents/{doc_id}")
+def move_document(
+    doc_id: int,
+    body: MoveToProject,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Move a document, with all its versions, to one of the user's projects (or to no project)."""
+    user_id = current_user.id  # move_document commits, which expires current_user
+    try:
+        doc_version = project_service.move_document(db, user_id, doc_id, body.project_id)
+    except DocumentNotFound:
+        raise HTTPException(status_code=404, detail="Document not found")
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail=PROJECT_NOT_FOUND)
+    except ProjectArchived:
+        raise HTTPException(status_code=409, detail=ARCHIVED_PROJECT)
+    except FileNameClash as error:
+        raise file_name_clash_error(error, "That project" if body.project_id is not None else "No project")
+    return {"status": "moved", "document_id": doc_id, "project_id": body.project_id, "doc_version": doc_version}
+
+
 @router.get("/documents")
 def get_documents(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
-    """The user's current documents, each with its size and how many searchable chunks it has."""
+    """The user's current documents, each with its size, project and searchable chunk count."""
     chunk_counts = chunks_repo.count_by_document(db, current_user.id)  # one grouped query (CO6)
     result = []
-    for doc in documents_repo.list_active(db, current_user.id):
+    for doc, project_name in documents_repo.list_active_with_project(db, current_user.id):
         file_size = doc.file_size
         # Rows from before Day 15 have no stored size; their local file may still say.
         if file_size is None and doc.file_path and os.path.isfile(doc.file_path):
@@ -168,6 +203,8 @@ def get_documents(
             "version": doc.version,
             # 0 = listed but not searchable (indexing failed, or a pre-Day 15 row): re-upload it.
             "chunks": chunk_counts.get(doc.id, 0),
+            "project_id": doc.project_id,
+            "project_name": project_name,
         })
 
     return result

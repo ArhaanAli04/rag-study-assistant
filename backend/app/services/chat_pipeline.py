@@ -93,10 +93,20 @@ class ChatPipeline:
         self.compressor = compressor
 
     def answer(
-        self, db: Session, user: User, query: str, session_id: int, top_k: int, mode: str
+        self,
+        db: Session,
+        user: User,
+        query: str,
+        session_id: int,
+        top_k: int,
+        mode: str,
+        new_session_project_id: Optional[int] = None,
     ) -> ChatStream:
         """Run everything up to generation now, so a retrieval failure is a normal HTTP error;
-        generation then happens while the returned events are streamed."""
+        generation then happens while the returned events are streamed.
+
+        ``new_session_project_id`` is used only if this turn creates the session; the caller has
+        checked that the project is the user's and not archived."""
         user_id_int = user.id
         doc_version = getattr(user, "doc_version", 0)
 
@@ -113,9 +123,10 @@ class ChatPipeline:
 
         cached = self.semantic_cache.lookup(query, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
         if cached:
-            return self._replay_cached(db, user_id_int, query, session_id, mode, cached)
+            return self._replay_cached(db, user_id_int, query, session_id, mode, cached, new_session_project_id)
 
-        turn = self._open_turn(db, user_id_int, session_id, query, load_history=True)
+        turn = self._open_turn(db, user_id_int, session_id, query, load_history=True,
+                               new_session_project_id=new_session_project_id)
         topic = self._classify_topic(turn, query)
 
         prepared = prepare_answer(
@@ -130,13 +141,21 @@ class ChatPipeline:
         )
         return ChatStream(events, {})
 
-    def _open_turn(self, db: Session, user_id: int, session_id: int, query: str, load_history: bool) -> "_Turn":
+    def _open_turn(
+        self,
+        db: Session,
+        user_id: int,
+        session_id: int,
+        query: str,
+        load_history: bool,
+        new_session_project_id: Optional[int] = None,
+    ) -> "_Turn":
         """The turn's first transaction (CO6): session, history and the user's message, one commit.
 
         Everything later needs only plain values from here: after the commit the ORM objects are
         expired, and touching one would reload it with another round trip.
         """
-        chat_session, created = get_or_create_session(db, user_id, session_id, query)
+        chat_session, created = get_or_create_session(db, user_id, session_id, query, new_session_project_id)
         turn = _Turn(
             session_id=chat_session.id,
             # Tag while the session still has the default topic (a new session always does).
@@ -172,9 +191,17 @@ class ChatPipeline:
         return topic_result["topic"]
 
     def _replay_cached(
-        self, db: Session, user_id_int: int, query: str, session_id: int, mode: str, cached: Dict[str, Any]
+        self,
+        db: Session,
+        user_id_int: int,
+        query: str,
+        session_id: int,
+        mode: str,
+        cached: Dict[str, Any],
+        new_session_project_id: Optional[int],
     ) -> ChatStream:
-        turn = self._open_turn(db, user_id_int, session_id, query, load_history=False)
+        turn = self._open_turn(db, user_id_int, session_id, query, load_history=False,
+                               new_session_project_id=new_session_project_id)
         topic = self._classify_topic(turn, query, cached=True)
 
         def cached_stream() -> Iterator[str]:

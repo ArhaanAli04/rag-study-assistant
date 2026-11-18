@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.core.security import verify_password
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
-from app.db.models import Chunk, Document, FailedQuery, Message, User, Session as ChatSession
+from app.db.models import Chunk, Document, FailedQuery, Message, Project, User, Session as ChatSession
 from app.ingestion.upload_storage import FileStorage, StorageError, UnsafeUploadPath, is_user_key, user_prefix
 
 logger = logging.getLogger("rag_assistant.account")
@@ -43,6 +43,7 @@ class AccountDeletionSummary:
     files_removed: int
     # document_chunks rows (Day 15). The name predates them: FAISS / BM25 entries until then.
     index_entries_removed: int
+    projects: int  # Day 18
 
 
 def delete_user_account(
@@ -86,6 +87,8 @@ def delete_user_account(
         documents = db.query(Document).filter(Document.user_id == user_id).delete(
             synchronize_session=False
         )
+        # After documents and sessions, which point at them (Day 18).
+        projects = db.query(Project).filter(Project.user_id == user_id).delete(synchronize_session=False)
         db.delete(user)
         db.commit()
     except SQLAlchemyError:
@@ -107,6 +110,7 @@ def delete_user_account(
         failed_queries=failed_queries,
         files_removed=files_removed,
         index_entries_removed=chunks,
+        projects=projects,
     )
     logger.info("Deleted account %s: %s", user_id, summary)
     return summary

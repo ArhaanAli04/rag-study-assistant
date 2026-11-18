@@ -63,6 +63,7 @@ def register_upload(
     file_name: str,
     storage: FileStorage,
     session_factory: sessionmaker = SessionLocal,
+    project_id: int | None = None,
 ) -> RegisteredUpload:
     """Store an upload (if needed) and record it; the returned row always points at a stored file
     this user owns.
@@ -71,10 +72,14 @@ def register_upload(
     server-generated (G7) and say nothing about what the user called the file. The object is
     written before its row is committed: a crash in between leaves an orphan object (cheap to
     sweep), never a row pointing at nothing.
+
+    ``project_id`` (None = no project) must already be checked as the user's own by the caller.
+    Versions are counted per project (Day 18, Decision 2A): the same name in another project is a
+    new document, whose identical chunks reuse their stored vectors (CO3).
     """
     file_hash = hashlib.sha256(content).hexdigest()
     with session_factory() as db:
-        existing = documents_repo.latest_version(db, user_id, file_name)
+        existing = documents_repo.latest_version(db, user_id, project_id, file_name)
 
         if existing and existing.file_hash == file_hash:
             indexed = chunks_repo.count_by_document(db, user_id).get(existing.id, 0) > 0
@@ -89,7 +94,7 @@ def register_upload(
             # A changed upload whose indexing failed left the earlier versions' chunks behind; its
             # identical re-upload ("reindexed") replaces them too.
             earlier = tuple(
-                d.id for d in documents_repo.list_versions(db, user_id, file_name) if d.id != existing.id
+                d.id for d in documents_repo.versions_of(db, existing) if d.id != existing.id
             ) if status == "reindexed" else ()
             db.commit()
             db.refresh(existing)
@@ -106,9 +111,10 @@ def register_upload(
                 # Search skips inactive versions at once; their chunks are deleted by the indexing
                 # commit (after their vectors were offered for reuse), or by the next upload or reindex
                 # if indexing fails.
-                superseded = tuple(d.id for d in documents_repo.list_versions(db, user_id, file_name))
+                superseded = tuple(d.id for d in documents_repo.versions_of(db, existing))
             doc = Document(
                 user_id=user_id,
+                project_id=project_id,
                 file_name=file_name,
                 file_path=key,
                 file_hash=file_hash,
@@ -134,7 +140,8 @@ class DeletedDocument:
 
 
 def delete_document(db: Session, user_id: int, document_id: int, storage: FileStorage) -> Optional[DeletedDocument]:
-    """Delete a document with every version of its file name (I5): rows, chunks and stored files.
+    """Delete a document with every version of its file name in its project (I5): rows, chunks and
+    stored files.
 
     None if the user owns no such document. The rows go first and are committed (the database is
     the source of truth; ON DELETE CASCADE takes the chunks); files are removed afterwards, and a
@@ -144,7 +151,7 @@ def delete_document(db: Session, user_id: int, document_id: int, storage: FileSt
     doc = documents_repo.get_owned(db, document_id, user_id)
     if doc is None:
         return None
-    versions = documents_repo.list_versions(db, user_id, doc.file_name)
+    versions = documents_repo.versions_of(db, doc)
     chunk_counts = chunks_repo.count_by_document(db, user_id)
     chunks = sum(chunk_counts.get(v.id, 0) for v in versions)
     keys = [v.file_path for v in versions]
@@ -152,9 +159,16 @@ def delete_document(db: Session, user_id: int, document_id: int, storage: FileSt
         db.delete(version)
     db.commit()
 
-    # Pre-G7 flat keys may be shared with another user's row, so only the user's own are removed.
-    removed = sum(1 for key in keys if is_user_key(user_id, key) and _delete_quietly(storage, key))
+    removed = delete_files_quietly(storage, user_id, keys)
     return DeletedDocument(versions=len(versions), chunks=chunks, files_removed=removed)
+
+
+def delete_files_quietly(storage: FileStorage, user_id: int, keys: list[str]) -> int:
+    """Remove stored files after their rows are committed; returns how many went.
+
+    Pre-G7 flat keys may be shared with another user's row, so only the user's own are removed.
+    """
+    return sum(1 for key in keys if is_user_key(user_id, key) and _delete_quietly(storage, key))
 
 
 def _delete_quietly(storage: FileStorage, key: str) -> bool:

@@ -20,9 +20,13 @@ def get_or_create_session(
     user_id: int,
     session_id: Optional[int],
     first_query: Optional[str],
+    project_id: Optional[int] = None,
 ) -> Tuple[ChatSession, bool]:
     """(the user's session `session_id`, False), or (a new one, True). The frontend sends 0 for a new
-    chat, so 0 / None skip the lookup; an id that isn't this user's also gets a new session."""
+    chat, so 0 / None skip the lookup; an id that isn't this user's also gets a new session.
+
+    ``project_id`` applies to a new session only (already checked by the caller); an existing session
+    keeps its own project."""
     if session_id:
         existing = (
             db.query(ChatSession)
@@ -33,7 +37,7 @@ def get_or_create_session(
             return existing, False
 
     title = (first_query[:60] + "...") if first_query else "New session"
-    created = ChatSession(user_id=user_id, title=title, topic=DEFAULT_TOPIC)
+    created = ChatSession(user_id=user_id, title=title, topic=DEFAULT_TOPIC, project_id=project_id)
     db.add(created)
     db.flush()
     return created, True

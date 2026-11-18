@@ -1,26 +1,51 @@
 import datetime
 
-from sqlalchemy import desc, func
+from sqlalchemy import desc, func, update
 from sqlalchemy.orm import Session
 
-from app.db.models import FailedQuery, Message, Session as ChatSession
+from app.db.models import FailedQuery, Message, Project, Session as ChatSession
 
 
-def list_with_last_message(db: Session, user_id: int) -> list[tuple[ChatSession, datetime.datetime | None]]:
-    """The user's sessions, most recent message first; sessions without messages last."""
+def list_with_last_message(
+    db: Session, user_id: int, project_id: int | None = None
+) -> list[tuple[ChatSession, datetime.datetime | None, str | None]]:
+    """The user's sessions, most recent message first (sessions without messages last), each with
+    its last message time and its project's name (None: no project). ``project_id`` keeps only that
+    project's sessions; None lists every session."""
     latest_message = (
         db.query(Message.session_id, func.max(Message.timestamp).label("last_message_time"))
         .group_by(Message.session_id)
         .subquery()
     )
-    rows = (
-        db.query(ChatSession, latest_message.c.last_message_time)
+    query = (
+        db.query(ChatSession, latest_message.c.last_message_time, Project.name)
         .outerjoin(latest_message, ChatSession.id == latest_message.c.session_id)
+        .outerjoin(Project, Project.id == ChatSession.project_id)
         .filter(ChatSession.user_id == user_id)
-        .order_by(desc(latest_message.c.last_message_time).nulls_last())
-        .all()
     )
-    return [(session, last_message_time) for session, last_message_time in rows]
+    if project_id is not None:
+        query = query.filter(ChatSession.project_id == project_id)
+    rows = query.order_by(desc(latest_message.c.last_message_time).nulls_last()).all()
+    return [(session, last_message_time, project_name) for session, last_message_time, project_name in rows]
+
+
+def set_project(db: Session, session_id: int, user_id: int, project_id: int | None) -> None:
+    """Move one of the user's sessions to a project or to none; one UPDATE. The caller commits."""
+    db.execute(
+        update(ChatSession)
+        .where(ChatSession.id == session_id, ChatSession.user_id == user_id)
+        .values(project_id=project_id)
+    )
+
+
+def unassign_project(db: Session, user_id: int, project_id: int) -> int:
+    """Move every session of a project to no project (Decision 4A); returns how many moved."""
+    result = db.execute(
+        update(ChatSession)
+        .where(ChatSession.user_id == user_id, ChatSession.project_id == project_id)
+        .values(project_id=None)
+    )
+    return result.rowcount
 
 
 def get_owned(db: Session, session_id: int, user_id: int) -> ChatSession | None:

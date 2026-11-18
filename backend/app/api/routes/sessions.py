@@ -4,8 +4,12 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.api.routes.projects import ARCHIVED_PROJECT, PROJECT_NOT_FOUND
 from app.db.models import User
 from app.db.repositories import messages as messages_repo, sessions as sessions_repo
+from app.schemas.projects import MoveToProject
+from app.services import project_service
+from app.services.project_service import ProjectArchived, ProjectNotFound, SessionNotFound
 
 router = APIRouter(prefix="/sessions", tags=["Sessions"])
 
@@ -15,7 +19,7 @@ def get_sessions(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> List[Dict[str, Any]]:
-    """Get all chat sessions ordered by most recent message"""
+    """Get all chat sessions ordered by most recent message, each with its project (or none)."""
     return [
         {
             "id": session.id,
@@ -23,9 +27,30 @@ def get_sessions(
             "topic": session.topic or "General",
             "created_at": session.created_at.isoformat() + 'Z' if session.created_at else None,
             "last_message_time": last_msg_time.isoformat() + 'Z' if last_msg_time else None,
+            "project_id": session.project_id,
+            "project_name": project_name,
         }
-        for session, last_msg_time in sessions_repo.list_with_last_message(db, current_user.id)
+        for session, last_msg_time, project_name in sessions_repo.list_with_last_message(db, current_user.id)
     ]
+
+
+@router.patch("/{session_id}/project")
+def move_session(
+    session_id: int,
+    body: MoveToProject,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Dict[str, Any]:
+    """Move a chat to one of the user's projects (or to no project); its next turn searches there."""
+    try:
+        project_service.move_session(db, current_user.id, session_id, body.project_id)
+    except SessionNotFound:
+        raise HTTPException(status_code=404, detail="Session not found")
+    except ProjectNotFound:
+        raise HTTPException(status_code=404, detail=PROJECT_NOT_FOUND)
+    except ProjectArchived:
+        raise HTTPException(status_code=409, detail=ARCHIVED_PROJECT)
+    return {"status": "moved", "session_id": session_id, "project_id": body.project_id}
 
 
 @router.get("/{session_id}/messages")

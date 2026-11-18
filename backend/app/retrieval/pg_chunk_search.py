@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories.chunks import ChunkHit
+from app.db.scope import DocumentScope
 
 # Keys of document_chunks.metadata that are top-level fields of a search result; the rest of the
 # parser's metadata (slide_title, style, …) goes back into extra_metadata, where it came from.
@@ -53,16 +54,25 @@ class PgChunkSearch:
         self.session_factory = session_factory
 
     def search(
-        self, query_embedding: np.ndarray | None, keyword_query: str, user_id: str, top_k: int
+        self,
+        query_embedding: np.ndarray | None,
+        keyword_query: str,
+        user_id: str,
+        top_k: int,
+        scope: DocumentScope,
     ) -> Candidates:
-        """Top-k by cosine similarity and top-k by ts_rank_cd, among this user's chunks only.
+        """Top-k by cosine similarity and top-k by ts_rank_cd, among this user's chunks in ``scope``
+        (all documents, the unassigned ones, or one project's — Day 18).
 
         ``query_embedding=None`` (the embedding call failed) runs the keyword half alone.
         """
         owner = int(user_id)
         with self.session_factory() as db:
-            vector = [] if query_embedding is None else chunks_repo.vector_search(db, owner, query_embedding, top_k)
-            keyword = chunks_repo.keyword_search(db, owner, keyword_query, top_k)
+            vector = (
+                [] if query_embedding is None
+                else chunks_repo.vector_search(db, owner, query_embedding, top_k, scope)
+            )
+            keyword = chunks_repo.keyword_search(db, owner, keyword_query, top_k, scope)
         return Candidates(
             vector=[result_dict(h, owner) for h in vector],
             keyword=[result_dict(h, owner) for h in keyword],
@@ -71,8 +81,9 @@ class PgChunkSearch:
     def vector_only(
         self, query_embedding: np.ndarray, user_id: str, top_k: int, metadata_filter: Dict[str, Any] | None = None
     ) -> List[Dict[str, Any]]:
-        """POST /search: the vector half alone, with optional metadata filters in the WHERE clause."""
+        """POST /search: the vector half alone over all the user's documents (no client sends a project
+        there), with optional metadata filters in the WHERE clause."""
         owner = int(user_id)
         with self.session_factory() as db:
-            hits = chunks_repo.vector_search(db, owner, query_embedding, top_k, metadata_filter)
+            hits = chunks_repo.vector_search(db, owner, query_embedding, top_k, DocumentScope.all(), metadata_filter)
         return [result_dict(h, owner) for h in hits]

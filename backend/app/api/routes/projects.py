@@ -35,11 +35,11 @@ PROJECT_NOT_FOUND = "Project not found"
 ARCHIVED_PROJECT = "This project is archived. Unarchive it to add files or start chats."
 
 
-def require_project_target(db: Session, user_id: int, project_id: int | None) -> None:
-    """For routes that put new content in a project (upload, a new chat): 404 for a project that
-    isn't the user's, 409 for an archived one; None (no project) passes."""
+def require_project_target(db: Session, user_id: int, project_id: int | None) -> Project | None:
+    """For routes that put new content in a project (upload, a new chat): the project, 404 for one
+    that isn't the user's, 409 for an archived one; None (no project) passes as None."""
     try:
-        project_service.require_target(db, user_id, project_id)
+        return project_service.require_target(db, user_id, project_id)
     except ProjectNotFound:
         raise HTTPException(status_code=404, detail=PROJECT_NOT_FOUND)
     except ProjectArchived:

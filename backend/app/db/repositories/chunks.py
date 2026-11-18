@@ -8,12 +8,13 @@ from typing import Any, Dict, List, Sequence
 
 import numpy as np
 from pgvector.sqlalchemy import HALFVEC
-from sqlalchemy import bindparam, delete, func, select, text
+from sqlalchemy import TextClause, bindparam, delete, func, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Session
 
 from app.db.models import Chunk
 from app.db.models.document_chunk import EMBEDDING_DIMENSIONS, TEXT_SEARCH_CONFIG
+from app.db.scope import DocumentScope, ScopeKind
 
 
 @dataclass(frozen=True)
@@ -109,44 +110,63 @@ def count_by_document(db: Session, user_id: int) -> Dict[int, int]:
 # A second sort key in the inner query would stop pgvector's HNSW index from serving it (the index
 # serves only ORDER BY <distance> LIMIT k), so the inner query keeps that shape and the outer one
 # orders its k rows by (distance, id). A tie straddling the k-th place is still picked by the scan.
-_VECTOR_SEARCH = text(
-    """
-    SELECT top.id, top.document_id, top.file_name, top.page, top.chunk_index, top.text, top.metadata,
-           1 - top.distance AS score
-    FROM (
-        SELECT c.id, c.document_id, d.file_name, c.page, c.chunk_index, c.text, c.metadata,
-               c.embedding <=> :query_embedding AS distance
-        FROM document_chunks c
-        JOIN documents d ON d.id = c.document_id
-        WHERE c.user_id = :user_id AND d.is_active AND c.metadata @> :metadata_filter
-        ORDER BY c.embedding <=> :query_embedding
-        LIMIT :top_k
-    ) AS top
-    ORDER BY top.distance, top.id
-    """
-).bindparams(
-    bindparam("query_embedding", type_=HALFVEC(EMBEDDING_DIMENSIONS)),
-    bindparam("metadata_filter", type_=JSONB),
-)
+#
+# Day 18: the project scope is one more condition on the documents row both searches already join
+# (Decision 3A), so moving a document between projects rewrites no chunk. The condition comes from
+# DocumentScope's fixed fragments; a project id is always the bound :scope_project_id.
+def _vector_search(scope_condition: str) -> TextClause:
+    return text(
+        f"""
+        SELECT top.id, top.document_id, top.file_name, top.page, top.chunk_index, top.text, top.metadata,
+               1 - top.distance AS score
+        FROM (
+            SELECT c.id, c.document_id, d.file_name, c.page, c.chunk_index, c.text, c.metadata,
+                   c.embedding <=> :query_embedding AS distance
+            FROM document_chunks c
+            JOIN documents d ON d.id = c.document_id
+            WHERE c.user_id = :user_id AND d.is_active AND c.metadata @> :metadata_filter
+              AND {scope_condition}
+            ORDER BY c.embedding <=> :query_embedding
+            LIMIT :top_k
+        ) AS top
+        ORDER BY top.distance, top.id
+        """
+    ).bindparams(
+        bindparam("query_embedding", type_=HALFVEC(EMBEDDING_DIMENSIONS)),
+        bindparam("metadata_filter", type_=JSONB),
+    )
+
 
 # plainto_tsquery ANDs every term ('recurr' & 'network' & ...), so a natural-language question
 # almost never matches a whole chunk and the keyword half would go silent. Replacing & with |
 # gives OR semantics: any term matches, and ts_rank_cd orders by how many and how close.
-_KEYWORD_SEARCH = text(
-    f"""
-    WITH q AS (
-        SELECT replace(plainto_tsquery('{TEXT_SEARCH_CONFIG}', :query)::text, ' & ', ' | ')::tsquery AS query
+def _keyword_search(scope_condition: str) -> TextClause:
+    return text(
+        f"""
+        WITH q AS (
+            SELECT replace(plainto_tsquery('{TEXT_SEARCH_CONFIG}', :query)::text, ' & ', ' | ')::tsquery AS query
+        )
+        SELECT c.id, c.document_id, d.file_name, c.page, c.chunk_index, c.text, c.metadata,
+               ts_rank_cd(c.tsv, q.query) AS score
+        FROM document_chunks c
+        JOIN documents d ON d.id = c.document_id
+        CROSS JOIN q
+        WHERE c.user_id = :user_id AND d.is_active AND c.tsv @@ q.query
+          AND {scope_condition}
+        ORDER BY score DESC, c.id
+        LIMIT :top_k
+        """
     )
-    SELECT c.id, c.document_id, d.file_name, c.page, c.chunk_index, c.text, c.metadata,
-           ts_rank_cd(c.tsv, q.query) AS score
-    FROM document_chunks c
-    JOIN documents d ON d.id = c.document_id
-    CROSS JOIN q
-    WHERE c.user_id = :user_id AND d.is_active AND c.tsv @@ q.query
-    ORDER BY score DESC, c.id
-    LIMIT :top_k
-    """
-)
+
+
+# Built once per scope kind at import: three statements each, never one per request.
+_SCOPE_EXAMPLES: Dict[ScopeKind, DocumentScope] = {
+    "all": DocumentScope.all(),
+    "unassigned": DocumentScope.unassigned(),
+    "project": DocumentScope.project(0),
+}
+_VECTOR_SEARCH = {kind: _vector_search(s.sql_condition("d")) for kind, s in _SCOPE_EXAMPLES.items()}
+_KEYWORD_SEARCH = {kind: _keyword_search(s.sql_condition("d")) for kind, s in _SCOPE_EXAMPLES.items()}
 
 
 def _hits(rows: Any) -> List[ChunkHit]:
@@ -170,19 +190,23 @@ def vector_search(
     user_id: int,
     query_embedding: np.ndarray,
     top_k: int,
+    scope: DocumentScope,
     metadata_filter: Dict[str, Any] | None = None,
 ) -> List[ChunkHit]:
-    """``metadata_filter`` keeps chunks whose metadata contains it (jsonb @>), e.g. {"doc_type": "pdf"}."""
+    """Among the user's documents in ``scope``. ``metadata_filter`` keeps chunks whose metadata
+    contains it (jsonb @>), e.g. {"doc_type": "pdf"}."""
     params = {
         "query_embedding": query_embedding,
         "user_id": user_id,
         "top_k": top_k,
         "metadata_filter": metadata_filter or {},
+        **scope.sql_params(),
     }
-    return _hits(db.execute(_VECTOR_SEARCH, params))
+    return _hits(db.execute(_VECTOR_SEARCH[scope.kind], params))
 
 
-def keyword_search(db: Session, user_id: int, query: str, top_k: int) -> List[ChunkHit]:
+def keyword_search(db: Session, user_id: int, query: str, top_k: int, scope: DocumentScope) -> List[ChunkHit]:
     if not query.strip():
         return []
-    return _hits(db.execute(_KEYWORD_SEARCH, {"query": query, "user_id": user_id, "top_k": top_k}))
+    params = {"query": query, "user_id": user_id, "top_k": top_k, **scope.sql_params()}
+    return _hits(db.execute(_KEYWORD_SEARCH[scope.kind], params))

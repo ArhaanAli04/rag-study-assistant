@@ -4,6 +4,7 @@ from typing import Any
 
 import pytest
 
+from app.db.scope import DocumentScope
 from app.retrieval.context_assembly import assemble_context
 from app.retrieval.context_compressor import SimpleContextCompressor
 from app.retrieval.embeddings import EmbeddingError
@@ -14,6 +15,7 @@ from app.services.caches.web_cache import WebCache
 from tests.fakes import FakeChunkSearch, FakeEmbedder, FakeRedis
 
 QUERY = "explain photosynthesis chlorophyll"
+ALL = DocumentScope.all()
 TEXT = "Photosynthesis uses chlorophyll to turn light into chemical energy."
 
 
@@ -50,7 +52,7 @@ def test_web_search_off_never_calls_the_web(monkeypatch: pytest.MonkeyPatch) -> 
         raise AssertionError("web search was called")
 
     monkeypatch.setattr(service, "get_web_chunks", fail)
-    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     assert result["web_results"] == []
     assert all(r["metadata"]["source_type"] == "local" for r in result["results"])
@@ -62,9 +64,9 @@ def test_include_web_false_skips_the_web_for_one_call(monkeypatch: pytest.Monkey
     calls: list = []
     monkeypatch.setattr(service, "get_web_chunks", lambda *args, **kwargs: calls.append(args) or [])
 
-    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5, include_web=False)
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5, include_web=False)
     assert calls == []
-    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
     assert len(calls) == 1
 
 
@@ -72,24 +74,24 @@ def test_include_web_is_part_of_the_l1_key() -> None:
     chunk_search = counting_search()
     service = _service(chunk_search, web_search_enabled=False)
 
-    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
-    documents_only = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5, include_web=False)
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
+    documents_only = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5, include_web=False)
 
     assert "from_l1_cache" not in documents_only  # a with-web result is never replayed as documents-only
     assert chunk_search.searches == 2
-    assert service.l1_cache_lookup("1", QUERY, 0, include_web=False) is not None
+    assert service.l1_cache_lookup("1", QUERY, 0, ALL, include_web=False) is not None
 
 
 def test_l1_cache_off_recomputes_a_repeated_query() -> None:
     chunk_search = counting_search()
     service = _service(chunk_search, web_search_enabled=False, l1_cache_enabled=False)
 
-    first = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
-    second = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    first = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
+    second = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     assert chunk_search.searches == 2
     assert "from_l1_cache" not in second
-    assert service.l1_cache_lookup("1", QUERY, 0) is None
+    assert service.l1_cache_lookup("1", QUERY, 0, ALL) is None
     assert first["results"] == second["results"]
 
 
@@ -97,8 +99,8 @@ def test_l1_cache_on_replays_a_repeated_query() -> None:
     chunk_search = counting_search()
     service = _service(chunk_search, web_search_enabled=False)
 
-    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
-    second = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
+    second = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     assert chunk_search.searches == 1
     assert second["from_l1_cache"] is True
@@ -110,7 +112,7 @@ def test_one_search_call_per_retrieval_returns_both_halves() -> None:
     chunk_search = FakeChunkSearch(vector=counting_search().vector, keyword=[keyword_only])
     service = _service(chunk_search, web_search_enabled=False, l1_cache_enabled=False)
 
-    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     assert chunk_search.searches == 1
     assert 9 in {c["metadata"]["chunk_index"] for c in result["all_candidates"]}
@@ -126,9 +128,9 @@ class RecordingChunkSearch(FakeChunkSearch):
         super().__init__(**lists)
         self.embeddings: list = []
 
-    def search(self, query_embedding: Any, keyword_query: str, user_id: str, top_k: int) -> Any:
+    def search(self, query_embedding: Any, keyword_query: str, user_id: str, top_k: int, scope: Any) -> Any:
         self.embeddings.append(query_embedding)
-        return super().search(query_embedding, keyword_query, user_id, top_k)
+        return super().search(query_embedding, keyword_query, user_id, top_k, scope)
 
 
 def test_a_failed_query_embedding_degrades_to_keyword_only_and_is_not_cached() -> None:
@@ -140,29 +142,29 @@ def test_a_failed_query_embedding_degrades_to_keyword_only_and_is_not_cached() -
         web_search_enabled=False,
     )
 
-    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     assert chunk_search.embeddings == [None]  # the vector half is skipped, not searched with zeros
     assert [r["metadata"]["chunk_index"] for r in result["results"]] == [7]
-    assert service.l1_cache_lookup("1", QUERY, 0) is None
+    assert service.l1_cache_lookup("1", QUERY, 0, ALL) is None
 
 
 def test_fusion_weights_are_applied() -> None:
     # Only the vector half has results, so the best hybrid score is exactly the vector weight.
     service = _service(counting_search(), web_search_enabled=False, vector_weight=1.0, keyword_weight=0.0)
 
-    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    result = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     assert result["results"][0]["score"] == pytest.approx(1.0)
 
 
 def test_assemble_context_matches_the_retrieval_result() -> None:
     service = _service(counting_search(), web_search_enabled=False, l1_cache_enabled=False)
-    direct = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    direct = service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5)
 
     context = assemble_context(
         service, QueryDecomposer(), SimpleContextCompressor(),
-        query=QUERY, user_id="1", doc_version=0, top_k=5,
+        query=QUERY, user_id="1", doc_version=0, scope=ALL, top_k=5,
     )
 
     assert context.sub_queries == [QUERY]

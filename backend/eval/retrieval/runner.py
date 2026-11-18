@@ -17,6 +17,7 @@ from pathlib import Path
 from statistics import fmean, quantiles
 from typing import Any, Dict, List, Literal, Optional, Sequence, Set
 
+from app.db.scope import DocumentScope
 from app.retrieval import confidence as conf
 from app.retrieval.context_assembly import RERANK_TOP_K, AssembledContext, assemble_context
 from app.retrieval.context_compressor import SimpleContextCompressor
@@ -138,15 +139,17 @@ def _first_relevant_rank(ranked: Sequence[PageKey], relevant: Set[PageKey]) -> O
 
 
 def evaluate_question(service: RetrievalService, question: EvalQuestion, user_id: str) -> QuestionResult:
+    # The eval user's whole corpus, unassigned: scope "all" searches exactly what it did before Day 18.
+    scope = DocumentScope.all()
     served = service.hybrid_retrieve(
-        question.question, user_id, doc_version=0, top_k=SERVED_TOP_K, rerank_top_k=RERANK_TOP_K
+        question.question, user_id, doc_version=0, scope=scope, top_k=SERVED_TOP_K, rerank_top_k=RERANK_TOP_K
     )
     deep = service.hybrid_retrieve(
-        question.question, user_id, doc_version=0, top_k=DEEP_TOP_K, rerank_top_k=DEEP_TOP_K
+        question.question, user_id, doc_version=0, scope=scope, top_k=DEEP_TOP_K, rerank_top_k=DEEP_TOP_K
     )
     context = assemble_context(
         service, QueryDecomposer(), SimpleContextCompressor(),
-        query=question.question, user_id=user_id, doc_version=0, top_k=SERVED_TOP_K,
+        query=question.question, user_id=user_id, doc_version=0, top_k=SERVED_TOP_K, scope=scope,
     )
 
     served_pages = [page_key(r) for r in served["results"]]

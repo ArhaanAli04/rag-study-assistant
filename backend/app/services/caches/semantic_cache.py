@@ -74,15 +74,21 @@ class SemanticCache:
         user_id: int,
         user_doc_version: int,
         mode: str,
+        scope_key: str,
         threshold: float = 0.92,
     ) -> Optional[Dict[str, Any]]:
+        """``scope_key`` (Day 18) names what the answer was built from: the document scope plus a
+        hash of the project's instructions. Entries match it exactly, so an answer from project A
+        (or from before its instructions changed) is never replayed elsewhere; entries written
+        before Day 18 have no scope and never match."""
         entries = self._load_entries(user_id)
         # The user_id check is a backstop in case an entry ever lands under the wrong key.
         # doc_version is compared exactly: version 0 is a real version, not "no filter".
         relevant_entries = [e for e in entries
                             if e.get("user_id") == user_id
                             and e.get("doc_version") == user_doc_version
-                            and e.get("mode") == mode]
+                            and e.get("mode") == mode
+                            and e.get("scope") == scope_key]
 
         if not relevant_entries:
             return None
@@ -118,6 +124,7 @@ class SemanticCache:
         user_id: int,
         user_doc_version: int,
         mode: str,
+        scope_key: str,
         max_entries: int = 64,
     ) -> None:
         try:
@@ -138,6 +145,7 @@ class SemanticCache:
             "user_id": user_id,
             "doc_version": user_doc_version,
             "mode": mode,
+            "scope": scope_key,
         })
         if len(entries) > max_entries:
             entries = entries[-max_entries:]

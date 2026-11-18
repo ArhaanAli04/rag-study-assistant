@@ -17,6 +17,7 @@ from app.db.models import Chunk, Document, User
 from app.db.models.document_chunk import EMBEDDING_DIMENSIONS
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories.chunks import NewChunk
+from app.db.scope import DocumentScope
 from app.db.session import SessionLocal
 from app.ingestion.models import DocumentChunk
 from app.retrieval.embeddings import EMBEDDING_DIM, EmbeddingError, EmbeddingService
@@ -89,7 +90,7 @@ def add_chunks(db: Session, doc: Document, texts_and_vectors: List[tuple]) -> No
 
 
 def search(doc: Document, keyword_query: str = QUERY, top_k: int = 5) -> Candidates:
-    return PgChunkSearch(SessionLocal).search(QUERY_VECTOR, keyword_query, str(doc.user_id), top_k)
+    return PgChunkSearch(SessionLocal).search(QUERY_VECTOR, keyword_query, str(doc.user_id), top_k, DocumentScope.all())
 
 
 def test_embedding_size_matches_the_column() -> None:
@@ -174,7 +175,7 @@ def test_exact_ties_in_vector_search_come_back_in_id_order(make_document: Callab
     ])
 
     with SessionLocal() as db:
-        hits = chunks_repo.vector_search(db, doc.user_id, QUERY_VECTOR, top_k=4)
+        hits = chunks_repo.vector_search(db, doc.user_id, QUERY_VECTOR, top_k=4, scope=DocumentScope.all())
 
     tied = [h for h in hits if h.score == pytest.approx(1.0, abs=1e-3)]
     assert len(tied) == 3
@@ -196,7 +197,7 @@ def test_nearest_chunk_ranks_first_after_fusion(make_document: Callable[..., Doc
         web_search_enabled=False, l1_cache_enabled=False, vector_weight=1.0, keyword_weight=0.0,
     )
 
-    result = service.hybrid_retrieve(QUERY, str(doc.user_id), 0, top_k=3, rerank_top_k=3)
+    result = service.hybrid_retrieve(QUERY, str(doc.user_id), 0, scope=DocumentScope.all(), top_k=3, rerank_top_k=3)
 
     assert [r["text"].split()[0] for r in result["results"]] == ["near", "middle", "far"]
     assert result["results"][0]["score"] == pytest.approx(1.0)  # min-max: the nearest normalizes to 1

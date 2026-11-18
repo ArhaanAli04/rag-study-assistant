@@ -32,6 +32,6 @@ def chat_stream(
 
     A plain def, with sync event generators: FastAPI runs the pre-stream work in its threadpool and
     Starlette iterates the frames there, so the event loop (and /health) is never blocked (v0.3.1)."""
-    require_project_target(db, current_user.id, project_id)
-    chat = services.chat_pipeline.answer(db, current_user, query, session_id, top_k, mode, project_id)
+    project = require_project_target(db, current_user.id, project_id)
+    chat = services.chat_pipeline.answer(db, current_user, query, session_id, top_k, mode, project)
     return StreamingResponse(chat.events, media_type="text/event-stream", headers=chat.headers)

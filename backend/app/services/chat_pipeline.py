@@ -1,8 +1,9 @@
 """The chat pipeline behind GET /chat/stream — the only chat endpoint since Day 9 (POST /chat, a
 drifted copy of these steps, was deleted).
 
-guards → semantic cache → session + history + topic tag → decompose → hybrid retrieve per
-sub-query → parent expansion → compress → grounding → prompt → stream → store.
+guards → session + project + history → semantic cache (scoped to the project, Day 18) → topic tag →
+decompose → hybrid retrieve per sub-query (in the project's scope) → parent expansion → compress →
+grounding → prompt (+ the project's fenced instructions) → stream → store.
 
 The SSE frames are a contract with frontend/src/components/ChatWindow.js:
     metadata → token… → message_id → [DONE]       (answer, fresh or replayed from the cache)
@@ -10,6 +11,7 @@ The SSE frames are a contract with frontend/src/components/ChatWindow.js:
     metadata → token… → error                     (LLM failure mid-stream)
 """
 import datetime
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -18,8 +20,9 @@ from typing import Any, Dict, Iterator, List, Optional
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.db.models import FailedQuery, User
+from app.db.models import FailedQuery, Project, User
 from app.db.repositories import sessions as sessions_repo
+from app.db.scope import DocumentScope
 from app.core.errors import UserFriendlyError
 from app.generation.llm_client import LLMClient
 from app.generation.topic_classifier import TopicClassifier
@@ -57,6 +60,18 @@ class _Turn:
     session_id: int
     needs_topic: bool
     history: List[Dict[str, str]]
+    # Day 18: the session's project decides what the turn searches and which instructions it sends.
+    scope: DocumentScope
+    project_instructions: Optional[str]
+
+    @property
+    def answer_scope_key(self) -> str:
+        """The semantic cache's scope for this turn's answer: the document scope, plus a hash of the
+        instructions (they change the answer, not the retrieval), so editing them stops replays."""
+        if not self.project_instructions:
+            return self.scope.cache_key
+        digest = hashlib.sha256(self.project_instructions.encode("utf-8")).hexdigest()[:16]
+        return f"{self.scope.cache_key}:i{digest}"
 
 
 @dataclass
@@ -100,13 +115,13 @@ class ChatPipeline:
         session_id: int,
         top_k: int,
         mode: str,
-        new_session_project_id: Optional[int] = None,
+        new_session_project: Optional[Project] = None,
     ) -> ChatStream:
         """Run everything up to generation now, so a retrieval failure is a normal HTTP error;
         generation then happens while the returned events are streamed.
 
-        ``new_session_project_id`` is used only if this turn creates the session; the caller has
-        checked that the project is the user's and not archived."""
+        ``new_session_project`` is used only if this turn creates the session; the caller loaded it
+        through the user (ownership) and checked it isn't archived."""
         user_id_int = user.id
         doc_version = getattr(user, "doc_version", 0)
 
@@ -121,21 +136,26 @@ class ChatPipeline:
         if find_unsafe_keyword(query) is not None:
             return ChatStream(refusal_sse_events(UNSAFE_REFUSAL, session_id, mode), NO_CACHE)
 
-        cached = self.semantic_cache.lookup(query, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
-        if cached:
-            return self._replay_cached(db, user_id_int, query, session_id, mode, cached, new_session_project_id)
+        # The session is opened first (Day 18): its project decides the semantic cache's scope. The
+        # turn's transaction is committed inside, so no connection is held while the lookup embeds.
+        turn = self._open_turn(db, user_id_int, session_id, query, new_session_project)
 
-        turn = self._open_turn(db, user_id_int, session_id, query, load_history=True,
-                               new_session_project_id=new_session_project_id)
+        cached = self.semantic_cache.lookup(
+            query, user_id=user_id_int, user_doc_version=doc_version, mode=mode, scope_key=turn.answer_scope_key,
+        )
+        if cached:
+            return self._replay_cached(db, user_id_int, mode, cached, turn, query)
+
         topic = self._classify_topic(turn, query)
 
         prepared = prepare_answer(
             self.retrieval_service, self.query_decomposer, self.compressor, self.llm_client,
             query=query, user_id=str(user_id_int), doc_version=doc_version, top_k=top_k,
             mode=mode, recent_messages=turn.history,
+            scope=turn.scope, project_instructions=turn.project_instructions,
         )
         events = self._generate(
-            db, user_id_int, query, turn.session_id, doc_version, mode,
+            db, user_id_int, query, turn, doc_version, mode,
             prepared.prompt, prepared.context.chunks, prepared.context.confidence,
             prepared.context.fallback_used, prepared.grounding_level, topic,
         )
@@ -147,24 +167,38 @@ class ChatPipeline:
         user_id: int,
         session_id: int,
         query: str,
-        load_history: bool,
-        new_session_project_id: Optional[int] = None,
+        new_session_project: Optional[Project],
     ) -> "_Turn":
-        """The turn's first transaction (CO6): session, history and the user's message, one commit.
+        """The turn's first transaction (CO6): session, its project, history and the user's message,
+        one commit.
 
         Everything later needs only plain values from here: after the commit the ORM objects are
         expired, and touching one would reload it with another round trip.
+
+        The project row costs no extra round trip for a new chat (the route loaded it and passes the
+        object: the identity map holds rows only by weak reference, so an id alone would mean a
+        second SELECT) and one SELECT per turn of an existing project chat.
         """
-        chat_session, created = get_or_create_session(db, user_id, session_id, query, new_session_project_id)
+        chat_session, created = get_or_create_session(
+            db, user_id, session_id, query, new_session_project.id if new_session_project is not None else None
+        )
+        if created:
+            project = new_session_project
+        else:
+            project = db.get(Project, chat_session.project_id) if chat_session.project_id is not None else None
         turn = _Turn(
             session_id=chat_session.id,
             # Tag while the session still has the default topic (a new session always does).
             needs_topic=chat_session.topic in (None, DEFAULT_TOPIC),
             # Read BEFORE the current message is added, so the question isn't sent twice; a new
             # session has none, so it skips the query.
-            history=[] if created or not load_history else [
+            history=[] if created else [
                 {"role": m.role, "content": m.content} for m in get_recent_messages(db, chat_session.id)
             ],
+            # A project deleted in the same instant leaves project_id set to NULL by its FK; a
+            # missing row here means the same: no project.
+            scope=DocumentScope.for_chat(project.id if project is not None else None),
+            project_instructions=project.instructions if project is not None else None,
         )
         add_message(db, turn.session_id, user_id, role="user", content=query)
         db.commit()
@@ -191,17 +225,8 @@ class ChatPipeline:
         return topic_result["topic"]
 
     def _replay_cached(
-        self,
-        db: Session,
-        user_id_int: int,
-        query: str,
-        session_id: int,
-        mode: str,
-        cached: Dict[str, Any],
-        new_session_project_id: Optional[int],
+        self, db: Session, user_id_int: int, mode: str, cached: Dict[str, Any], turn: "_Turn", query: str
     ) -> ChatStream:
-        turn = self._open_turn(db, user_id_int, session_id, query, load_history=False,
-                               new_session_project_id=new_session_project_id)
         topic = self._classify_topic(turn, query, cached=True)
 
         def cached_stream() -> Iterator[str]:
@@ -256,7 +281,7 @@ class ChatPipeline:
         db: Session,
         user_id_int: int,
         query: str,
-        chat_session_id: int,
+        turn: "_Turn",
         doc_version: int,
         mode: str,
         prompt: Dict[str, Any],
@@ -266,6 +291,7 @@ class ChatPipeline:
         grounding_level: str,
         topic: Optional[str],
     ) -> Iterator[str]:
+        chat_session_id = turn.session_id
         try:
             metadata = {
                 "session_id": chat_session_id,
@@ -312,7 +338,10 @@ class ChatPipeline:
                 "sources": [c["metadata"] for c in compressed_context],
                 "followups": [],
             }
-            self.semantic_cache.store(query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=mode)
+            self.semantic_cache.store(
+                query, resp_dict, user_id=user_id_int, user_doc_version=doc_version, mode=mode,
+                scope_key=turn.answer_scope_key,
+            )
 
         except RuntimeError as e:
             error_type = UserFriendlyError.classify_error(e)

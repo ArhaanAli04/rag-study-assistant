@@ -162,11 +162,15 @@ class FakeChunkSearch:
         self.vector = vector or []
         self.keyword = keyword or []
         self.searches = 0
+        self.scopes: List[Any] = []  # the DocumentScope of every search, in order
 
-    def search(self, query_embedding: Optional[np.ndarray], keyword_query: str, user_id: str, top_k: int) -> Any:
+    def search(
+        self, query_embedding: Optional[np.ndarray], keyword_query: str, user_id: str, top_k: int, scope: Any
+    ) -> Any:
         from app.retrieval.pg_chunk_search import Candidates
 
         self.searches += 1
+        self.scopes.append(scope)
         # Fresh dicts per call: hybrid_retrieve annotates metadata in place. Like PgChunkSearch, no
         # embedding (the call failed) means no vector half.
         vector = [] if query_embedding is None else self.vector[:top_k]

@@ -108,3 +108,88 @@ test("a normal stream renders the answer and its source, and feedback uses the s
   expect(JSON.parse(options.body).feedback).toBe("up");
   localStorage.removeItem("token");
 });
+
+// --- Day 18: the chat's project -----------------------------------------------------------------------
+
+const PROJECTS = [
+  { id: 3, name: "DL Unit 5", archived: false, document_count: 1, chat_count: 0 },
+  { id: 4, name: "Old course", archived: true, document_count: 0, chat_count: 0 },
+];
+
+function mockProjects(reply) {
+  global.fetch = jest.fn((url) => {
+    if (new URL(url).pathname === "/projects") return reply();
+    // Messages of an existing chat, and the session list it reads its title from.
+    return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+  });
+}
+
+const projectsOk = () => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(PROJECTS) });
+
+test("a new chat offers the active projects and says what answers can cite", async () => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={null} onSessionCreated={jest.fn()} />);
+
+  expect(screen.getByRole("status")).toHaveTextContent("Loading projects…");
+  const picker = await screen.findByLabelText("Project");
+  expect(Array.from(picker.options).map((o) => o.textContent)).toEqual(["No project", "DL Unit 5"]);
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("No project: answers cite only documents that aren't in a project.");
+
+  fireEvent.change(picker, { target: { value: "3" } });
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("Answers cite only files in DL Unit 5.");
+});
+
+test("a new chat in a project sends project_id, and the picker locks once the chat starts", async () => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={null} onSessionCreated={jest.fn()} />);
+  fireEvent.change(await screen.findByLabelText("Project"), { target: { value: "3" } });
+
+  sendQuestion("What is an LSTM?");
+
+  const url = new URL(FakeEventSource.instances[0].url);
+  expect(url.searchParams.get("project_id")).toBe("3");
+  expect(url.searchParams.get("session_id")).toBe("0");
+  expect(screen.getByLabelText("Project")).toBeDisabled();
+});
+
+test("a new chat with No project sends no project_id", async () => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={null} onSessionCreated={jest.fn()} />);
+  await screen.findByLabelText("Project");
+
+  sendQuestion("What is an LSTM?");
+
+  expect(new URL(FakeEventSource.instances[0].url).searchParams.has("project_id")).toBe(false);
+});
+
+test("an existing chat always shows its project and never sends project_id", async () => {
+  mockProjects(projectsOk);
+  const session = { id: 42, title: "LSTM gates", project_id: 3, project_name: "DL Unit 5" };
+  render(<ChatWindow sessionId={42} session={session} onSessionCreated={jest.fn()} />);
+
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("Project: DL Unit 5");
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("Answers cite only files in DL Unit 5.");
+  expect(screen.queryByLabelText("Project")).toBeNull(); // no picker: its project is fixed
+
+  sendQuestion("And the forget gate?");
+  const url = new URL(FakeEventSource.instances[0].url);
+  expect(url.searchParams.get("session_id")).toBe("42");
+  expect(url.searchParams.has("project_id")).toBe(false);
+});
+
+test("an existing chat outside projects says No project", async () => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={7} session={{ id: 7, title: "Misc", project_id: null, project_name: null }} onSessionCreated={jest.fn()} />);
+
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("No project");
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("answers cite only documents that aren't in a project");
+});
+
+test("if projects fail to load, a new chat says it will use No project", async () => {
+  mockProjects(() => Promise.resolve({ ok: false, status: 500, json: () => Promise.resolve({ detail: "Internal server error." }) }));
+  render(<ChatWindow sessionId={null} onSessionCreated={jest.fn()} />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load your projects, so this chat will use No project.");
+  sendQuestion("What is an LSTM?");
+  expect(new URL(FakeEventSource.instances[0].url).searchParams.has("project_id")).toBe(false);
+});

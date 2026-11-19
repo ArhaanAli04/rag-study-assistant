@@ -1,6 +1,7 @@
-import { Trash2, Calendar, FileType, AlertTriangle } from "lucide-react";
+import { Trash2, Calendar, FileType, AlertTriangle, Folder } from "lucide-react";
 
-export default function DocumentList({ documents, onDelete }) {
+// projects: the active projects a document can move into; movingId: the document being moved.
+export default function DocumentList({ documents, onDelete, projects = [], onMove = () => {}, movingId = null }) {
   
   const formatDate = (dateString) => {
     if (!dateString) return 'Recently uploaded';
@@ -59,6 +60,11 @@ export default function DocumentList({ documents, onDelete }) {
 
           {/* Metadata */}
           <div className="space-y-2 mb-4">
+            {/* Day 18: which chats can cite this file. */}
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <Folder className="w-3 h-3" aria-hidden="true" />
+              <span data-testid={`project-of-${doc.id}`}>{doc.project_name || "No project"}</span>
+            </div>
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <Calendar className="w-3 h-3" />
               <span>{formatDate(doc.created_at )}</span>
@@ -81,6 +87,20 @@ export default function DocumentList({ documents, onDelete }) {
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-2">
+            <label htmlFor={`move-${doc.id}`} className="sr-only">Move {doc.filename} to a project</label>
+            <select
+              id={`move-${doc.id}`}
+              value=""
+              disabled={movingId !== null}
+              onChange={(e) => onMove(doc.id, e.target.value === "none" ? null : Number(e.target.value))}
+              className="px-2 py-1 bg-white/5 border border-border/50 rounded-md text-xs text-foreground"
+            >
+              <option value="" disabled>{movingId === doc.id ? "Moving…" : "Move to…"}</option>
+              {doc.project_id !== null && doc.project_id !== undefined && <option value="none">No project</option>}
+              {projects.filter((p) => p.id !== doc.project_id).map((p) => (
+                <option key={p.id} value={String(p.id)}>{p.name}</option>
+              ))}
+            </select>
             <button
               onClick={() => onDelete(doc.id)}
               className="p-2 hover:bg-destructive/20 rounded-lg transition-all group-hover:opacity-100 opacity-0"

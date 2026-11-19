@@ -35,7 +35,12 @@ function plural(count, word) {
 
 export function accountDeletedNotice(deleted) {
   if (!deleted) return "";
-  const documents = deleted.documents ?? 0;
-  const chats = deleted.sessions ?? 0;
-  return `Your account was deleted — ${plural(documents, "document")} and ${plural(chats, "chat")} removed.`;
+  const documents = plural(deleted.documents ?? 0, "document");
+  const chats = plural(deleted.sessions ?? 0, "chat");
+  // Day 18: projects are deleted with the account; named only when there were any.
+  const projects = deleted.projects ?? 0;
+  if (projects > 0) {
+    return `Your account was deleted — ${documents}, ${chats} and ${plural(projects, "project")} removed.`;
+  }
+  return `Your account was deleted — ${documents} and ${chats} removed.`;
 }

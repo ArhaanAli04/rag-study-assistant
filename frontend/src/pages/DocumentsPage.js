@@ -1,39 +1,55 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import TopNav from "../components/TopNav";
 import DocumentList from "../components/DocumentList";
 import DocumentUpload from "../components/DocumentUpload";
+import ProjectPanel from "../components/ProjectPanel";
 import { FileText, AlertCircle, CheckCircle2 } from "lucide-react";
 import { API_BASE_URL } from '../config/api';
 import { deleteNotice, uploadNotice } from "../utils/uploadNotice";
+import { activeProjects, listProjects, moveDocument } from "../services/projectsApi";
+
+// The document filter: every document, the unassigned ones, or one project's (by id, as a string).
+const ALL = "all";
+const NO_PROJECT = "none";
+
+function matchesFilter(doc, filter) {
+  if (filter === ALL) return true;
+  if (filter === NO_PROJECT) return doc.project_id === null || doc.project_id === undefined;
+  return String(doc.project_id) === filter;
+}
 
 export default function DocumentsPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  
+
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [notice, setNotice] = useState(null);
   const [uploading, setUploading] = useState(false);
 
-  useEffect(() => {
-    fetchDocuments();
-  }, []);
+  // Day 18: projects, the upload's target project and the list filter.
+  const [projects, setProjects] = useState([]);
+  const [projectsLoading, setProjectsLoading] = useState(true);
+  const [projectsError, setProjectsError] = useState(null);
+  const [uploadProjectId, setUploadProjectId] = useState("");
+  const [filter, setFilter] = useState(ALL);
+  const [movingId, setMovingId] = useState(null);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = useCallback(async () => {
     try {
       setLoading(true);
       const token = localStorage.getItem("token");
       const response = await fetch(`${API_BASE_URL}/documents`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      
+
       if (!response.ok) {
         throw new Error("Failed to fetch documents");
       }
-      
+
       const data = await response.json();
       setDocuments(data);
     } catch (err) {
@@ -42,6 +58,31 @@ export default function DocumentsPage() {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const fetchProjects = useCallback(async () => {
+    setProjectsLoading(true);
+    setProjectsError(null);
+    try {
+      const data = await listProjects();
+      setProjects(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setProjectsError(err.message);
+    } finally {
+      setProjectsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchDocuments();
+    fetchProjects();
+  }, [fetchDocuments, fetchProjects]);
+
+  // After any project change: refresh both lists (counts, badges) and say what happened.
+  const handleProjectsChanged = async (message) => {
+    setError(null);
+    setNotice(message);
+    await Promise.all([fetchProjects(), fetchDocuments()]);
   };
 
   const handleUpload = async (file) => {
@@ -53,6 +94,9 @@ export default function DocumentsPage() {
       const token = localStorage.getItem("token");
       const formData = new FormData();
       formData.append("file", file);
+      if (uploadProjectId) {
+        formData.append("project_id", uploadProjectId);
+      }
 
       const response = await fetch(`${API_BASE_URL}/upload`, {
         method: "POST",
@@ -66,12 +110,28 @@ export default function DocumentsPage() {
       }
 
       setNotice(uploadNotice(await response.json()));
-      await fetchDocuments();
+      await Promise.all([fetchDocuments(), fetchProjects()]);
     } catch (err) {
       setError(err.message);
       console.error("Error uploading document:", err);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleMove = async (documentId, projectId) => {
+    const doc = documents.find((d) => d.id === documentId);
+    const target = projectId === null ? "No project" : projects.find((p) => p.id === projectId)?.name;
+    setMovingId(documentId);
+    setError(null);
+    setNotice(null);
+    try {
+      await moveDocument(documentId, projectId);
+      await handleProjectsChanged(`Moved ${doc?.filename || "the file"} to ${target}.`);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setMovingId(null);
     }
   };
 
@@ -96,7 +156,7 @@ export default function DocumentsPage() {
 
       const result = await response.json();
       setNotice(deleteNotice(fileName, result.versions_deleted));
-      await fetchDocuments();
+      await Promise.all([fetchDocuments(), fetchProjects()]);
     } catch (err) {
       setError(err.message);
       console.error("Error deleting document:", err);
@@ -108,11 +168,14 @@ export default function DocumentsPage() {
     navigate("/login");
   };
 
+  const pickable = activeProjects(projects);
+  const shown = documents.filter((doc) => matchesFilter(doc, filter));
+
   return (
     <div className="flex flex-col h-screen" style={{ background: "#0F0F0F" }}>
       {/* Top Navigation */}
-      <TopNav 
-        user={user} 
+      <TopNav
+        user={user}
         onLogout={handleLogout}
         onToggleSidebar={() => {}} // No sidebar on this page
       />
@@ -148,15 +211,44 @@ export default function DocumentsPage() {
             </div>
           )}
 
+          <ProjectPanel
+            projects={projects}
+            loading={projectsLoading}
+            error={projectsError}
+            onRetry={fetchProjects}
+            onChanged={handleProjectsChanged}
+          />
+
           {/* Upload Section */}
-          <DocumentUpload onUpload={handleUpload} uploading={uploading} />
+          <DocumentUpload
+            onUpload={handleUpload}
+            uploading={uploading}
+            projects={pickable}
+            projectId={uploadProjectId}
+            onProjectChange={setUploadProjectId}
+          />
 
           {/* Documents List */}
           <div className="mt-8">
-            <h2 className="text-xl font-semibold text-foreground mb-4">
-              Your Documents ({documents.length})
-            </h2>
-            
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-semibold text-foreground">
+                Your Documents ({shown.length})
+              </h2>
+              <div className="flex items-center gap-2">
+                <label htmlFor="document-filter" className="text-sm text-muted-foreground">Show</label>
+                <select
+                  id="document-filter"
+                  value={filter}
+                  onChange={(e) => setFilter(e.target.value)}
+                  className="px-3 py-1.5 bg-white/5 border border-border/50 rounded-lg text-sm text-foreground"
+                >
+                  <option value={ALL}>All documents</option>
+                  <option value={NO_PROJECT}>No project</option>
+                  {projects.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
+                </select>
+              </div>
+            </div>
+
             {loading ? (
               <div className="text-center py-12">
                 <div className="inline-block w-8 h-8 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
@@ -168,8 +260,20 @@ export default function DocumentsPage() {
                 <h3 className="text-lg font-medium text-foreground mb-2">No documents yet</h3>
                 <p className="text-sm text-muted-foreground">Upload your first document to get started</p>
               </div>
+            ) : shown.length === 0 ? (
+              <div className="text-center py-12 glass border border-border/50 rounded-2xl">
+                <p className="text-sm text-muted-foreground">
+                  {filter === NO_PROJECT ? "Every document is in a project." : "No documents in this project yet."}
+                </p>
+              </div>
             ) : (
-              <DocumentList documents={documents} onDelete={handleDelete} />
+              <DocumentList
+                documents={shown}
+                onDelete={handleDelete}
+                projects={pickable}
+                onMove={handleMove}
+                movingId={movingId}
+              />
             )}
           </div>
         </div>

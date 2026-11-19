@@ -4,9 +4,12 @@ import MessageList from "./MessageList";
 import ChatInput from "./ChatInput";
 import { exportChatAsMarkdown, exportChatAsPDF } from "../utils/exportUtils";
 import ExportChatMenu from "./ExportChatMenu";
+import ChatProjectScope from "./ChatProjectScope";
 import { API_BASE_URL } from '../config/api';
+import { activeProjects, listProjects } from "../services/projectsApi";
 
-export default function ChatWindow({ sessionId, onSessionCreated }) {
+// session: the active chat's row from GET /sessions (project_id, project_name), when there is one.
+export default function ChatWindow({ sessionId, session, onSessionCreated }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [streamingAnswer, setStreamingAnswer] = useState("");
@@ -15,6 +18,30 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
   const [sessionTitle, setSessionTitle] = useState("Chat Export");
   const messagesEndRef = useRef(null);
   const messagesContainerRef = useRef(null);
+
+  // Day 18: the projects a new chat can start in, and the one picked ("" = No project).
+  const [projects, setProjects] = useState([]);
+  const [projectsState, setProjectsState] = useState("loading");
+  const [newChatProjectId, setNewChatProjectId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    listProjects()
+      .then((data) => {
+        if (cancelled) return;
+        setProjects(activeProjects(data));
+        setProjectsState("ready");
+      })
+      .catch(() => {
+        if (!cancelled) setProjectsState("error");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const pickedProjectName = projects.find((p) => String(p.id) === newChatProjectId)?.name || null;
+  // An existing chat's project comes from its session row; right after a new chat starts, until
+  // the session list has refreshed, it is the project that was picked for it.
+  const chatProjectName = session ? session.project_name || null : pickedProjectName;
 
   // Fetch messages when session changes
   useEffect(() => {
@@ -128,6 +155,10 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
     url.searchParams.append("session_id", sessionId || 0);
     url.searchParams.append("top_k", 5);
     url.searchParams.append("mode", mode);
+    // Only a new chat chooses its project; an existing chat keeps its own (the server ignores it too).
+    if (!sessionId && newChatProjectId) {
+      url.searchParams.append("project_id", newChatProjectId);
+    }
     url.searchParams.append("token", token);
 
     const eventSource = new EventSource(url.toString());
@@ -245,11 +276,22 @@ export default function ChatWindow({ sessionId, onSessionCreated }) {
         background: '#0F0F0F',
         minHeight: '56px'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <Sparkles size={18} color="#7C3AED" />
-          <h2 style={{ color: 'white', fontSize: '17px', fontWeight: '600', margin: 0 }}>
-            {sessionTitle || "New Chat"}
-          </h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Sparkles size={18} color="#7C3AED" />
+            <h2 style={{ color: 'white', fontSize: '17px', fontWeight: '600', margin: 0 }}>
+              {sessionId ? sessionTitle : "New Chat"}
+            </h2>
+          </div>
+          <ChatProjectScope
+            isNewChat={!sessionId}
+            projectName={chatProjectName}
+            projects={projects}
+            projectsState={projectsState}
+            selectedProjectId={newChatProjectId}
+            onSelect={setNewChatProjectId}
+            locked={loading || messages.length > 0}
+          />
         </div>
         
         {messages.length > 0 && (

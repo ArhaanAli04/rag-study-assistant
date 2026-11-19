@@ -39,3 +39,29 @@ learn, without letting a malicious document write itself into it.
 
 ## Material log
 <!-- /run-day appends one entry per day below, newest last. -->
+
+### Day 18 — 2026-11-19 / 2026-11-20 — Projects data model, API and project-scoped retrieval
+- Takeaway: a project is one more filter next to "this user" in every search, but it only keeps
+  courses apart if every cache key and every prompt respects it too.
+- Numbers:
+  - Live check, local stack, two demo PDFs (photosynthesis, French Revolution): 8 of 8 steps
+    passed. A Biology chat cited only `photosynthesis.pdf`, a History chat only
+    `french_revolution.pdf`. After the move, the Biology chat cited both. A No-project chat cited
+    neither. The instructions were followed (3 bullets).
+  - The retrieval eval was unchanged by the new filter: Hit@5 50/55, MRR@5 0.808, 0 API calls.
+  - Tests: backend 396 → 438, frontend 42 → 84.
+- Capture now:
+  - [x] `docs/posts/assets/post10-projects-panel.png`: the Projects panel (owner, 2026-11-20)
+  - [x] `docs/posts/assets/post10-chat-scope.png`: a project chat with its header's project line
+        (owner, 2026-11-20)
+- Make when writing the post:
+  - [ ] Diagram: user → project → documents / chats, with the two places `project_id` filters (the
+        `documents` join in both searches) and the two cache keys that carry the scope (L1,
+        semantic cache)
+  - [ ] Code card: the scope condition (`app/db/scope.py`, `sql_condition`) next to the search's
+        WHERE clause
+  - [ ] Code card: the fenced instructions block in the final user turn (`project_instructions_block`)
+  - [ ] Table card: the 5 chat steps (A, A again, B, after the move, No project) → what each cited
+- Lesson / quote: "The project filter was one line of SQL. Making sure no cache replayed project A's
+  answer in project B was the actual work."
+- Concept source: docs/briefs/day18.md#the-concept

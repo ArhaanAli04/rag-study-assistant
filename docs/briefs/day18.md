@@ -394,4 +394,188 @@ Not decisions (sensible defaults, stated so they can be overridden):
 - **Day 19 overlap (Decision 6A):** the Documents-page panel duplicates part of Day 19's `/projects`
   page. Day 19 can move the panel's pieces into the dedicated pages rather than rebuild them.
 - **Open:** should an archived project's existing chats stay usable (the default above), or become
-  read-only?
+  read-only? **Answered 2026-11-19:** they stay usable; archive blocks only new uploads and chats.
+
+## Outcome
+
+Done 2026-11-19 / 2026-11-20 in four checkpoints on `feature/day18-projects-core` (PR #28, draft into
+`develop`, CI green on each): `8b706f6` data model, `fc661f0` API, `f9469d8` scoped retrieval,
+`2b0918f` UI. Every decision as approved: 1A, 2A, 3A, 4A, 5A, 6A.
+
+### Files changed
+
+**Checkpoint 1: data model** (`8b706f6`)
+- `alembic/versions/1e74b84340ae_projects.py` (new): `projects` table; `project_id` (NULL = no
+  project, `ON DELETE SET NULL`) on `documents` and `sessions`; `ix_documents_user_id_project_id`,
+  `ix_sessions_project_id`; `uq_projects_user_id_name`.
+- `backend/app/db/models/project.py` (new), `document.py`, `chat_session.py`, `__init__.py`.
+- `backend/app/db/scope.py` (new): `DocumentScope` (`all` / `unassigned` / `project(id)`): SQL
+  condition from fixed strings, bound project id, cache key.
+- `backend/app/db/repositories/projects.py` (new): `get_owned`, `name_taken`, `add`,
+  `list_with_counts` (one statement).
+
+**Checkpoint 2: API** (`fc661f0`)
+- `backend/app/api/routes/projects.py` (new): the five routes, all plain `def`, plus
+  `require_project_target` (404 not owned, 409 archived).
+- `backend/app/services/project_service.py` (new): ownership through the user,
+  create/update/delete (documents `delete` | `unassign`, chats always unassigned, one commit +
+  `doc_version` bump, files after), `move_document` (every version, 409 on a name clash, bump),
+  `move_session`.
+- `backend/app/schemas/projects.py` (new): limits 80 / 500 / 4000, trimming.
+- Documents:
+  - `api/routes/documents.py`: `POST /upload` `project_id` checked before the body is read;
+    `PATCH /documents/{id}`; `GET /documents` gains `project_id`, `project_name`.
+  - `db/repositories/documents.py`: per-project versioning with `IS NOT DISTINCT FROM`,
+    `versions_of`, `active_name_in_project`, `set_project`, `list_in_project`,
+    `list_active_with_project`; `list_active` deleted as dead code.
+  - `services/document_service.py`: `register_upload(project_id)`, `delete_files_quietly`.
+- Sessions:
+  - `api/routes/sessions.py`: `GET /sessions` gains `project_id`, `project_name`;
+    `PATCH /sessions/{id}/project`.
+  - `db/repositories/sessions.py`: project name and filter, `set_project`, `unassign_project`.
+- Chat: `api/routes/chat.py` (`project_id` for new chats), `services/chat_pipeline.py`,
+  `services/session_service.py`.
+- `backend/app/services/account_service.py`: projects deleted explicitly, `projects` in the
+  summary.
+- `backend/scripts/reindex_all.py`: versions in the document's own project.
+- `backend/app/main.py`: the router.
+- Tests: `test_projects_api.py` (new, 30); `test_account_service.py`, `test_repositories.py`,
+  `test_event_loop.py`.
+
+**Checkpoint 3: project-scoped retrieval** (`f9469d8`)
+- Search:
+  - `db/repositories/chunks.py`: the scope condition on the `documents` join in both searches,
+    built once per scope kind.
+  - `retrieval/pg_chunk_search.py`: `search(…, scope)`.
+- Retrieval: `retrieval/retrieval_service.py` (`scope` required, in the L1 key) and
+  `retrieval/context_assembly.py`.
+- Answer: `services/answer_preparation.py` and `generation/llm_client.py`
+  (`project_instructions_block`: fenced, markers stripped from the user's text; unchanged when
+  None or blank).
+- Chat: `services/chat_pipeline.py`, which opens the turn before the semantic-cache lookup; the
+  `_Turn` carries the scope, the instructions and `answer_scope_key`.
+- Cache: `services/caches/semantic_cache.py` (`scope_key` required, exact match).
+- Callers on the "all" scope: `retrieval/concept_map_retriever.py`, `eval/retrieval/runner.py`,
+  `eval/generation/runner.py`; `eval/cache_tuner.py`.
+- `api/routes/chat.py` and `api/routes/projects.py`: the route passes the loaded `Project`, not its
+  id (see Lessons).
+- Tests: `test_project_retrieval.py` (new, 6); `test_answer_preparation.py` (+4),
+  `test_semantic_cache.py` (+2), `fakes.py`, `test_retrieval_switches.py`, `test_confidence.py`,
+  `test_chunk_store.py`, `test_embedding_reuse.py`.
+- `backend/eval/results/2026-11-19-baseline-day18-scope.md` (new).
+
+**Checkpoint 4: UI** (`2b0918f`)
+- `frontend/src/services/projectsApi.js` (new): API calls, limits, notices, scope text.
+- New components:
+  - `ProjectPanel.js`: list, create, states.
+  - `ProjectRow.js`: rename, instructions editor, archive, files and chats, delete dialog.
+  - `SessionProjectModal.js`: move a chat.
+  - `ChatProjectScope.js`: the chat header's project line and new-chat picker.
+- Changed:
+  - `pages/DocumentsPage.js`: projects, filter, upload target, move.
+  - `components/DocumentUpload.js`: project picker.
+  - `components/DocumentList.js`: badge, "Move to…".
+  - `components/ChatWindow.js`: projects, `project_id` for new chats, header.
+  - `components/SessionSidebar.js`: badge, "Move to project".
+  - `pages/ChatPage.js`: passes the active session and a refresh.
+  - `utils/accountDeletion.js`: projects in the notice.
+- Tests: `ProjectPanel.test.js` (18), `SessionProjectModal.test.js` (6), `accountDeletion.test.js`
+  (4), all new; `DocumentsPage.test.js` (+9), `ChatWindow.test.js` (+6).
+
+### Checks
+
+| Check | Result |
+|---|---|
+| Migration on local `rag` | `upgrade head` → `alembic check` "No new upgrade operations detected." → downgrade −1 → upgrade → check again: no diff |
+| Backend suite (`rag_test`, re-migrated from base every run) | **396 → 438 passed** |
+| Round-trip budgets (`test_round_trips.py`) | unchanged: chat first turn, follow-up, `/me` |
+| New project chat | 1 `SELECT` of the project per turn: the route's ownership check (the test caught a second) |
+| E4 baseline, from the cache, placeholder key (any miss would have failed) | Hit@5 **0.909 = 50/55**, MRR@5 **0.808**: every row identical to 2026-11-17; 588 cache hits, **0 API calls** |
+| Frontend | **42 → 84 tests** (12 suites); `npm run build` with `CI=true` passes |
+| CI on PR #28 | `backend`, `frontend`, `docker` green on all four commits |
+| Docker | `rag-backend` crash-looped after the migration (`Can't locate revision identified by '1e74b84340ae'`: the image bakes `alembic/versions`). `docker compose build backend` → container up, "Database schema is at head", `alembic current` `1e74b84340ae (head)` |
+
+### Live check (owner's item 4), 2026-11-20
+
+Setup:
+- Venv backend on port 8010: `WEB_SEARCH_ENABLED=false`, the eval Gemini key (key guard confirmed
+  it isn't production's), local `rag`, CORS only `localhost:3010`.
+- A second CRA dev server on 3010; its bundle was checked to call 8010.
+- One throwaway account (user 34).
+- Two generated demo PDFs: `photosynthesis.pdf`, `french_revolution.pdf`, 2 pages each.
+
+The owner clicked through; all 8 steps passed:
+1. Projects Biology and History created.
+2. Each PDF uploaded into its project; the cards showed the badges.
+3. The Biology chat cited only `photosynthesis.pdf`.
+4. The History chat cited only `french_revolution.pdf`.
+5. After moving `french_revolution.pdf` into Biology, the Biology chat cited both.
+6. A No-project chat cited neither.
+7. Project instructions were followed (an answer in 3 bullets).
+8. History was deleted with "move files to No project"; its chat moved to No project.
+
+Cleanup:
+- `DELETE /user/delete` summary: documents 2, sessions 4, messages 10, failed queries 1, files 2,
+  chunks 4, projects 1. History was already deleted in step 8.
+- Then checked independently: user row gone; 0 rows in `documents`, `document_chunks`,
+  `sessions`, `messages`, `failed_queries`, `concept_maps`, `projects`; `uploads/34` gone;
+  `semantic_cache:34` absent on Redis DB 0 and 1.
+- Both servers stopped; ports 8010 and 3010 free.
+
+Screenshots (owner): `docs/posts/assets/post10-projects-panel.png`,
+`docs/posts/assets/post10-chat-scope.png`.
+
+### UI integration
+
+| Backend change | Frontend file | What the user sees |
+|---|---|---|
+| `POST /projects`, `GET /projects` | `ProjectPanel.js` (Documents page) | Projects panel: create form, each project with "N files · M chats", Archived badge; loading / empty ("one per course") / error with retry |
+| `PATCH /projects/{id}` | `ProjectRow.js` | Rename; instructions editor (counter / 4000, Saving… / Saved / error); Archive / Unarchive |
+| `DELETE /projects/{id}?documents=` | `ProjectRow.js` | Delete dialog: keep files (No project) or delete them, no default; refusal shown, project kept |
+| `GET /projects/{id}` | `ProjectRow.js` | Expanded row: the project's files (unsearchable marked) and chats; loading / empty / error with retry |
+| `POST /upload` `project_id` | `DocumentUpload.js`, `DocumentsPage.js` | "Project" picker (active projects only) |
+| `PATCH /documents/{id}` | `DocumentList.js`, `DocumentsPage.js` | "Move to…" per card, "Moving…", notice; 409 in the error banner |
+| `GET /documents` `project_id`, `project_name` | `DocumentList.js`, `DocumentsPage.js` | Project badge per card; "Show" filter with empty states |
+| `GET /chat/stream` `project_id` | `ChatWindow.js`, `ChatProjectScope.js` | New chat: project picker, locked after the first message; load failure → "will use No project" |
+| `GET /sessions` `project_id`, `project_name` | `ChatWindow.js`, `ChatProjectScope.js`, `SessionSidebar.js` | Header always shows "Project: X" or "No project" and what answers can cite; sidebar badge |
+| `PATCH /sessions/{id}/project` | `SessionSidebar.js`, `SessionProjectModal.js` | "Move to project"; loading / no projects / error / "Moving…" / refusal kept open |
+| Account deletion `projects` | `utils/accountDeletion.js` | "… N documents, M chats and K projects removed." (projects only when any) |
+| Scope in search, L1 and semantic cache; fenced instructions | — | Backend-only: they change which chunks and answers a chat gets, visible through the controls above |
+| Migration, `ON DELETE SET NULL`, account deletion of projects | — | Backend-only: schema and cleanup |
+
+### Deferred, pulled forward, open
+
+- **Pulled forward from Day 20:** the scope in the L1 key and the semantic cache (Decision 5A).
+  Without it, Verify fails.
+- **Still Day 20:**
+  - concept maps and quizzes per project (both use scope "all" until then);
+  - `doc_version` per project (it's per user, so a move invalidates every scope: correct, not
+    efficient);
+  - CLAUDE.md posts mapping;
+  - release v0.4.0.
+- **Before the next release:** apply `1e74b84340ae` to Supabase `rag_staging` (not done today),
+  then production with v0.4.0. No backfill: every existing row is "no project".
+- **Docker after a migration:** the compose backend needs `docker compose build backend` whenever
+  a revision is added, because `alembic/versions` is in the image and only `backend/app` is
+  bind-mounted.
+- **Untouched:** B11 / B12 / B15 (source chips). The live check judged citations by the live
+  answer.
+
+### Numbers for the tracker
+
+- Tests: backend 396 → 438, frontend 42 → 84.
+- E4 unchanged: Hit@5 50/55, MRR@5 0.808, 0 API calls (`2026-11-19-baseline-day18-scope.md`).
+- Round-trip budgets unchanged.
+- Live: 8 of 8 steps.
+
+### Lessons
+
+- **SQLAlchemy's identity map holds rows by weak reference.** The route loaded the project to
+  check ownership and dropped it. The turn's `db.get(Project, id)` then sent a second `SELECT`
+  that looked free on paper. A statement-counting test caught it; passing the object fixed it.
+- **A required parameter is a security control.** `scope` has no default anywhere on the chat
+  path, so a forgotten scope fails as a `TypeError` in tests instead of silently widening a
+  project chat to every document.
+- **The cache had to move after the session.** The semantic-cache lookup needs the chat's
+  project, so the turn's first transaction now runs before it. It commits first, so no
+  connection is held during the lookup's embedding call.

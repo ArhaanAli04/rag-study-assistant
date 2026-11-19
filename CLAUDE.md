@@ -31,32 +31,22 @@ login.
 Update this block at the start and end of every session.
 
 ```
-Last commit:  92a2ffd (PR #26: master → develop back-merge of hotfix v0.3.1). Branch docs/day17-outcome
-              from it, docs only, not pushed yet
+Last commit:  2b0918f (Day 18 checkpoint 4, UI) on feature/day18-projects-core; 4 checkpoint commits
+              (8b706f6 data model, fc661f0 API, f9469d8 scoped retrieval, 2b0918f UI), pushed, draft PR #28
+              into develop, CI green on each
 Pushed:       master = v0.3.1 (tag v0.3.1 on 24e4e4a, hotfix PR #25; v0.3.0 = tag on 3325a89, release PR
-              #24). develop = 92a2ffd (Day 17 + the hotfix). Production = v0.3.1: pgvector chunks in
+              #24). develop = 980f7b4 (Day 17 close-out). Production = v0.3.1: pgvector chunks in
               Supabase rag + files in the rag-prod bucket, persistent across restarts and deploys
-Uncommitted:  Day 17 close-out (docs): brief Outcome (release, latency, B15), tracker (R5 Done, CO6 Render
-              numbers, B15), improvements (B15), this file, posts 1 (owner's published text), 3 and 9.
-              docs/learning/ updated (gitignored)
+Uncommitted:  Day 18 close-out (docs): brief Outcome (live check 8/8), tracker notes (I1, CO5, G5), this
+              file, posts 9 and 10. docs/learning/ updated (gitignored)
 Untracked:    none. Local only (gitignored): the old SQLite files + backups in backend/data/ (refused by
               Settings since Day 15), the v0.2.2 production dump in backend/data/backups/;
               backend/eval/corpus/* except manifest.json, eval/.cache/,
               eval/results/*.json, eval/datasets/{drafts, sheets, hard_candidates.jsonl}, docs/learning/.
               .env holds DATABASE_URL / DATABASE_SCHEMA (venv → compose Postgres), POSTGRES_PASSWORD,
               RAG_APP_PASSWORD, RAG_STAGING_DATABASE_URL, STORAGE_BUCKET=rag-staging + the four SUPABASE_S3_*
-              values (never STORAGE_BACKEND). Compose Postgres has rag (dev), rag_test, rag_eval
-Day 16:       Faster ingestion (I3, CO3, CO6, B7 → Done; B13 new). Embeddings in batches of ≤ 100; the free
-              tier counts per text, so uploads pace under 100 texts / 60 s and a 429 waits 60 s (3 attempts;
-              chat path 1 attempt). BCT PDF 24.1 → 3.7 s; HPC deck (217 texts) 143.3 s, 0 rejected batches;
-              one deck ≈ 22% of ~1,000 texts/day. CO3: same-user reuse by content_hash (index revision
-              21f0595f83d5, rag_staging at head); a changed re-upload embeds only its changed chunks. Vector
-              query: top-k by HNSW inside, (distance, id) outside → E4 deterministic, Hit@5 50/55, MRR@5 0.808.
-              CO6: chat turn 33 → 11 round trips, /me 4 → 3 (test = Postgres log). scripts/reindex_all.py (dry
-              run by default). B7: 9/9 borderless detections false positives, not enabled; B13: PPTX table
-              extraction never reached chunks → skipped (HPC working time 23.3 → 12.3 s). Found: CO5 triple
-              query embedding (quota), B2 strict confidence on an unrelated doc. Suite 325 → 363, frontend 19 →
-              20. Notes in docs/briefs/day16.md
+              values (never STORAGE_BACKEND). Compose Postgres has rag (dev, at 1e74b84340ae), rag_test,
+              rag_eval. The compose backend image was rebuilt for 1e74b84340ae (it bakes alembic/versions)
 Day 17:       Concept maps use your documents (R5 → Done) + releases v0.3.0 and v0.3.1. doc_version reaches
               the L1 key (a constant 0 replayed deleted documents), include_web per call (documents-only maps:
               0 Tavily calls), node sources = numbered evidence resolved in code (file — p. N), no context or
@@ -68,9 +58,21 @@ Day 17:       Concept maps use your documents (R5 → Done) + releases v0.3.0 an
               estimate, Tavily dominates). 3 of 15 turns cut → B14 (blocking async routes) → hotfix v0.3.1.
               Found: B15 (chips → "Source" after the first answer). Suite 363 → 381 (Day 17) → 396 (v0.3.1),
               frontend 20 → 42. Notes in docs/briefs/day17.md
-Next:         /pre-commit + /ship commit this close-out (docs/day17-outcome → develop). Then Day 18
-              (/run-day 18): Projects start (Days 18–20). Open from Day 17: CO6 chat re-measure on v0.3.1
-              (n = 15), B15 with B11 / B12 on one day
+Day 18:       Projects core (no tracker ID; notes on I1, CO5, G5). projects table + nullable project_id on
+              documents / sessions (revision 1e74b84340ae, NULL = no project, no backfill). API: /projects CRUD
+              (+ files, chats, counts), PATCH /documents/{id} and /sessions/{id}/project (moves), project_id on
+              upload and new chats; another user's project id → 404 on all 8 routes (tests). Versions per
+              (user, project, name). DocumentScope (all / unassigned / project) required down to SQL, on the
+              documents join; a chat outside projects searches unassigned documents only. Scope in the L1 key
+              and the semantic cache (+ instructions hash; pulled forward from Day 20). Instructions fenced in
+              the final user turn; prompt byte-identical without them. UI: Projects panel, upload / filter /
+              move on Documents, chat project picker + header "Project: X" / "No project", sidebar move.
+              E4 unchanged (50/55, MRR@5 0.808, 0 calls). Live 8/8 (owner). Suite 396 → 438, frontend 42 → 84.
+              Notes in docs/briefs/day18.md
+Next:         /pre-commit + /ship commit this close-out, then /ship merge (PR #28 → develop). Before the next
+              release: apply the new migration 1e74b84340ae to rag_staging (Supabase; not done yet), then
+              production with v0.4.0 (Day 20). Then Day 19 (/run-day 19): Projects UI pages. Open: CO6 chat
+              re-measure on v0.3.1 (n = 15), B15 with B11 / B12 on one day
 Blockers:     none. Every `docker compose` command needs POSTGRES_PASSWORD and RAG_APP_PASSWORD in .env. Every
               pytest run needs TEST_DATABASE_URL / TEST_DATABASE_SCHEMA (rag_test); evals need EVAL_DATABASE_URL
               (rag_eval) and $env:GEMINI_API_KEY = the eval key. Never print .env values, connection strings
@@ -122,12 +124,13 @@ and the known exceptions to the downward-only dependency rule, are in `docs/arch
 | Area | Modules | Notes |
 |---|---|---|
 | Core (Day 7) | `core/config.py`, `core/logging.py`, `core/request_id.py`, `core/security.py`, `core/errors.py`, `core/gemini.py` | `Settings`: every env var, read once at import. `request_id`: per-request ID (`X-Request-ID`) stamped on log lines by `RequestIdFilter`. `security`: JWT encode/decode and password hashing only — no DB access since Day 9. `gemini.py`: `build_gemini_client()`, the only place a `genai.Client` is built. `logging`: rotating file + console handlers, G8 redaction |
-| App & wiring (Day 9) | `main.py`, `services/container.py`, `api/deps.py`, `api/routes/{health,auth,users,documents,chat,sessions,feedback,quiz,concepts}.py` | `main.py`: `create_app()` (middleware, routers, handlers — no I/O) and the lifespan (`assert_schema_at_head` — refuses a database not at Alembic head, Day 13; `build_services()` onto `app.state.services`, Redis closed on shutdown). `container.py`: the `Services` dataclass — one Gemini client, one FAISS + BM25, caches, `ChatPipeline`, `ConceptMapService`. `deps.py`: `get_db`, `get_current_user` (Bearer), `get_user_from_query_token` (SSE `?token=`), `get_services`. Routers hold HTTP only; their SQL moved to `db/repositories/` on Day 13 |
-| Data (Day 13, T2) | `db/{base,session,migrations}.py`, `db/models/{user,chat_session,message,document,failed_query,concept_map}.py`, `db/repositories/{users,sessions,documents,messages,failed_queries}.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `base.py`: `Base` with a constraint naming convention (`pk_`, `fk_`, `uq_`, `ix_`). `session.py`: `build_engine(url)` — Postgres only since Day 15 (`pool_pre_ping`, pool 5 + 5, recycle 300 s) — plus `engine`, `SessionLocal` from `settings.DATABASE_URL`. `migrations.py`: `assert_schema_at_head`, `assert_expected_schema` (Postgres `current_schema()` must equal `DATABASE_SCHEMA`), `alembic_config()`. `models/__init__.py` imports all 8 models (what `alembic/env.py` imports); `Session` lives in `chat_session.py`; `Chunk` (Day 15) in `document_chunk.py` — `document_chunks`: halfvec(3072) embedding + HNSW (cosine), generated `tsv` + GIN, CHECKs against zero vectors and blank text. Repositories: plain functions taking the session, `user_id: int`, never commit (the caller does), return `None` for a missing row; `chunks.py` holds the two searches (user filter in the query, I1). `ingestion/models.py`: `DocumentChunk` (parser output, not a table). `account_service.py`: `authenticate_user`, `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
+| App & wiring (Day 9) | `main.py`, `services/container.py`, `api/deps.py`, `api/routes/{health,auth,users,documents,projects,chat,sessions,feedback,quiz,concepts}.py` | `main.py`: `create_app()` (middleware, routers, handlers — no I/O) and the lifespan (`assert_schema_at_head` — refuses a database not at Alembic head, Day 13; `build_services()` onto `app.state.services`, Redis closed on shutdown). `container.py`: the `Services` dataclass — one Gemini client, one FAISS + BM25, caches, `ChatPipeline`, `ConceptMapService`. `deps.py`: `get_db`, `get_current_user` (Bearer), `get_user_from_query_token` (SSE `?token=`), `get_services`. Routers hold HTTP only; their SQL moved to `db/repositories/` on Day 13 |
+| Data (Day 13, T2) | `db/{base,session,migrations,scope}.py`, `db/models/{user,project,chat_session,message,document,document_chunk,failed_query,concept_map}.py`, `db/repositories/{users,projects,sessions,documents,chunks,messages,failed_queries}.py`, `ingestion/models.py`, `services/account_service.py`, `schemas/` | `base.py`: `Base` with a constraint naming convention (`pk_`, `fk_`, `uq_`, `ix_`). `session.py`: `build_engine(url)` — Postgres only since Day 15 (`pool_pre_ping`, pool 5 + 5, recycle 300 s) — plus `engine`, `SessionLocal` from `settings.DATABASE_URL`. `migrations.py`: `assert_schema_at_head`, `assert_expected_schema` (Postgres `current_schema()` must equal `DATABASE_SCHEMA`), `alembic_config()`. `models/__init__.py` imports all 9 models (what `alembic/env.py` imports); `Session` lives in `chat_session.py`; `Project` (Day 18) in `project.py` — `projects` (name unique per user, `instructions`, `archived_at`); `documents.project_id` / `sessions.project_id` nullable, NULL = no project, `ON DELETE SET NULL`; `Chunk` (Day 15) in `document_chunk.py` — `document_chunks`: halfvec(3072) embedding + HNSW (cosine), generated `tsv` + GIN, CHECKs against zero vectors and blank text. Repositories: plain functions taking the session, `user_id: int`, never commit (the caller does), return `None` for a missing row; `chunks.py` holds the two searches (user filter in the query, I1). `ingestion/models.py`: `DocumentChunk` (parser output, not a table). `account_service.py`: `authenticate_user`, `delete_user_account` — rows in one transaction, then files, index tombstones, caches (B1) |
 | Auth | `core/security.py`, `api/routes/auth.py`, `api/deps.py`, `services/oauth_service.py` | JWT (HS256, 7-day, no refresh token), pbkdf2_sha256, Google OAuth |
+| Projects (Day 18) | `db/models/project.py`, `db/repositories/projects.py`, `db/scope.py`, `services/project_service.py`, `api/routes/projects.py`, `schemas/projects.py`; frontend `services/projectsApi.js`, `components/{ProjectPanel,ProjectRow,SessionProjectModal,ChatProjectScope}.js` | A project = a course: its files, instructions and chats. `project_service`: every lookup through the user (another user's id → `ProjectNotFound` → 404), delete with `documents=delete\|unassign` (chats always move to no project) and moves, each with a `doc_version` bump where a document changes scope. `require_project_target` (routes): 404 not owned, 409 archived. `DocumentScope` (`all` / `unassigned` / `project(id)`): the scope of a search, its SQL condition (fixed strings, bound id) and its cache key; required on the whole chat path. Documents are versioned per `(user, project, file_name)`. Instructions reach the model fenced in the final user turn (`llm_client.project_instructions_block`) |
 | Ingestion | `ingestion/{chunk_builder,chunking,text_preprocessing,upload_storage}.py`, `ingestion/parsers/{pdf,pptx,pptx_pipeline,docx}.py`, `services/{indexing_service,document_service}.py` | character-based chunks (1000 chars / 100 overlap). `IndexingService` (Day 15): parse → skip blank chunks (B10) → reuse the user's stored vectors of identical text (CO3, Day 16) → embed the rest in paced batches (I3) → replace the chunks of the document and its superseded versions; caller commits. `process_pptx` no longer extracts slide-image tables (B13, Day 16). `document_service`: `register_upload` → `new` / `changed` / `unchanged` / `reindexed` (I6), `delete_document` removes every version + chunks + files (I5). `upload_storage.py`: keys `uploads/{user_id}/{uuid}{ext}` + `check_key` (G7), `FileStorage` with `LocalFileStorage` and `S3FileStorage` (Supabase Storage, Day 15) |
 | OCR / tables | `ingestion/parsers/unified.py`, `ingestion/ocr/{ocr,image_preprocessing}.py`, `ingestion/tables/{pdf_tables,tables}.py` | not reachable from `/upload` (images are rejected) |
-| Indexes | `retrieval/{embeddings,pg_chunk_search}.py`, `db/repositories/chunks.py` | Postgres since Day 15 (FAISS / BM25 deleted after the E4 parity run): pgvector cosine search + full-text (`ts_rank_cd` over an OR-ed `plainto_tsquery`), both filtered to the user in the query and run in one session per retrieval (`PgChunkSearch.search`). `EMBEDDING_DIM = 3072` in `embeddings.py` (= the column's halfvec size, checked by a test), sent as `output_dimensionality`. `EmbeddingService` raises `EmbeddingError` instead of returning zero vectors |
+| Indexes | `retrieval/{embeddings,pg_chunk_search}.py`, `db/repositories/chunks.py` | Postgres since Day 15 (FAISS / BM25 deleted after the E4 parity run): pgvector cosine search + full-text (`ts_rank_cd` over an OR-ed `plainto_tsquery`), both filtered to the user and the `DocumentScope` (Day 18, on the `documents` join) in the query and run in one session per retrieval (`PgChunkSearch.search`). `EMBEDDING_DIM = 3072` in `embeddings.py` (= the column's halfvec size, checked by a test), sent as `output_dimensionality`. `EmbeddingService` raises `EmbeddingError` instead of returning zero vectors |
 | Retrieval | `retrieval/{retrieval_service,context_assembly,confidence,query_decomposer,query_preprocessor,reranker,context_compressor}.py`, `retrieval/web/{search_client,scraper}.py` | `context_assembly.py` (Day 11): `assemble_context()` — decompose → `hybrid_retrieve` per sub-query → parent expansion → compress; the chat and the retrieval eval both call it, so the eval measures what the chat sends. `confidence.py`: the 0–100 scale and every threshold on it (B2) — compare only against these names; E4 (Day 11) found the score doesn't predict a hit (AUC 0.332 after B8), so it is replaced, not re-tuned, on Day 26. `RetrievalService` takes an embedder, a `ChunkSearch` and its Redis caches by injection (typed by `Protocol`s) and has switches for web search, the L1 cache and the fusion weights (production defaults: on, on, 0.6 / 0.4). Scores are higher-is-better on both halves (cosine similarity; `ts_rank_cd`). A failed query embedding degrades to keyword-only search for that query and is not L1-cached (Day 15). `reranker.py` does no real reranking |
 | Generation | `generation/{llm_client,topic_classifier}.py`; user-facing error messages in `core/errors.py` | retry + circuit breaker live in `LLMClient`; every class takes the shared `genai.Client` and its model name from `services/container.py` (`settings.GEMINI_GENERATION_MODEL`, B9 — no class has a default model since Day 12) |
 | Chat & caches | `services/chat_pipeline.py`, `services/answer_preparation.py`, `services/session_service.py`, `services/chat_guards.py`, `services/quiz_service.py`, `services/caches/{semantic_cache,query_cache,web_cache}.py` | `ChatPipeline`: the one chat pipeline (behind `/chat/stream`). `answer_preparation.py` (Day 12): `prepare_answer()` — `assemble_context` → grounding level → `LLMClient.build_prompt`; the chat and the generation eval both call it, so the judge grades the prompt the chat sends. `chat_guards.py`: the injection phrases and the one unsafe-keyword list (G3 replaces both) |
@@ -181,9 +184,10 @@ React 18.
 
 ## How Requests Flow
 
-**Upload** — `POST /upload` (Day 15): extension check (`.pdf` / `.pptx` / `.docx`, ≤ 50 MB) → read
+**Upload** — `POST /upload` (Day 15): optional `project_id` form field checked first (another user's
+→ 404, archived → 409, Day 18) → extension check (`.pdf` / `.pptx` / `.docx`, ≤ 50 MB) → read
 the bytes, sha256 → `register_upload` (`services/document_service.py`) against the latest version of
-`(user_id, file_name)`:
+`(user_id, project_id, file_name)` (Day 18: the same name in two projects is two documents):
 - **identical, already indexed** → `unchanged`: nothing stored, nothing indexed, no `doc_version`
   bump (I6). If the row's file is gone (Render before Day 15) or is a pre-G7 shared flat key, a
   fresh copy is stored and the row re-linked first.
@@ -202,17 +206,18 @@ Documents page.
 **Chat** — `GET /chat/stream` (`api/routes/chat.py`) → `ChatPipeline.answer` (`services/chat_pipeline.py`);
 the only chat endpoint since Day 9 (`POST /chat`, a divergent copy, was deleted). Steps 1–6 run
 before the response starts, so a retrieval failure is a normal HTTP 500; generation runs while streaming.
-1. Auth from the `?token=` query param (`get_user_from_query_token`) → injection-phrase and unsafe-keyword checks (`chat_guards.py`) → semantic cache lookup (a hit is replayed as SSE; an embedding failure counts as a miss)
-2. Get/create session → load the last 20 messages → log the user message (`session_service.add_message` → `messages_repo.add`, committed at once; its id is the `message_id` frame — Day 13 replaced a raw INSERT whose `lastrowid` is not the row id on Postgres) → LLM topic tagging while the session topic is "General"
-3. `assemble_context` (`retrieval/context_assembly.py`): `QueryDecomposer` (regex split) → for each sub-query, `hybrid_retrieve`: L1 in-process cache → embed the query (a failure → keyword-only, Day 15) → `PgChunkSearch.search`: pgvector cosine top-k + full-text `ts_rank_cd` top-k, this user only, one DB session → min-max normalize → 0.6/0.4 fusion → confidence heuristic (0–100) → Tavily chunks (always: 3 if confidence < 60, else 2) → "rerank" (re-sort by existing score) → top 5 → parent-page expansion
+1. Auth from the `?token=` query param (`get_user_from_query_token`) → `project_id` (new chats only) checked through the user (404 / 409 archived, Day 18) → injection-phrase and unsafe-keyword checks (`chat_guards.py`)
+2. Get/create session (a new one takes the project; an existing one keeps its own) → its project's instructions → load the last 20 messages → log the user message (`session_service.add_message` → `messages_repo.add`; its id is the `message_id` frame — Day 13 replaced a raw INSERT whose `lastrowid` is not the row id on Postgres) → one commit → semantic cache lookup scoped to the chat's project + instructions hash (Day 18: after the session, because it needs the project; a hit is replayed as SSE; an embedding failure counts as a miss) → LLM topic tagging while the session topic is "General"
+3. `assemble_context` (`retrieval/context_assembly.py`) with the chat's `DocumentScope` (its project, or unassigned documents only outside projects): `QueryDecomposer` (regex split) → for each sub-query, `hybrid_retrieve`: L1 in-process cache (key includes the scope) → embed the query (a failure → keyword-only, Day 15) → `PgChunkSearch.search`: pgvector cosine top-k + full-text `ts_rank_cd` top-k, this user and scope only, one DB session → min-max normalize → 0.6/0.4 fusion → confidence heuristic (0–100) → Tavily chunks (always: 3 if confidence < 60, else 2) → "rerank" (re-sort by existing score) → top 5 → parent-page expansion
 4. `SimpleContextCompressor`: top 6 chunks, 800 characters each
 5. Grounding level from confidence (`retrieval/confidence.py`): strict ≥ 70, loose ≥ 30, else none (model knowledge allowed)
-6. Gemini payload: system instruction (grounding + answer-mode rules) + prior turns as `contents` + a final user turn holding the retrieved context and the question
+6. Gemini payload: system instruction (grounding + answer-mode rules; identical in every project) + prior turns as `contents` + a final user turn holding the project's fenced instructions (if any, Day 18), the retrieved context and the question
 7. SSE events: `metadata` → `token`… → `message_id` → `[DONE]`; then the answer is stored in the semantic cache. Queries with confidence < 30 are logged to `failed_queries`.
 
 **Concept map** — `POST /api/concepts/generate` → `ConceptMapService` → `ConceptMapRetriever`
 (the app's shared `RetrievalService`; documents and/or web, chosen in `CreateMapForm.js` — R5, Day 17:
-the user's `doc_version` in the L1 key, documents-only passes `include_web=False`) → `ConceptExtractor`
+the user's `doc_version` in the L1 key, documents-only passes `include_web=False`; scope `all`, every
+document of the user, until Day 20 adds projects to maps) → `ConceptExtractor`
 (Gemini, JSON parsed by hand; the context is numbered evidence `[D1] file — p. N` / `[W1] url`, the model
 cites `source_ids` and code resolves them; no context or `off_topic` → 422, nothing saved) → saved as
 `ConceptMap` / `ConceptMapNode` (node sources a JSON array) → React Flow + dagre layout.
@@ -232,6 +237,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Sessions: list, rename, delete, automatic topic tags; chat export to Markdown / PDF (frontend)
 - Thumbs up/down feedback → `messages.feedback` and `failed_queries`; `GET /analytics/failed-queries`
 - Concept maps from your documents and/or the web (R5, Day 17): generate, list, view, delete, statistics; PNG / JPEG export. Node sources show file and page (`📄 file · page N`); topics the documents don't cover are refused with a message
+- Projects (Day 18, on develop; not in production until v0.4.0): one per course, with its own files, instructions and chats. A project chat searches only that project's documents, a chat outside projects only the unassigned ones; both caches are scoped; instructions are fenced in the final user turn. Documents page: Projects panel (create, rename, instructions, archive, delete with "keep files" / "delete files", files and chats per project), upload into a project, filter, "Move to…"; chat: project picker for new chats, header "Project: X" / "No project", sidebar "Move to project". Another user's project id → 404 everywhere. Day 19 moves the panel onto dedicated `/projects` pages
 - Health checks answer during long chats and uploads (B14, hotfix v0.3.1): routes are plain `def` (threadpool), SSE generators sync, no DB connection held while embedding
 - Quiz generation by topic and difficulty
 - LLM retry with backoff (non-streaming) and a circuit breaker; user-friendly error messages
@@ -242,7 +248,8 @@ not the user's documents); returns plain text, unparsed and not persisted.
 
 ### Present but partial, stubbed, or broken (IDs → `docs/improvements.md`)
 - Reranker only re-sorts by the existing score (R1); query decomposition is regex (R2); fusion is min-max + fixed weights (R4)
-- Semantic cache (per-user since Day 1, G6) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
+- Semantic cache (per-user since Day 1, G6; per project scope + instructions since Day 18) ignores the conversation, has no TTL, unvalidated threshold (CO5); linear scan (CO1)
+- Concept maps and quizzes ignore projects until Day 20 (maps search every document of the user)
 - Prompt-injection guard (G1, Day 2) is a narrow phrase blocklist in `chat_guards.py` (replaces `sanitize_query()`), called first in `ChatPipeline`; refusals go out over SSE and are not stored — a stop-gap until G3. `verify_answer()` is never called (G2); the unsafe-topic check is one 6-keyword substring list in `chat_guards.py` since Day 9 ("bomb" still matches "bombardment") — G3 replaces it
 - Evaluation: retrieval eval since Day 11 (E4; its `web` config hasn't been run yet) and generation eval with a calibrated Gemini judge since Day 12 (E1/E2 done; RAGAS and the word-overlap metrics were removed). Partial: the judge is the same model as the generator, `faith-v2` was tuned on its 20-answer calibration set, and there is no answer-correctness metric or CI gate yet (E3, Day 26)
 - Concept extraction hand-parses JSON (S1); sub-queries are retrieved serially (CO2); a chat turn embeds its question up to 3 times (CO5, Day 16 finding: latency and free-tier quota)
@@ -257,7 +264,7 @@ not the user's documents); returns plain text, unparsed and not persisted.
 - Golden eval set + CI eval gate (E3); CD — deploys gated on CI, staging, post-deploy checks (Days 21–22; Render and Vercel still auto-deploy `master` on push)
 - Query expansion / HyDE (R3); agentic tool use (A1). (I1 — an ANN index with the user filter inside the query — exists since Day 15; CO3 — reuse of stored embeddings by content hash — since Day 16)
 - Rate limiting, refresh tokens, quiz persistence
-- Frontend tests beyond 9 files / 42 tests (Day 17): `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5), `pages/DocumentsPage.test.js` (upload notices, 502 error, "Not searchable yet" badge, Day 15), `components/CreateMapForm.test.js`, `ConceptNodeDetails.test.js`, `MapListView.test.js` (Day 17). No tests for quiz or sessions sidebar. Run with `cd frontend; npm test -- --watchAll=false`
+- Frontend tests beyond 12 files / 84 tests (Day 18): `components/MessageList.test.js`, `components/ChatWindow.test.js` (refusal and normal stream; Day 18: project picker, `project_id` only for new chats, header scope), `components/AccountSettingsModal.test.js`, `AccountDeletionFlow.test.js`, `pages/LoginPage.test.js` (login + App smoke test, Day 5), `pages/DocumentsPage.test.js` (upload notices, 502 error, "Not searchable yet" badge, Day 15; Day 18: project badge, upload into a project, filter, moves), `components/CreateMapForm.test.js`, `ConceptNodeDetails.test.js`, `MapListView.test.js` (Day 17), `components/ProjectPanel.test.js`, `SessionProjectModal.test.js`, `utils/accountDeletion.test.js` (Day 18). No tests for quiz or the sessions sidebar itself. Run with `cd frontend; npm test -- --watchAll=false`
 
 ---
 
@@ -332,13 +339,14 @@ Found while writing this file; evidence and direction live under each ID.
 - **Run the backend from `backend/`** (`uvicorn app.main:app`). The package is `app`: imports are absolute (`from app.db.models import User`), never bare module names or relative imports, and nothing inside `backend/` edits `sys.path`. `pytest.ini` puts `backend/` on the path for tests; Alembic adds it itself. Dependencies point down only (`api` → `services` → `retrieval` / `generation` / `ingestion` → `db` → `core`); rules and the module map are in `docs/architecture/layout.md`.
 - **Configuration comes only from `app.core.config.settings`** (Day 7). No `os.getenv` or `load_dotenv` in `backend/app/`; a new variable is a `Settings` field plus an `.env.example` entry. Secrets are `SecretStr`: read them with `.get_secret_value()` at the call site and never log `settings`. `settings` is built once at import, so tests override fields with `monkeypatch.setattr(settings, ...)`; a later `setenv` doesn't reach it.
 - **Scope all user data by `user_id`.** Every search filter, cache key, and stored file path must include the user. Retrieval results' metadata carries `user_id` as a **string** (`str(user.id)`), and `RetrievalService` takes string ids; the database filter in `db/repositories/chunks.py` uses the int (`PgChunkSearch` converts at the boundary). Prefer scoping the Redis key itself (as `semantic_cache:{user_id}` does) over filtering a shared list.
+- **…and by project (Day 18).** A project id from a client is resolved through the user first (`project_service.require_owned` / `require_target`; another user's id behaves exactly like a missing one → 404, never 403), then passed down as a `DocumentScope` value (`db/scope.py`), never as a raw id. `scope` is a **required** argument on the whole search path (`hybrid_retrieve`, `PgChunkSearch.search`, the repository searches) and in the semantic cache (`scope_key`): no default that could silently widen a project chat. Every cache whose value depends on the documents searched carries `scope.cache_key` (the L1 key does); one that caches answers also carries a hash of the project's instructions. Choose the scope deliberately: a chat uses `DocumentScope.for_chat(session.project_id)`; `DocumentScope.all()` is only for the eval, `POST /search` and (until Day 20) concept maps. A document is identified by `(user_id, project_id, file_name)`; compare `project_id` with `IS NOT DISTINCT FROM` (NULL = no project). Moving a document between projects changes what scopes search, so it bumps `doc_version`.
 - **Schema changes only through Alembic revisions** (Day 13, T2). Change the model, run `alembic revision --autogenerate -m "…"` against the local Postgres, review the file by hand (no `drop_table` / `drop_column` you didn't mean, renames are drop + add), then `alembic upgrade head` + `alembic check`. Never `create_all`, never hand-run DDL, never edit a revision that has run anywhere. Every model module is imported in `db/models/__init__.py`, or autogenerate thinks its table was deleted.
 - **SQL lives in `db/repositories/`** (Day 13). Plain functions taking the `Session` first; `user_id` is an `int` in every database filter (Postgres refuses `integer = text`); the caller commits; no HTTP errors inside. Postgres enforces foreign keys (SQLite never did), so every delete removes or detaches children before their parent. Routers keep validation, status codes and response shapes. Index and retrieval metadata keep their **string** user ids (next rule).
 - **Bump `User.doc_version`** whenever a user's document set changes — the L1 retrieval cache, Redis query cache, and semantic cache all key on it.
 - **One chat pipeline, one SSE contract.** All chat logic lives in `services/chat_pipeline.py`; the frame order (`metadata` → `token`… → `message_id` → `[DONE]`; refusals without `message_id`) is a contract with `ChatWindow.js`, checked by `test_api_smoke.py`. Change both sides the same day or not at all.
 - **Routes are plain def (FastAPI runs them in its threadpool); async def only for routes that await and never block, listed in the guard test** (`ASYNC_ROUTE_ALLOWLIST` in `tests/test_event_loop.py`, B14, v0.3.1). SSE event generators are sync for the same reason.
 - **Long-lived objects are built only in `services/container.py`** (called from the lifespan) and reached through `Depends(get_services)`. No module-level clients or singletons, and no class builds its own `genai.Client` or Redis client — take it as a constructor argument. Importing `app.main` must stay free of network calls (`test_app_factory.py`).
-- **Retrieved text is untrusted** (uploaded documents and web pages). Never put it in the system instruction; keep it delimited in the final user turn (G5).
+- **Retrieved text is untrusted** (uploaded documents and web pages), **and so is anything a user writes for later turns** (project instructions, Day 18). Never put it in the system instruction; keep it delimited in the final user turn (G5). Project instructions go through `llm_client.project_instructions_block` (fenced, fence markers stripped from the text); with none, the prompt must stay byte-identical (`test_answer_preparation.py`).
 - **Keep the prompt prefix stable.** Don't add new per-turn variation to the system instruction or the start of history; variable content belongs in the final user turn (CO4).
 - **Eval and experiment code must not `import main`.** It gets its objects from `build_services()` (`services/container.py`) or constructs `IndexBuilder` / `RetrievalService` directly — `app.main` no longer exposes any of them.
 - **Tests run only on Postgres** (Day 14 in CI; the only way since Day 15). `TEST_DATABASE_URL` + `TEST_DATABASE_SCHEMA` are required (conftest stops with a setup message without them), and conftest accepts only a database named `*_test` because it wipes it (`downgrade base` + `upgrade head`) every run. Tests that need a database use the suite's (`SessionLocal`, or the `client` fixture), never fixed ids: the database is shared, so give rows unique emails and let the sequence assign ids. `test_migrations.py` runs on the same database, and every test that downgrades it upgrades back to head. conftest pins `STORAGE_BACKEND=local` and fakes S3 (`FakeS3Client`), so no test reaches a real bucket.
@@ -431,6 +439,10 @@ cd frontend; npm install; npm start       # http://localhost:3000
 Copy-Item .env.example .env               # first time only; fill in the REQUIRED values
 .\scripts\dev.ps1 up                      # build + start; also: down, logs [service], test, shell [service]
 docker compose up --build                 # the same, in the foreground
+
+# After adding an Alembic revision: rebuild the compose backend. The image bakes alembic/versions (only
+# backend/app/ is bind-mounted), so it crash-loops with "Can't locate revision" once local rag is migrated
+docker compose build backend; docker compose up -d backend
 
 # The stack as deployed (Render builds this backend image): base file only, no override
 docker compose -f docker-compose.yml up --build
@@ -529,12 +541,12 @@ uses `node:24-alpine`. Changing one means changing all three. (The local machine
 
 | What | Where | Survives restart? |
 |---|---|---|
-| Users, sessions, messages, documents, failed queries, concept maps | Postgres since Day 14: Supabase `rag` in production (from v0.2.2), the compose Postgres's `rag` locally (Docker backend and venv). Both started empty — nothing was copied. The old SQLite files are unused: `backend/data/app.db` (stamped Day 13), the Docker `data` volume, and the backups `backend/data/app.backup-2026-11-11.db`, `app.docker-backup-2026-11-11.db` | yes |
+| Users, projects (Day 18), sessions, messages, documents, failed queries, concept maps | Postgres since Day 14: Supabase `rag` in production (from v0.2.2), the compose Postgres's `rag` locally (Docker backend and venv). Both started empty — nothing was copied. The old SQLite files are unused: `backend/data/app.db` (stamped Day 13), the Docker `data` volume, and the backups `backend/data/app.backup-2026-11-11.db`, `app.docker-backup-2026-11-11.db` | yes |
 | Local Postgres | compose `postgres` service, named volume `pgdata`, host port 5433: database `rag` (the app's dev data, disposable), `rag_test` (the suite's, wiped every run) and `rag_eval` (the eval's, Day 15); schema `rag`, role `rag_app` in both; `scripts/postgres/init-rag-schema.sh` (re-runnable since Day 14) creates them | yes (volume) |
-| Supabase | existing project (`ap-south-1`): schemas `rag` (production since v0.2.2) and `rag_staging` (at head, Day 13); `vector` in `extensions` | yes |
+| Supabase | existing project (`ap-south-1`): schemas `rag` (production since v0.2.2; at `21f0595f83d5`, v0.3.0) and `rag_staging` (at `21f0595f83d5` — **one behind**: Day 18's `1e74b84340ae` (projects) goes there before v0.4.0); `vector` in `extensions` | yes |
 | Uploaded files | `FileStorage` (Day 15) under the key `uploads/{user_id}/{uuid}{ext}` (older rows: flat `uploads/<name>`), held in `Document.file_path`; display name in `Document.file_name`. Local backend: relative to the CWD (`backend/`); Docker: named volume `uploads` at `/app/backend/uploads`. Supabase: private bucket `rag-prod` (Render, since v0.3.0) / `rag-staging` | yes (on Render since v0.3.0; before it, files on Render's disk were lost on every restart while the row survived — an identical re-upload re-links it) |
 | Chunks: text, embedding (halfvec 3072), full-text `tsv`, metadata | Postgres `document_chunks` (Day 15; replaced in-memory FAISS + BM25) | yes |
-| L1 retrieval cache (≤ 256 entries) | instance dict on the one shared `RetrievalService` (Day 9), key `(user_id, query, doc_version, include_web)` (Day 17) | no |
+| L1 retrieval cache (≤ 256 entries) | instance dict on the one shared `RetrievalService` (Day 9), key `(user_id, query, doc_version, include_web, scope.cache_key)` (Day 17; the scope since Day 18) | no |
 | Logs | `backend/logs/app.log` (rotating, 5 MB × 3, `[request_id]` on every line since Day 7; Docker: named volume `logs` at `/app/backend/logs`) | yes |
 
 Render (free plan, region Singapore) has **no persistent disk** — confirmed 2026-11-13 ("Disks
@@ -551,7 +563,9 @@ query_cache:{sha256(user_id::doc_version::query)}  DB 0            TTL 3600s  /s
 websearch:{query}                                  DB 0            TTL 3600s  Tavily chunks, no embeddings   web_cache.py
 semantic_cache:{user_id}                           SEMANTIC_CACHE  no TTL     one JSON list of ≤ 64 entries
                                                    _REDIS_URL's DB            per user; entries also carry
-                                                   (Docker: 1;                user_id, doc_version, mode     semantic_cache.py
+                                                   (Docker: 1;                user_id, doc_version, mode,    semantic_cache.py
+                                                                              scope (Day 18: all / unassigned
+                                                                              / p:<id>[:i<instructions hash>])
                                                    Render: 0)
 ```
 
@@ -578,11 +592,17 @@ No version prefix; concept-map routes live under `/api/concepts`.
 Auth       POST /register · POST /login · POST /change-password · GET /me
            GET /auth/google/login · GET /auth/google/callback · POST /auth/logout
 User       GET /user/profile · PUT /user/profile · GET /user/stats · DELETE /user/delete
-Documents  POST /upload · GET /documents · DELETE /documents/{doc_id} · POST /search
-Chat       GET /chat/stream (SSE, ?token=) · POST /messages/{message_id}/feedback
+Projects   POST /projects · GET /projects · GET /projects/{project_id} (files, chats, counts)
+           PATCH /projects/{project_id} (name, description, instructions, archived)
+           DELETE /projects/{project_id}?documents=delete|unassign                       (Day 18)
+Documents  POST /upload (form: file, project_id?) · GET /documents (+ project_id, project_name)
+           PATCH /documents/{doc_id} (move: {project_id | null}) · DELETE /documents/{doc_id}
+           POST /search (scope: all documents)
+Chat       GET /chat/stream (SSE, ?token=, ?project_id= for a new chat) · POST /messages/{message_id}/feedback
            GET /analytics/failed-queries
-Sessions   GET /sessions · GET /sessions/{session_id}/messages · DELETE /sessions/{session_id}
-           PATCH /sessions/{session_id}/rename
+Sessions   GET /sessions (+ project_id, project_name) · GET /sessions/{session_id}/messages
+           DELETE /sessions/{session_id} · PATCH /sessions/{session_id}/rename
+           PATCH /sessions/{session_id}/project (move: {project_id | null})
 Quiz       POST /quiz
 Concepts   POST /api/concepts/generate · GET /api/concepts/maps · GET /api/concepts/maps/{map_id}
            DELETE /api/concepts/maps/{map_id} · GET /api/concepts/statistics

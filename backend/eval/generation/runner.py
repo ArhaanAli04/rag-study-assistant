@@ -16,6 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from google import genai
 
+from app.db.scope import DocumentScope
 from app.generation.llm_client import LLMClient
 from app.retrieval.context_compressor import SimpleContextCompressor
 from app.retrieval.query_decomposer import QueryDecomposer
@@ -111,6 +112,8 @@ def prepare(ctx: EvalContext, question: EvalQuestion) -> PreparedAnswer:
         ctx.retrieval_service, QueryDecomposer(), SimpleContextCompressor(), ctx.llm_client,
         query=question.question, user_id=ctx.user_id, doc_version=0, top_k=SERVED_TOP_K,
         mode=ctx.mode, recent_messages=[],
+        # No project: the prompt (and with it the answer cache key) is byte-identical to before Day 18.
+        scope=DocumentScope.all(), project_instructions=None,
     )
 
 

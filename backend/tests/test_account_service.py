@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.services.account_service import delete_user_account
 from app.db.models.concept_map import ConceptMap, ConceptMapNode
-from app.db.models import Chunk, Document, FailedQuery, Message, Session as ChatSession, User
+from app.db.models import Chunk, Document, FailedQuery, Message, Project, Session as ChatSession, User
 from app.db.repositories import chunks as chunks_repo
 from app.db.repositories.chunks import NewChunk
 from app.ingestion.upload_storage import LocalFileStorage, new_upload_key
@@ -74,8 +74,13 @@ def _seed_user(db: DbSession, storage: LocalFileStorage) -> Tuple[int, Dict[str,
     storage.put(own, b"%PDF own")
     private_legacy = f"uploads/private_{user.id}.pdf"
     storage.put(private_legacy, b"%PDF legacy")
+    # Day 18: one project holding the user's own document and chat, so its rows point at it.
+    course = Project(user_id=user.id, name="DL Unit 5", instructions="Answer briefly.")
+    db.add(course)
+    db.flush()
     documents = [
-        Document(user_id=user.id, file_name=key.rsplit("/", 1)[-1], file_path=key, file_hash="h", version=1, is_active=True)
+        Document(user_id=user.id, file_name=key.rsplit("/", 1)[-1], file_path=key, file_hash="h", version=1,
+                 is_active=True, project_id=course.id if key == own else None)
         for key in (own, private_legacy, SHARED_LEGACY)
     ]
     db.add_all(documents)
@@ -85,7 +90,7 @@ def _seed_user(db: DbSession, storage: LocalFileStorage) -> Tuple[int, Dict[str,
                  content_hash="h", embedding=_unit_vector(), metadata={})
         for doc in documents[:1] for i in range(2)
     ])
-    chat = ChatSession(user_id=user.id, title="chat")
+    chat = ChatSession(user_id=user.id, title="chat", project_id=course.id)
     db.add(chat)
     db.flush()
     db.add_all([
@@ -117,7 +122,7 @@ def test_deleting_an_account_removes_everything_of_that_user_only(
         db, db.get(User, a), semantic_cache=semantic_cache, retrieval_cache=l1, storage=storage,
     )
 
-    for model in (Document, ChatSession, Message, FailedQuery, ConceptMap, Chunk):
+    for model in (Document, ChatSession, Message, FailedQuery, ConceptMap, Chunk, Project):
         assert _count(db, model, a) == 0, model.__tablename__
         assert _count(db, model, b) > 0, model.__tablename__
     assert db.get(User, a) is None and db.get(User, b) is not None
@@ -139,6 +144,7 @@ def test_deleting_an_account_removes_everything_of_that_user_only(
     assert summary.failed_queries == 1
     assert summary.files_removed == 2
     assert summary.index_entries_removed == 2  # the user's document_chunks rows
+    assert summary.projects == 1
 
 
 def test_the_schema_cascades_a_users_rows_whatever_the_code_path(db: DbSession, storage: LocalFileStorage) -> None:
@@ -148,5 +154,5 @@ def test_the_schema_cascades_a_users_rows_whatever_the_code_path(db: DbSession, 
     db.query(User).filter(User.id == a).delete(synchronize_session=False)
     db.commit()
 
-    for model in (Document, ChatSession, Message, FailedQuery, ConceptMap, Chunk):
+    for model in (Document, ChatSession, Message, FailedQuery, ConceptMap, Chunk, Project):
         assert _count(db, model, a) == 0, model.__tablename__

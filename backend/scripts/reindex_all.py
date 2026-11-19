@@ -105,8 +105,10 @@ def _index_one(
     re_embed: bool,
 ) -> None:
     with session_factory() as db:
+        document = documents_repo.get_owned(db, row.document_id, row.user_id)
+        # Versions in the document's own project only (Day 18): the same name elsewhere is another document.
         superseded = [
-            d.id for d in documents_repo.list_versions(db, row.user_id, row.file_name) if d.id != row.document_id
+            d.id for d in (documents_repo.versions_of(db, document) if document else []) if d.id != row.document_id
         ]
         try:
             with storage.local_copy(key) as local_path:

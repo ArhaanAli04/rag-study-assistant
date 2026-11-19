@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 import pytest
 
+from app.db.scope import DocumentScope
 from app.retrieval import confidence as conf
 from app.retrieval.retrieval_service import RetrievalService
 from app.services.caches.query_cache import QueryCache
@@ -32,7 +33,7 @@ def _service(text: str) -> RetrievalService:
 def _retrieve(text: str) -> Dict[str, Any]:
     service = _service(text)
     # TAVILY_API_KEY is empty in tests, so web search raises and retrieval continues without it.
-    return service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, top_k=5)
+    return service.hybrid_retrieve(QUERY, user_id="1", doc_version=0, scope=DocumentScope.all(), top_k=5)
 
 
 def test_matching_chunks_keep_their_full_confidence() -> None:
@@ -62,6 +63,6 @@ def test_grounding_thresholds(score: float, level: str) -> None:
 
 def test_l1_cache_is_per_instance() -> None:
     first, second = _service(ON_TOPIC), _service(ON_TOPIC)
-    first.l1_cache_store("1", QUERY, 0, {"results": []})
+    first.l1_cache_store("1", QUERY, 0, DocumentScope.all(), {"results": []})
 
-    assert second.l1_cache_lookup("1", QUERY, 0) is None
+    assert second.l1_cache_lookup("1", QUERY, 0, DocumentScope.all()) is None

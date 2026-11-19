@@ -249,7 +249,7 @@ def test_a_document_deleted_while_embedding_is_refused_and_leaves_nothing_behind
     def embed_while_the_user_deletes(texts: List[str]) -> Any:
         # Requests run in parallel now: the user deletes the file from another tab mid-upload.
         with SessionLocal() as db:
-            (document,) = documents_repo.list_active(db, owner_id)
+            ((document, _project),) = documents_repo.list_active_with_project(db, owner_id)
             deleted_keys.append(document.file_path)
             document_service.delete_document(db, owner_id, document.id, services.file_storage)
         return original(texts)

@@ -115,6 +115,126 @@ test.each([
   expect(uploadNotice(result)).toContain(expected);
 });
 
+// --- Day 18: projects on the Documents page -----------------------------------------------------------
+
+const DL = { id: 3, name: "DL Unit 5", description: null, instructions: null, created_at: "2026-11-19T10:00:00",
+  archived: false, document_count: 1, chat_count: 0, last_activity: null };
+const OLD = { ...DL, id: 4, name: "Old course", archived: true };
+const IN_DL = { ...NOTES, id: 8, filename: "rnn.pdf", project_id: 3, project_name: "DL Unit 5" };
+const LOOSE = { ...NOTES, project_id: null, project_name: null };
+
+function mockProjectsApi({ documents = [LOOSE, IN_DL], projects = [DL, OLD], upload, move } = {}) {
+  global.fetch = jest.fn((url, options = {}) => {
+    const { pathname } = new URL(url);
+    const method = options.method || "GET";
+    if (pathname === "/projects") return projects instanceof Error ? respond(500, { detail: projects.message }) : respond(200, projects);
+    if (pathname === "/upload") return (upload || (() => respond(200, { filename: "notes.pdf", status: "new", chunks_indexed: 3 })))(options);
+    if (pathname === "/documents") return respond(200, documents);
+    if (method === "PATCH" && pathname.startsWith("/documents/")) return (move || (() => respond(200, { status: "moved" })))(options);
+    return respond(200, {});
+  });
+}
+
+test("each document shows its project, or No project", async () => {
+  mockProjectsApi();
+  renderPage();
+
+  await screen.findByText("rnn.pdf");
+
+  expect(screen.getByTestId("project-of-8")).toHaveTextContent("DL Unit 5");
+  expect(screen.getByTestId("project-of-7")).toHaveTextContent("No project");
+});
+
+test("an upload goes into the chosen project; archived projects aren't offered", async () => {
+  mockProjectsApi();
+  renderPage();
+  await screen.findByText("rnn.pdf");
+  const picker = screen.getByLabelText("Project");
+  expect(Array.from(picker.options).map((o) => o.textContent)).toEqual(["No project", "DL Unit 5"]);
+
+  fireEvent.change(picker, { target: { value: "3" } });
+  await uploadAFile();
+  await screen.findByRole("status");
+
+  const [, options] = global.fetch.mock.calls.find(([url]) => new URL(url).pathname === "/upload");
+  expect(options.body.get("project_id")).toBe("3");
+});
+
+test("an upload with No project sends no project_id", async () => {
+  mockProjectsApi();
+  renderPage();
+  await screen.findByText("rnn.pdf");
+
+  await uploadAFile();
+  await screen.findByRole("status");
+
+  const [, options] = global.fetch.mock.calls.find(([url]) => new URL(url).pathname === "/upload");
+  expect(options.body.has("project_id")).toBe(false);
+});
+
+test("the filter shows one project's documents, and says when a project has none", async () => {
+  mockProjectsApi({ projects: [DL, { ...DL, id: 5, name: "BDA" }] });
+  renderPage();
+  await screen.findByText("rnn.pdf");
+  const filter = screen.getByLabelText("Show");
+
+  fireEvent.change(filter, { target: { value: "3" } });
+  expect(screen.getByText("rnn.pdf")).toBeInTheDocument();
+  expect(screen.queryByText("notes.pdf")).toBeNull();
+
+  fireEvent.change(filter, { target: { value: "none" } });
+  expect(screen.getByText("notes.pdf")).toBeInTheDocument();
+  expect(screen.queryByText("rnn.pdf")).toBeNull();
+
+  fireEvent.change(filter, { target: { value: "5" } });
+  expect(screen.getByText("No documents in this project yet.")).toBeInTheDocument();
+});
+
+test("moving a document sends its new project and refreshes the list", async () => {
+  mockProjectsApi();
+  renderPage();
+  await screen.findByText("notes.pdf");
+
+  fireEvent.change(screen.getByLabelText("Move notes.pdf to a project"), { target: { value: "3" } });
+
+  expect(await screen.findByRole("status")).toHaveTextContent("Moved notes.pdf to DL Unit 5.");
+  const [url, options] = global.fetch.mock.calls.find(([, o = {}]) => o.method === "PATCH");
+  expect(new URL(url).pathname).toBe("/documents/7");
+  expect(JSON.parse(options.body)).toEqual({ project_id: 3 });
+});
+
+test("a document in a project can move back to No project", async () => {
+  mockProjectsApi();
+  renderPage();
+  await screen.findByText("rnn.pdf");
+
+  fireEvent.change(screen.getByLabelText("Move rnn.pdf to a project"), { target: { value: "none" } });
+
+  expect(await screen.findByRole("status")).toHaveTextContent("Moved rnn.pdf to No project.");
+  const [, options] = global.fetch.mock.calls.find(([, o = {}]) => o.method === "PATCH");
+  expect(JSON.parse(options.body)).toEqual({ project_id: null });
+});
+
+test("a refused move shows the server's reason", async () => {
+  mockProjectsApi({ move: () => respond(409, { detail: "That project already has a file named notes.pdf. Rename or delete one of them first." }) });
+  renderPage();
+  await screen.findByText("notes.pdf");
+
+  fireEvent.change(screen.getByLabelText("Move notes.pdf to a project"), { target: { value: "3" } });
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("already has a file named notes.pdf");
+  expect(screen.queryByRole("status")).toBeNull();
+});
+
+test("if projects fail to load, documents still list and uploads still work without a project", async () => {
+  mockProjectsApi({ projects: new Error("Request failed") });
+  renderPage();
+
+  expect(await screen.findByText("notes.pdf")).toBeInTheDocument();
+  expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't load your projects");
+  expect(Array.from(screen.getByLabelText("Project").options).map((o) => o.textContent)).toEqual(["No project"]);
+});
+
 test("the delete notice names every version that went", () => {
   expect(deleteNotice("notes.pdf", 1)).toBe("Deleted notes.pdf. New answers won't cite it.");
   expect(deleteNotice("notes.pdf", 3)).toBe("Deleted notes.pdf (all 3 versions). New answers won't cite it.");

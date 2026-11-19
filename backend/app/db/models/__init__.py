@@ -9,6 +9,9 @@ from app.db.models.document import Document
 from app.db.models.document_chunk import Chunk
 from app.db.models.failed_query import FailedQuery
 from app.db.models.message import Message
+from app.db.models.project import Project
 from app.db.models.user import User
 
-__all__ = ["Chunk", "ConceptMap", "ConceptMapNode", "Document", "FailedQuery", "Message", "Session", "User"]
+__all__ = [
+    "Chunk", "ConceptMap", "ConceptMapNode", "Document", "FailedQuery", "Message", "Project", "Session", "User",
+]

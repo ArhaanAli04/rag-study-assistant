@@ -6,8 +6,9 @@ the eval judges answers to exactly the prompt the chat sends (Day 12, the same p
 retrieval/context_assembly.py).
 """
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
+from app.db.scope import DocumentScope
 from app.generation.llm_client import LLMClient
 from app.retrieval.confidence import grounding_level as grounding_for
 from app.retrieval.context_assembly import AssembledContext, assemble_context
@@ -34,10 +35,14 @@ def prepare_answer(
     top_k: int,
     mode: str,
     recent_messages: List[Dict[str, str]],
+    scope: DocumentScope,
+    project_instructions: Optional[str],
 ) -> PreparedAnswer:
+    """``scope`` and ``project_instructions`` come from the chat's project (Day 18); the generation
+    eval passes DocumentScope.all() and None, which leaves its prompts byte-identical to before."""
     context = assemble_context(
         retrieval_service, query_decomposer, compressor,
-        query=query, user_id=user_id, doc_version=doc_version, top_k=top_k,
+        query=query, user_id=user_id, doc_version=doc_version, top_k=top_k, scope=scope,
     )
     grounding = grounding_for(context.confidence)
     prompt = llm_client.build_prompt(
@@ -46,5 +51,6 @@ def prepare_answer(
         recent_messages=recent_messages,
         grounding_level=grounding,
         mode=mode,
+        project_instructions=project_instructions,
     )
     return PreparedAnswer(prompt=prompt, context=context, grounding_level=grounding)

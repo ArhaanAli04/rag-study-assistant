@@ -96,10 +96,12 @@ export default function ChatPage() {
             onSelectSession={setActiveSessionId}
             onNewChat={handleNewChat}
             onDeleteSession={handleDeleteSession}
+            onSessionsChanged={fetchSessions}
           />
         )}
         <ChatWindow
           sessionId={activeSessionId}
+          session={sessions.find((s) => s.id === activeSessionId)}
           onSessionCreated={handleSessionCreated}
         />
       </div>

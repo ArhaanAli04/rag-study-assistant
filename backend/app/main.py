@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.api.routes import auth, chat, concepts, documents, feedback, health, quiz, sessions, users
+from app.api.routes import auth, chat, concepts, documents, feedback, health, projects, quiz, sessions, users
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.core.request_id import RequestIdMiddleware
@@ -23,7 +23,7 @@ from app.services.container import build_services
 
 logger = setup_logging()
 
-ROUTERS = (health, auth, users, documents, chat, sessions, feedback, quiz, concepts)
+ROUTERS = (health, auth, users, documents, projects, chat, sessions, feedback, quiz, concepts)
 
 
 @asynccontextmanager

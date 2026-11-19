@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import numpy as np
 
+from app.db.scope import DocumentScope
 from app.retrieval import confidence as conf
 from app.retrieval.embeddings import EmbeddingError
 from app.retrieval.pg_chunk_search import Candidates
@@ -44,7 +45,8 @@ class ChunkSearch(Protocol):
     """The user's chunks as two candidate lists (Day 15: PgChunkSearch over document_chunks)."""
 
     def search(
-        self, query_embedding: np.ndarray | None, keyword_query: str, user_id: str, top_k: int
+        self, query_embedding: np.ndarray | None, keyword_query: str, user_id: str, top_k: int,
+        scope: DocumentScope,
     ) -> Candidates: ...
 
     def vector_only(
@@ -80,8 +82,9 @@ class RetrievalService:
         self.compressor = SimpleContextCompressor()
         # Per instance: a class-level dict was shared by every RetrievalService in the process.
         # Keyed on every input that changes the result: include_web too, or a documents-only call
-        # (concept maps, Day 17) could replay a ranking that contains web chunks, and vice versa.
-        self._l1_cache: Dict[Tuple[str, str, int, bool], Dict[str, Any]] = {}
+        # (concept maps, Day 17) could replay a ranking that contains web chunks, and vice versa;
+        # and the document scope (Day 18), or a project chat could replay another project's ranking.
+        self._l1_cache: Dict[Tuple[str, str, int, bool, str], Dict[str, Any]] = {}
 
     def _embed_texts(self, texts: List[str]) -> np.ndarray:
         """The same embedding model as the stored chunks, so local and web scores are comparable."""
@@ -89,14 +92,20 @@ class RetrievalService:
 
     # -------- L1 exact-match cache (per process) --------
     def l1_cache_lookup(
-        self, user_id: str, query: str, doc_version: int, include_web: bool = True
+        self, user_id: str, query: str, doc_version: int, scope: DocumentScope, include_web: bool = True
     ) -> Optional[Dict[str, Any]]:
-        return self._l1_cache.get((user_id, query, doc_version, include_web))
+        return self._l1_cache.get((user_id, query, doc_version, include_web, scope.cache_key))
 
     def l1_cache_store(
-        self, user_id: str, query: str, doc_version: int, value: Dict[str, Any], include_web: bool = True
+        self,
+        user_id: str,
+        query: str,
+        doc_version: int,
+        scope: DocumentScope,
+        value: Dict[str, Any],
+        include_web: bool = True,
     ) -> None:
-        self._l1_cache[(user_id, query, doc_version, include_web)] = value
+        self._l1_cache[(user_id, query, doc_version, include_web, scope.cache_key)] = value
         if len(self._l1_cache) > L1_CACHE_MAX_ENTRIES:
             # naive eviction: pop oldest
             self._l1_cache.pop(next(iter(self._l1_cache)))
@@ -230,6 +239,8 @@ class RetrievalService:
         query: str,
         user_id: str,
         doc_version: int,
+        *,
+        scope: DocumentScope,
         top_k: int = 8,
         rerank_top_k: int = 5,
         include_web: bool = True,
@@ -245,11 +256,15 @@ class RetrievalService:
         include_web=False skips web search for this call even when the service has it on: a
         documents-only concept map would otherwise pay for a Tavily search and embed every web chunk
         (free-tier quota, counted per text) only to discard them.
+
+        ``scope`` (required, Day 18) says which of the user's documents may be searched: all of them
+        (eval, concept maps until Day 20), the unassigned ones (a chat outside any project) or one
+        project's. Required on purpose: a forgotten scope would silently widen a project chat.
         """
 
         # 1. L1 exact-match cache
         cached = (
-            self.l1_cache_lookup(user_id, query, doc_version, include_web) if self.l1_cache_enabled else None
+            self.l1_cache_lookup(user_id, query, doc_version, scope, include_web) if self.l1_cache_enabled else None
         )
         if cached is not None:
             return {**cached, "from_l1_cache": True}
@@ -267,7 +282,7 @@ class RetrievalService:
         except EmbeddingError:
             logger.warning("Query embedding failed; keyword-only retrieval for this query", exc_info=True)
             query_embedding = None
-        candidates = self.chunk_search.search(query_embedding, kw_query, user_id, top_k)
+        candidates = self.chunk_search.search(query_embedding, kw_query, user_id, top_k, scope)
         vector_results = candidates.vector
         keyword_results = candidates.keyword
 
@@ -462,7 +477,7 @@ class RetrievalService:
         # A degraded (keyword-only) result isn't cached: the same question should get full retrieval
         # once embeddings work again, not a replay of the degraded ranking until the next upload.
         if self.l1_cache_enabled and query_embedding is not None:
-            self.l1_cache_store(user_id, query, doc_version, result_payload, include_web)
+            self.l1_cache_store(user_id, query, doc_version, scope, result_payload, include_web)
 
         return result_payload
     

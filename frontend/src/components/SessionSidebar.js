@@ -1,6 +1,7 @@
-import { Plus, MessageSquare, Trash2,Edit2 } from 'lucide-react';
-import { useState } from 'react'; 
+import { Plus, MessageSquare, Trash2, Edit2, Folder, FolderInput } from 'lucide-react';
+import { useState } from 'react';
 import SessionRenameModal from './SessionRenameModal';
+import SessionProjectModal from './SessionProjectModal';
 import { API_BASE_URL } from '../config/api';
 
 export default function SessionSidebar({
@@ -9,9 +10,11 @@ export default function SessionSidebar({
   onSelectSession,
   onNewChat,
   onDeleteSession,
+  onSessionsChanged = () => {},
 }) {
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [sessionToRename, setSessionToRename] = useState(null);
+  const [sessionToMove, setSessionToMove] = useState(null);
   // Helper to check if two dates are the same day
   const isSameDay = (d1, d2) => {
     return d1.getFullYear() === d2.getFullYear() &&
@@ -186,6 +189,14 @@ export default function SessionSidebar({
           {session.title || `Session ${session.id}`}
         </div>
 
+        {/* Day 18: which project's files this chat answers from. */}
+        {session.project_name && (
+          <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
+            <Folder className="w-3 h-3" aria-hidden="true" />
+            <span className="truncate">{session.project_name}</span>
+          </div>
+        )}
+
         {/* ✅ ADD TOPIC TAG HERE */}
         {session.topic && session.topic !== "General" && (
           <div className="mt-1.5">
@@ -208,6 +219,14 @@ export default function SessionSidebar({
           title="Rename conversation"
         >
           <Edit2 className="w-4 h-4 text-primary" />
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); setSessionToMove(session); }}
+          className="p-1 hover:bg-primary/20 rounded transition-all"
+          title="Move to project"
+          aria-label={`Move ${session.title || `Session ${session.id}`} to a project`}
+        >
+          <FolderInput className="w-4 h-4 text-primary" />
         </button>
         <button
           onClick={(e) => handleDelete(e, session)}
@@ -301,6 +320,13 @@ export default function SessionSidebar({
             setSessionToRename(null);
           }}
           onRename={handleRename}
+        />
+      )}
+      {sessionToMove && (
+        <SessionProjectModal
+          session={sessionToMove}
+          onClose={() => setSessionToMove(null)}
+          onMoved={onSessionsChanged}
         />
       )}
     </aside>

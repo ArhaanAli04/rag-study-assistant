@@ -7,6 +7,7 @@ the eval measures exactly what the chat sends to the model.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from app.db.scope import DocumentScope
 from app.retrieval.context_compressor import SimpleContextCompressor
 from app.retrieval.query_decomposer import QueryDecomposer
 from app.retrieval.retrieval_service import RetrievalService
@@ -31,7 +32,9 @@ def assemble_context(
     user_id: str,
     doc_version: int,
     top_k: int,
+    scope: DocumentScope,
 ) -> AssembledContext:
+    """``scope``: which of the user's documents every sub-query may search (Day 18)."""
     all_context_chunks: List[Dict[str, Any]] = []
     confidence = 0.0
     fallback_used = False
@@ -39,7 +42,7 @@ def assemble_context(
 
     for subq in sub_queries:
         retrieval_result = retrieval_service.hybrid_retrieve(
-            query=subq, user_id=user_id, doc_version=doc_version,
+            query=subq, user_id=user_id, doc_version=doc_version, scope=scope,
             top_k=top_k, rerank_top_k=RERANK_TOP_K,
         )
         child_chunks = retrieval_result["results"]

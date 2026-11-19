@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models import Chunk, User
+from app.db.scope import DocumentScope
 from app.db.session import SessionLocal
 from app.ingestion.models import DocumentChunk
 from app.ingestion.upload_storage import LocalFileStorage
@@ -177,7 +178,7 @@ def test_a_changed_upload_whose_embedding_fails_keeps_the_old_chunks_unsearchabl
     # ...and v1 is inactive, so neither half of search returns them.
     found = PgChunkSearch(SessionLocal).search(
         np.array(fake_embedding(V1[0], EMBEDDING_DIM), dtype=np.float32),
-        "vanishing gradients LSTMs gated", str(owner), top_k=10,
+        "vanishing gradients LSTMs gated", str(owner), top_k=10, scope=DocumentScope.all(),
     )
     assert found.vector == [] and found.keyword == []
 

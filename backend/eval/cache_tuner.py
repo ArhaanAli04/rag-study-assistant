@@ -6,6 +6,7 @@ It only looks entries up, so hits come from what the first user's semantic cache
 CO5 (Day 32) replaces it.
 """
 from app.db.models import User
+from app.db.scope import DocumentScope
 from app.db.session import SessionLocal
 from app.services.caches.semantic_cache import SemanticCache
 from app.services.container import build_services
@@ -20,6 +21,8 @@ TEST_QUERIES = [
 
 THRESHOLDS = [0.90, 0.92, 0.95, 0.98]
 MODE = "detailed"
+# Day 18: entries are scoped; "unassigned" is a chat outside any project with no instructions.
+SCOPE_KEY = DocumentScope.unassigned().cache_key
 
 def tune_cache_thresholds(semantic_cache: SemanticCache, user_id: int, doc_version: int) -> None:
     print("=== Semantic Cache Threshold Tuning ===")
@@ -29,7 +32,7 @@ def tune_cache_thresholds(semantic_cache: SemanticCache, user_id: int, doc_versi
     for query in TEST_QUERIES:
         # First run - should all MISS
         for thresh in THRESHOLDS:
-            hit = semantic_cache.lookup(query, user_id, doc_version, MODE, threshold=thresh) is not None
+            hit = semantic_cache.lookup(query, user_id, doc_version, MODE, SCOPE_KEY, threshold=thresh) is not None
             if hit:
                 first_run_hits[thresh] += 1
 
@@ -41,7 +44,7 @@ def tune_cache_thresholds(semantic_cache: SemanticCache, user_id: int, doc_versi
     second_run_hits = {t: 0 for t in THRESHOLDS}
     for query in TEST_QUERIES:
         for thresh in THRESHOLDS:
-            hit = semantic_cache.lookup(query, user_id, doc_version, MODE, threshold=thresh) is not None
+            hit = semantic_cache.lookup(query, user_id, doc_version, MODE, SCOPE_KEY, threshold=thresh) is not None
             if hit:
                 second_run_hits[thresh] += 1
 

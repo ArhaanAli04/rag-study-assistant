@@ -3,6 +3,7 @@
 import logging
 from typing import Any, Dict, List
 
+from app.db.scope import DocumentScope
 from app.retrieval.embeddings import EmbeddingError
 from app.retrieval.retrieval_service import RetrievalService
 from app.retrieval.web.search_client import WEB_SEARCH_ERRORS
@@ -48,6 +49,8 @@ class ConceptMapRetriever:
                 query=topic,
                 user_id=user_id,
                 doc_version=doc_version,
+                # Every document of the user until Day 20 gives concept maps a project choice.
+                scope=DocumentScope.all(),
                 top_k=max_results,
                 rerank_top_k=max_results,
                 include_web=use_web,

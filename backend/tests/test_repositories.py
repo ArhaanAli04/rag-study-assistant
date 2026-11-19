@@ -98,7 +98,7 @@ def test_sessions_are_listed_for_their_owner_only_most_recent_first(db: Session,
 
     listed = sessions_repo.list_with_last_message(db, alice.id)
 
-    assert [(s.title, last) for s, last in listed] == [
+    assert [(s.title, last) for s, last, _project in listed] == [
         ("newer", T0 + datetime.timedelta(hours=1)),
         ("older", T0),
         ("empty", None),
@@ -157,7 +157,9 @@ def test_documents_are_scoped_to_their_owner(db: Session, two_users: Tuple[User,
     _document(db, alice, "old.pdf", active=False)
     bobs = _document(db, bob, "b1.pdf")
 
-    assert [d.file_name for d in documents_repo.list_active(db, alice.id)] == ["a2.pdf", "a1.pdf"]
+    assert [d.file_name for d, _project in documents_repo.list_active_with_project(db, alice.id)] == [
+        "a2.pdf", "a1.pdf",
+    ]
     assert documents_repo.count_active(db, alice.id) == 2
     assert documents_repo.get_owned(db, first.id, alice.id) is first
     assert documents_repo.get_owned(db, bobs.id, alice.id) is None

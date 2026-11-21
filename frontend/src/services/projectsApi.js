@@ -54,6 +54,45 @@ export function projectCounts(project) {
   return `${plural(project.document_count ?? 0, "file")} · ${plural(project.chat_count ?? 0, "chat")}`;
 }
 
+// The backend sends naive UTC times ("2026-11-19T10:00:00"); new Date() would read those as local
+// time, which is off by the browser's UTC offset (5h30 in India), so mark them as UTC first.
+export function parseServerTime(value) {
+  if (!value) return null;
+  const hasZone = /(Z|[+-]\d\d:?\d\d)$/.test(value);
+  const date = new Date(hasZone ? value : `${value}Z`);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+const MINUTE = 60 * 1000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+export function formatShortDate(date, now = new Date()) {
+  const options = { month: "short", day: "numeric" };
+  if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
+  return date.toLocaleDateString("en-US", options);
+}
+
+export function formatRelativeTime(date, now = new Date()) {
+  const elapsed = now - date;
+  if (elapsed < MINUTE) return "just now";
+  if (elapsed < HOUR) return plural(Math.floor(elapsed / MINUTE), "minute") + " ago";
+  if (elapsed < DAY) return plural(Math.floor(elapsed / HOUR), "hour") + " ago";
+  if (elapsed < 2 * DAY) return "yesterday";
+  if (elapsed < 7 * DAY) return `${Math.floor(elapsed / DAY)} days ago`;
+  return formatShortDate(date, now);
+}
+
+// last_activity is the newer of the newest message and the newest upload (Day 19), so it is empty
+// only for a project with neither; a project with chats but no messages falls back to its creation.
+export function lastActivityText(project, now = new Date()) {
+  const last = parseServerTime(project.last_activity);
+  if (last) return `Active ${formatRelativeTime(last, now)}`;
+  if (!project.document_count && !project.chat_count) return "No activity yet";
+  const created = parseServerTime(project.created_at);
+  return created ? `Created ${formatShortDate(created, now)}` : "No activity yet";
+}
+
 export function projectDeletedNotice(name, result) {
   const chats = result.chats_unassigned
     ? ` Its ${plural(result.chats_unassigned, "chat")} moved to No project.`

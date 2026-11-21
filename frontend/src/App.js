@@ -6,6 +6,7 @@ import ChatPage from "./pages/ChatPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import QuizPage from "./pages/QuizPage";
 import ConceptMapPage from "./pages/ConceptMapPage";
+import ProjectsPage from "./pages/ProjectsPage";
 import AuthCallback from "./pages/AuthCallback";
 
 export function AppRoutes() {
@@ -25,6 +26,10 @@ export function AppRoutes() {
       <Route
         path="/documents"
         element={isAuthenticated ? <DocumentsPage /> : <Navigate to="/login" replace />}
+      />
+      <Route
+        path="/projects"
+        element={isAuthenticated ? <ProjectsPage /> : <Navigate to="/login" replace />}
       />
       <Route
         path="/quiz"

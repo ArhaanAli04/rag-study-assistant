@@ -1,4 +1,4 @@
-import { Menu, Settings, LogOut, FileText, MessageSquare, Brain, User, Key, Download, HelpCircle, Network } from 'lucide-react';
+import { Menu, Settings, LogOut, FileText, MessageSquare, Brain, User, Key, Download, HelpCircle, Network, FolderKanban } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useState, useEffect, useRef } from 'react';
 import HelpSupportModal from './HelpSupportModal';
@@ -89,6 +89,7 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
   const isDocumentsPage = location.pathname === '/documents';
   const isQuizPage = location.pathname === '/quiz';
   const isConceptMapsPage = location.pathname === '/concept-maps';
+  const isProjectsPage = location.pathname.startsWith('/projects');
   return (
     <>
     <header
@@ -111,6 +112,19 @@ export default function TopNav({ user, onLogout, onToggleSidebar }) {
 
       {/* Right Section */}
       <div className="flex items-center gap-2">
+        {/* Day 19: Projects, highlighted on /projects and on a project's page */}
+        <button
+          onClick={() => navigate('/projects')}
+          className={`p-2 rounded-lg transition-all ${
+            isProjectsPage ? 'bg-primary/10 text-primary' : 'hover:bg-white/5 text-foreground'
+          }`}
+          title="Projects"
+          aria-label="Projects"
+          aria-current={isProjectsPage ? 'page' : undefined}
+        >
+          <FolderKanban className="w-5 h-5" />
+        </button>
+
         {/* ← NEW: Concept Maps Button */}
         {isConceptMapsPage ? (
         <button 

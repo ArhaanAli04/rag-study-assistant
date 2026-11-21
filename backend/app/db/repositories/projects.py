@@ -13,7 +13,8 @@ class ProjectSummary:
     project: Project
     document_count: int
     chat_count: int
-    # The newest message in any of its chats; None while it has none.
+    # The newer of its newest message and its newest active upload (Day 19: a week of only uploading
+    # is still activity); None while it has neither.
     last_activity: datetime.datetime | None
 
 
@@ -41,7 +42,7 @@ def list_with_counts(db: Session, user_id: int) -> list[ProjectSummary]:
     """Every project of the user with its active-document count, chat count and last activity, in one
     statement (CO6: each round trip crosses regions). Most recently created first."""
     documents = (
-        select(Document.project_id, func.count().label("n"))
+        select(Document.project_id, func.count().label("n"), func.max(Document.created_at).label("last_upload"))
         .where(Document.user_id == user_id, Document.is_active.is_(True), Document.project_id.is_not(None))
         .group_by(Document.project_id)
         .subquery()
@@ -57,8 +58,10 @@ def list_with_counts(db: Session, user_id: int) -> list[ProjectSummary]:
         .group_by(ChatSession.project_id)
         .subquery()
     )
+    # Postgres's GREATEST skips NULLs, so a project with only chats or only files still gets a value.
+    last_activity = func.greatest(chats.c.last_message, documents.c.last_upload)
     rows = db.execute(
-        select(Project, documents.c.n, chats.c.n, chats.c.last_message)
+        select(Project, documents.c.n, chats.c.n, last_activity)
         .outerjoin(documents, documents.c.project_id == Project.id)
         .outerjoin(chats, chats.c.project_id == Project.id)
         .where(Project.user_id == user_id)

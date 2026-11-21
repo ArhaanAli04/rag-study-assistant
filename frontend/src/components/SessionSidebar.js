@@ -1,5 +1,6 @@
-import { Plus, MessageSquare, Trash2, Edit2, Folder, FolderInput } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, Edit2, Folder, FolderInput, FolderKanban } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import SessionRenameModal from './SessionRenameModal';
 import SessionProjectModal from './SessionProjectModal';
 import { API_BASE_URL } from '../config/api';
@@ -257,6 +258,14 @@ export default function SessionSidebar({
           <Plus className="w-5 h-5" />
           New Chat
         </button>
+        {/* Day 19: a project's page starts its chats and lists them. */}
+        <Link
+          to="/projects"
+          className="mt-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:bg-white/5 hover:text-foreground transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+        >
+          <FolderKanban className="w-4 h-4" aria-hidden="true" />
+          Projects
+        </Link>
       </div>
 
       {/* Session List with Grouping */}

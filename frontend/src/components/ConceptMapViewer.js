@@ -13,6 +13,7 @@ import { toPng, toJpeg } from 'html-to-image';
 import 'reactflow/dist/style.css';
 import ConceptNodeDetails from './ConceptNodeDetails';
 import { formatConfidence } from '../utils/formatConfidence';
+import { parseServerTime } from '../utils/serverTime';
 import ConceptMapControls from './ConceptMapControls';
 
 const ConceptMapViewerInner = ({ mapData, onBack, onDelete }) => {
@@ -335,7 +336,7 @@ const ConceptMapViewerInner = ({ mapData, onBack, onDelete }) => {
         <div className="metadata-item">
           <span className="metadata-label">Created:</span>
           <span className="metadata-value">
-            {new Date(mapData.created_at).toLocaleDateString()}
+            {parseServerTime(mapData.created_at)?.toLocaleDateString()}
           </span>
         </div>
         <div className="metadata-item">

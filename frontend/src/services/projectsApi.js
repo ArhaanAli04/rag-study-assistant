@@ -2,6 +2,7 @@
 // non-2xx reply into an Error carrying the server's `detail` (e.g. 409 "You already have a project
 // named …"), so callers can show it as is.
 import { apiRequest } from "./apiClient";
+import { formatRelativeTime, formatShortDate, parseServerTime } from "../utils/serverTime";
 
 // Limits the backend enforces (app/db/models/project.py); the UI shows them before the server must.
 export const PROJECT_NAME_MAX = 80;
@@ -52,6 +53,16 @@ export const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"
 
 export function projectCounts(project) {
   return `${plural(project.document_count ?? 0, "file")} · ${plural(project.chat_count ?? 0, "chat")}`;
+}
+
+// last_activity is the newer of the newest message and the newest upload (Day 19), so it is empty
+// only for a project with neither; a project with chats but no messages falls back to its creation.
+export function lastActivityText(project, now = new Date()) {
+  const last = parseServerTime(project.last_activity);
+  if (last) return `Active ${formatRelativeTime(last, now)}`;
+  if (!project.document_count && !project.chat_count) return "No activity yet";
+  const created = parseServerTime(project.created_at);
+  return created ? `Created ${formatShortDate(created, now)}` : "No activity yet";
 }
 
 export function projectDeletedNotice(name, result) {

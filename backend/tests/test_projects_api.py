@@ -87,6 +87,22 @@ def test_counts_documents_and_chats(client: Any, account: Account, gemini: FakeG
     assert len(opened["chats"]) == 1
 
 
+def test_last_activity_counts_uploads_as_well_as_chats(client: Any, account: Account, gemini: FakeGemini) -> None:
+    files_only = create_project(client, account, "Files only")
+    untouched = create_project(client, account, "Untouched")
+    assert upload_into(client, account, files_only["id"]).status_code == 200
+
+    listed = {p["id"]: p for p in client.get("/projects", headers=account.headers).json()}
+    uploaded_at = project(client, account, files_only["id"]).json()["documents"][0]["created_at"]
+    assert listed[files_only["id"]]["last_activity"] == uploaded_at
+    assert listed[untouched["id"]]["last_activity"] is None
+
+    # A chat after the upload is newer, so it becomes the last activity.
+    assert_contract(parse_sse(chat_in(client, account, files_only["id"]).text))
+    after_chat = {p["id"]: p for p in client.get("/projects", headers=account.headers).json()}
+    assert after_chat[files_only["id"]]["last_activity"] > uploaded_at
+
+
 @pytest.mark.parametrize(
     "body",
     [

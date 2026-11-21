@@ -1,6 +1,7 @@
 import React, { useState,useRef, useEffect } from 'react';
 import { ChevronDown } from 'lucide-react';
 import { formatConfidence } from '../utils/formatConfidence';
+import { parseServerTime } from '../utils/serverTime';
 const MapListView = ({ maps, loading, onViewMap, onDeleteMap }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState('newest'); // 'newest', 'oldest'
@@ -24,33 +25,24 @@ const MapListView = ({ maps, loading, onViewMap, onDeleteMap }) => {
 
   // Sort maps
   const sortedMaps = [...filteredMaps].sort((a, b) => {
-    const dateA = new Date(a.created_at);
-    const dateB = new Date(b.created_at);
+    const dateA = parseServerTime(a.created_at);
+    const dateB = parseServerTime(b.created_at);
     return sortBy === 'newest' ? dateB - dateA : dateA - dateB;
   });
 
-  // Format date - Treat naive datetime as UTC
-    const formatDate = (dateString) => {
-    // Backend sends naive datetime (no timezone)
-    // We need to treat it as UTC, then convert to IST
-    
-    // Add 'Z' to indicate UTC if no timezone info exists
-    const utcString = dateString.includes('Z') || dateString.includes('+') || dateString.includes('-', 10)
-        ? dateString 
-        : dateString + 'Z';  // Treat as UTC
-    
-    const date = new Date(utcString);
-    
+  const formatDate = (dateString) => {
+    const date = parseServerTime(dateString);
+    if (!date) return '';
     return date.toLocaleString('en-IN', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: 'Asia/Kolkata'
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: true,
+      timeZone: 'Asia/Kolkata'
     });
-    };
+  };
 
 
 

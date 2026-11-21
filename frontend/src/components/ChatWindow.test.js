@@ -1,5 +1,11 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 import ChatWindow from "./ChatWindow";
+
+// The header links a chat's project to its page (Day 19), so the window renders inside a router.
+function render(ui) {
+  return rtlRender(<MemoryRouter>{ui}</MemoryRouter>);
+}
 
 jest.mock("react-markdown", () => ({ children }) => <div>{children}</div>);
 jest.mock("remark-gfm", () => () => {});
@@ -183,6 +189,54 @@ test("an existing chat outside projects says No project", async () => {
 
   expect(screen.getByTestId("chat-project")).toHaveTextContent("No project");
   expect(screen.getByTestId("chat-project")).toHaveTextContent("answers cite only documents that aren't in a project");
+});
+
+// --- Day 19: "New chat in this project" and the header link -----------------------------------------
+
+test("a new chat opened from a project's page starts with that project picked and sends it", async () => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={null} initialProjectId={3} onSessionCreated={jest.fn()} />);
+
+  // The preselection lands one render after the projects arrive.
+  const picker = await screen.findByLabelText("Project");
+  await waitFor(() => expect(picker).toHaveValue("3"));
+  expect(screen.getByTestId("chat-project")).toHaveTextContent("Answers cite only files in DL Unit 5.");
+  expect(screen.getByRole("link", { name: "Open project" })).toHaveAttribute("href", "/projects/3");
+
+  sendQuestion("What is an LSTM?");
+  expect(new URL(FakeEventSource.instances[0].url).searchParams.get("project_id")).toBe("3");
+});
+
+test.each([
+  ["an archived project", 4],
+  ["an unknown or another user's project", 999],
+])("a preselected %s falls back to No project and says so", async (_label, projectId) => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={null} initialProjectId={projectId} onSessionCreated={jest.fn()} />);
+
+  expect(await screen.findByRole("alert")).toHaveTextContent("That project isn't available for new chats");
+  expect(screen.getByLabelText("Project")).toHaveValue("");
+
+  sendQuestion("What is an LSTM?");
+  expect(new URL(FakeEventSource.instances[0].url).searchParams.has("project_id")).toBe(false);
+});
+
+test("picking another project clears the fallback note", async () => {
+  mockProjects(projectsOk);
+  render(<ChatWindow sessionId={null} initialProjectId={999} onSessionCreated={jest.fn()} />);
+  await screen.findByRole("alert");
+
+  fireEvent.change(screen.getByLabelText("Project"), { target: { value: "3" } });
+
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("an existing chat's project name links to the project's page", async () => {
+  mockProjects(projectsOk);
+  const session = { id: 42, title: "LSTM gates", project_id: 3, project_name: "DL Unit 5" };
+  render(<ChatWindow sessionId={42} session={session} onSessionCreated={jest.fn()} />);
+
+  expect(screen.getByRole("link", { name: "DL Unit 5" })).toHaveAttribute("href", "/projects/3");
 });
 
 test("if projects fail to load, a new chat says it will use No project", async () => {

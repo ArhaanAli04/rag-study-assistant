@@ -1,14 +1,14 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import TopNav from "../components/TopNav";
 import DocumentList from "../components/DocumentList";
 import DocumentUpload from "../components/DocumentUpload";
-import ProjectPanel from "../components/ProjectPanel";
-import { FileText, AlertCircle, CheckCircle2 } from "lucide-react";
+import { FileText, AlertCircle, CheckCircle2, FolderKanban } from "lucide-react";
 import { API_BASE_URL } from '../config/api';
 import { deleteNotice, uploadNotice } from "../utils/uploadNotice";
 import { activeProjects, listProjects, moveDocument } from "../services/projectsApi";
+import { deleteDocument, uploadDocument } from "../services/documentsApi";
 
 // The document filter: every document, the unassigned ones, or one project's (by id, as a string).
 const ALL = "all";
@@ -32,7 +32,6 @@ export default function DocumentsPage() {
 
   // Day 18: projects, the upload's target project and the list filter.
   const [projects, setProjects] = useState([]);
-  const [projectsLoading, setProjectsLoading] = useState(true);
   const [projectsError, setProjectsError] = useState(null);
   const [uploadProjectId, setUploadProjectId] = useState("");
   const [filter, setFilter] = useState(ALL);
@@ -61,15 +60,12 @@ export default function DocumentsPage() {
   }, []);
 
   const fetchProjects = useCallback(async () => {
-    setProjectsLoading(true);
     setProjectsError(null);
     try {
       const data = await listProjects();
       setProjects(Array.isArray(data) ? data : []);
     } catch (err) {
       setProjectsError(err.message);
-    } finally {
-      setProjectsLoading(false);
     }
   }, []);
 
@@ -90,26 +86,7 @@ export default function DocumentsPage() {
       setUploading(true);
       setError(null);
       setNotice(null);
-
-      const token = localStorage.getItem("token");
-      const formData = new FormData();
-      formData.append("file", file);
-      if (uploadProjectId) {
-        formData.append("project_id", uploadProjectId);
-      }
-
-      const response = await fetch(`${API_BASE_URL}/upload`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.detail || "Upload failed");
-      }
-
-      setNotice(uploadNotice(await response.json()));
+      setNotice(uploadNotice(await uploadDocument(file, uploadProjectId)));
       await Promise.all([fetchDocuments(), fetchProjects()]);
     } catch (err) {
       setError(err.message);
@@ -144,17 +121,7 @@ export default function DocumentsPage() {
     setError(null);
     setNotice(null);
     try {
-      const token = localStorage.getItem("token");
-      const response = await fetch(`${API_BASE_URL}/documents/${documentId}`, {
-        method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error("Failed to delete document");
-      }
-
-      const result = await response.json();
+      const result = await deleteDocument(documentId);
       setNotice(deleteNotice(fileName, result.versions_deleted));
       await Promise.all([fetchDocuments(), fetchProjects()]);
     } catch (err) {
@@ -211,13 +178,22 @@ export default function DocumentsPage() {
             </div>
           )}
 
-          <ProjectPanel
-            projects={projects}
-            loading={projectsLoading}
-            error={projectsError}
-            onRetry={fetchProjects}
-            onChanged={handleProjectsChanged}
-          />
+          {/* Day 19: projects are managed on their own pages; here files go into them. */}
+          <div className="mb-6 flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+            {projectsError ? (
+              <span role="alert" className="text-amber-400">
+                Couldn't load your projects ({projectsError}). Uploads still work without a project.
+              </span>
+            ) : (
+              <span>Upload a file into a project so only that project's chats cite it.</span>
+            )}
+            <Link
+              to="/projects"
+              className="inline-flex items-center gap-1 text-primary hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            >
+              <FolderKanban className="w-4 h-4" aria-hidden="true" /> Manage projects →
+            </Link>
+          </div>
 
           {/* Upload Section */}
           <DocumentUpload

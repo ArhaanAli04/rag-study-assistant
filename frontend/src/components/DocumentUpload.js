@@ -2,7 +2,10 @@ import { useState, useRef } from "react";
 import { Upload, FileText, X, AlertCircle, Loader2 } from "lucide-react";
 
 // projects: the active projects a file can go into; projectId: the chosen one ("" = No project).
-export default function DocumentUpload({ onUpload, uploading, projects = [], projectId = "", onProjectChange = () => {} }) {
+// showProjectPicker false: the caller fixes the project (a project's own page, Day 19).
+export default function DocumentUpload({
+  onUpload, uploading, projects = [], projectId = "", onProjectChange = () => {}, showProjectPicker = true,
+}) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploadError, setUploadError] = useState(null);
@@ -101,7 +104,7 @@ export default function DocumentUpload({ onUpload, uploading, projects = [], pro
       <h3 className="text-lg font-semibold text-foreground mb-4">Upload Document</h3>
 
       {/* Day 18: the file joins this project; only that project's chats will search it. */}
-      <div className="mb-4 flex items-center gap-3">
+      {showProjectPicker && <div className="mb-4 flex items-center gap-3">
         <label htmlFor="upload-project" className="text-sm text-muted-foreground">Project</label>
         <select
           id="upload-project"
@@ -113,7 +116,7 @@ export default function DocumentUpload({ onUpload, uploading, projects = [], pro
           <option value="">No project</option>
           {projects.map((p) => <option key={p.id} value={String(p.id)}>{p.name}</option>)}
         </select>
-      </div>
+      </div>}
 
       {/* Drag & Drop Area */}
       <div

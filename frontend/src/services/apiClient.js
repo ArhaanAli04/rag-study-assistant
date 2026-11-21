@@ -22,8 +22,10 @@ export async function apiRequest(path, options = {}) {
   const data = await resp.json().catch(() => ({}));
 
   if (!resp.ok) {
-    const message = data.detail || "Request failed";
-    throw new Error(message);
+    // status lets a page tell "not found" (404: missing, or another user's) from other failures.
+    const error = new Error(data.detail || "Request failed");
+    error.status = resp.status;
+    throw error;
   }
 
   return data;

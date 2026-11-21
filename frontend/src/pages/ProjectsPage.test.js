@@ -8,7 +8,7 @@ const { act, fireEvent, render, screen, within } = require("@testing-library/rea
 const { MemoryRouter } = require("react-router-dom");
 const { AuthProvider } = require("../contexts/AuthContext");
 const ProjectsPage = require("./ProjectsPage").default;
-const { formatRelativeTime, lastActivityText, parseServerTime } = require("../services/projectsApi");
+const { lastActivityText } = require("../services/projectsApi");
 
 const DL = {
   id: 3, name: "DL Unit 5", description: "RNNs and attention", instructions: null, created_at: "2026-11-19T10:00:00",
@@ -128,6 +128,29 @@ test("when every project is archived the page says so", async () => {
   await renderPage();
 
   expect(screen.getByText(/Every project is archived/)).toBeInTheDocument();
+});
+
+test("a card opens the project's page", async () => {
+  mockFetch({ "GET /projects": () => respond(200, [DL]) });
+  await renderPage();
+
+  expect(screen.getByRole("link", { name: "Open DL Unit 5" })).toHaveAttribute("href", "/projects/3");
+  expect(screen.getByRole("link", { name: "DL Unit 5" })).toHaveAttribute("href", "/projects/3");
+});
+
+test("a project deleted on its own page arrives with its notice", async () => {
+  mockFetch({ "GET /projects": () => respond(200, []) });
+  await act(async () => {
+    render(
+      <AuthProvider>
+        <MemoryRouter initialEntries={[{ pathname: "/projects", state: { notice: "Deleted project BDA and 2 files." } }]}>
+          <ProjectsPage />
+        </MemoryRouter>
+      </AuthProvider>
+    );
+  });
+
+  expect(screen.getByText("Deleted project BDA and 2 files.")).toBeInTheDocument();
 });
 
 // --- create -------------------------------------------------------------------------------------
@@ -256,26 +279,7 @@ test("a refused delete shows why on the card and keeps the project", async () =>
   expect(within(card).getByRole("alert")).toHaveTextContent("already has a file named notes.pdf");
 });
 
-// --- time helpers -------------------------------------------------------------------------------
-
-test("server times without a zone are read as UTC", () => {
-  expect(parseServerTime("2026-11-19T10:00:00").toISOString()).toBe("2026-11-19T10:00:00.000Z");
-  expect(parseServerTime("2026-11-19T10:00:00+05:30").toISOString()).toBe("2026-11-19T04:30:00.000Z");
-  expect(parseServerTime(null)).toBeNull();
-  expect(parseServerTime("not a time")).toBeNull();
-});
-
-test.each([
-  [30 * 1000, "just now"],
-  [60 * 1000, "1 minute ago"],
-  [5 * 60 * 1000, "5 minutes ago"],
-  [3 * 3600 * 1000, "3 hours ago"],
-  [30 * 3600 * 1000, "yesterday"],
-  [3 * 86400 * 1000, "3 days ago"],
-])("relative time %i ms ago is %s", (ms, expected) => {
-  const now = new Date("2026-11-21T12:00:00Z");
-  expect(formatRelativeTime(new Date(now - ms), now)).toBe(expected);
-});
+// --- last activity text -------------------------------------------------------------------------
 
 test("older activity shows a date, and a project with chats but no messages its creation", () => {
   const now = new Date("2026-11-21T12:00:00Z");

@@ -1,6 +1,7 @@
 import { saveAs } from 'file-saver';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
+import { formatServerDateTime } from './serverTime';
 /**
  * Export chat messages as Markdown file
  */
@@ -12,9 +13,10 @@ export const exportChatAsMarkdown = (messages, sessionTitle = 'Chat Export') => 
 
   messages.forEach((message, index) => {
     const role = message.role === 'user' ? '**You**' : '**Assistant**';
-    const timestamp = new Date(message.created_at).toLocaleString();
-    
-    markdown += `### ${role} - *${timestamp}*\n\n`;
+    // Messages sent in this visit have no server time until the chat is reloaded.
+    const timestamp = formatServerDateTime(message.created_at);
+
+    markdown += timestamp ? `### ${role} - *${timestamp}*\n\n` : `### ${role}\n\n`;
     markdown += `${message.content}\n\n`;
 
     // Add sources if available
@@ -97,8 +99,10 @@ export const exportChatAsPDF = (messages, sessionTitle = 'Chat Export') => {
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
     doc.setTextColor(150);
-    const timestamp = new Date(message.created_at).toLocaleString();
-    doc.text(timestamp, margin + 25, yPosition);
+    const timestamp = formatServerDateTime(message.created_at);
+    if (timestamp) {
+      doc.text(timestamp, margin + 25, yPosition);
+    }
     
     yPosition += 7;
 
@@ -167,9 +171,9 @@ export const exportSessionsListAsMarkdown = (sessions) => {
   sessions.forEach((session, index) => {
     markdown += `## ${index + 1}. ${session.title || `Session ${session.id}`}\n\n`;
     markdown += `- **Topic:** ${session.topic || 'General'}\n`;
-    markdown += `- **Created:** ${new Date(session.created_at).toLocaleString()}\n`;
+    markdown += `- **Created:** ${formatServerDateTime(session.created_at, {}, 'unknown')}\n`;
     if (session.last_message_time) {
-      markdown += `- **Last Activity:** ${new Date(session.last_message_time).toLocaleString()}\n`;
+      markdown += `- **Last Activity:** ${formatServerDateTime(session.last_message_time)}\n`;
     }
     markdown += `\n---\n\n`;
   });

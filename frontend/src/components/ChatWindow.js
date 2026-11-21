@@ -9,7 +9,8 @@ import { API_BASE_URL } from '../config/api';
 import { activeProjects, listProjects } from "../services/projectsApi";
 
 // session: the active chat's row from GET /sessions (project_id, project_name), when there is one.
-export default function ChatWindow({ sessionId, session, onSessionCreated }) {
+// initialProjectId: a new chat's preselected project (Day 19, "New chat in this project").
+export default function ChatWindow({ sessionId, session, initialProjectId = null, onSessionCreated }) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [streamingAnswer, setStreamingAnswer] = useState("");
@@ -38,10 +39,27 @@ export default function ChatWindow({ sessionId, session, onSessionCreated }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Day 19: preselect the project a link asked for, once the projects are known. An archived or
+  // unknown id (a stale link, another user's id) can't take new chats, so it falls back to No project.
+  const [projectNote, setProjectNote] = useState(null);
+  useEffect(() => {
+    if (sessionId || initialProjectId === null || projectsState !== "ready") return;
+    const available = projects.some((p) => p.id === initialProjectId);
+    setNewChatProjectId(available ? String(initialProjectId) : "");
+    setProjectNote(available ? null : "That project isn't available for new chats, so this chat will use No project.");
+  }, [initialProjectId, projectsState, projects, sessionId]);
+
+  const selectNewChatProject = (projectId) => {
+    setNewChatProjectId(projectId);
+    setProjectNote(null);
+  };
+
   const pickedProjectName = projects.find((p) => String(p.id) === newChatProjectId)?.name || null;
   // An existing chat's project comes from its session row; right after a new chat starts, until
   // the session list has refreshed, it is the project that was picked for it.
   const chatProjectName = session ? session.project_name || null : pickedProjectName;
+  const pickedProjectId = newChatProjectId ? Number(newChatProjectId) : null;
+  const chatProjectId = session ? session.project_id ?? null : pickedProjectId;
 
   // Fetch messages when session changes
   useEffect(() => {
@@ -286,10 +304,12 @@ export default function ChatWindow({ sessionId, session, onSessionCreated }) {
           <ChatProjectScope
             isNewChat={!sessionId}
             projectName={chatProjectName}
+            projectId={chatProjectId}
             projects={projects}
             projectsState={projectsState}
             selectedProjectId={newChatProjectId}
-            onSelect={setNewChatProjectId}
+            onSelect={selectNewChatProject}
+            note={projectNote}
             locked={loading || messages.length > 0}
           />
         </div>

@@ -235,6 +235,15 @@ test("if projects fail to load, documents still list and uploads still work with
   expect(Array.from(screen.getByLabelText("Project").options).map((o) => o.textContent)).toEqual(["No project"]);
 });
 
+test("projects are managed on their own page, linked from here", async () => {
+  mockProjectsApi();
+  renderPage();
+  await screen.findByText("rnn.pdf");
+
+  expect(screen.getByRole("link", { name: /manage projects/i })).toHaveAttribute("href", "/projects");
+  expect(screen.queryByLabelText("New project name")).toBeNull();
+});
+
 test("the delete notice names every version that went", () => {
   expect(deleteNotice("notes.pdf", 1)).toBe("Deleted notes.pdf. New answers won't cite it.");
   expect(deleteNotice("notes.pdf", 3)).toBe("Deleted notes.pdf (all 3 versions). New answers won't cite it.");

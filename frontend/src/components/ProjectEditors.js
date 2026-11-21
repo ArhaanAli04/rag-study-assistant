@@ -1,5 +1,5 @@
-// The editing controls of a project (Day 18, shared since Day 19 by the Projects list, a project's
-// page and the Documents page panel): rename, description, instructions and the delete dialog.
+// The editing controls of a project (Day 18; shared since Day 19 by the Projects page's cards and a
+// project's own page): rename, description, instructions and the delete dialog.
 // Each reports through its own callbacks, so the page that hosts it decides what to refresh.
 import { useState } from "react";
 import {

@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { useAuth } from '../contexts/AuthContext';
 import { rememberAccountDeletion } from '../utils/accountDeletion';
+import { parseServerTime } from '../utils/serverTime';
 
 export default function AccountSettingsModal({ user, onClose, onUpdate }) {
   const [formData, setFormData] = useState({
@@ -137,18 +138,8 @@ export default function AccountSettingsModal({ user, onClose, onUpdate }) {
 
   // Format member since date
   const formatMemberSince = () => {
-    if (!userStats.member_since) {
-      return new Date().toLocaleDateString('en-US', { 
-        month: 'short', 
-        year: 'numeric' 
-      });
-    }
-    
-    const date = new Date(userStats.member_since);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      year: 'numeric' 
-    });
+    const date = parseServerTime(userStats.member_since) || new Date();
+    return date.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
   };
 
   return (

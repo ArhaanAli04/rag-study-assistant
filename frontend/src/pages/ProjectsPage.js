@@ -1,6 +1,6 @@
 // /projects (Day 19): every project as a card, a create form, and the archived ones apart.
 import { useCallback, useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, CheckCircle2, ChevronDown, ChevronRight, FolderKanban, FolderPlus, Loader2 } from "lucide-react";
 import { useAuth } from "../contexts/AuthContext";
 import TopNav from "../components/TopNav";
@@ -17,7 +17,9 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [notice, setNotice] = useState(null);
+  // A project deleted on its own page comes back here with its deletion notice.
+  const location = useLocation();
+  const [notice, setNotice] = useState(location.state?.notice || null);
   const [showArchived, setShowArchived] = useState(false);
 
   const fetchProjects = useCallback(async () => {

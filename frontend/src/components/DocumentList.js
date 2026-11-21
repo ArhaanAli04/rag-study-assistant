@@ -1,19 +1,14 @@
 import { Trash2, Calendar, FileType, AlertTriangle, Folder } from "lucide-react";
+import { formatServerDateTime } from "../utils/serverTime";
 
 // projects: the active projects a document can move into; movingId: the document being moved.
 export default function DocumentList({ documents, onDelete, projects = [], onMove = () => {}, movingId = null }) {
   
-  const formatDate = (dateString) => {
-    if (!dateString) return 'Recently uploaded';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const formatDate = (dateString) => formatServerDateTime(
+    dateString,
+    { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' },
+    'Recently uploaded',
+  );
 
   const formatFileSize = (bytes) => {
     if (!bytes) return 'Unknown';

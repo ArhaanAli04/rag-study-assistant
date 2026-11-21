@@ -2,7 +2,8 @@
 // rename, archive and delete. Each action keeps its own busy and error state, so a failure shows on
 // the card whose control failed.
 import { useState } from "react";
-import { Archive, ArchiveRestore, Folder, Pencil, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Archive, ArchiveRestore, Folder, FolderOpen, Pencil, Trash2 } from "lucide-react";
 import {
   deleteProject,
   lastActivityText,
@@ -10,7 +11,7 @@ import {
   projectDeletedNotice,
   updateProject,
 } from "../services/projectsApi";
-import { buttonClass, DeleteDialog, RenameForm } from "./ProjectEditors";
+import { buttonClass, DeleteDialog, focusRing, RenameForm } from "./ProjectEditors";
 
 export default function ProjectCard({ project, onChanged }) {
   const [open, setOpen] = useState(null); // null | "rename" | "delete"
@@ -48,7 +49,11 @@ export default function ProjectCard({ project, onChanged }) {
         <Folder className={`w-5 h-5 mt-0.5 flex-shrink-0 ${project.archived ? "text-muted-foreground" : "text-primary"}`} aria-hidden="true" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 min-w-0">
-            <h3 className="text-sm font-semibold text-foreground truncate">{project.name}</h3>
+            <h3 className="text-sm font-semibold text-foreground truncate">
+              <Link to={`/projects/${project.id}`} className={`hover:text-primary hover:underline rounded ${focusRing}`}>
+                {project.name}
+              </Link>
+            </h3>
             {project.archived && (
               <span className="flex-shrink-0 text-xs px-2 py-0.5 rounded-md border border-amber-500/30 text-amber-400">Archived</span>
             )}
@@ -82,6 +87,9 @@ export default function ProjectCard({ project, onChanged }) {
       )}
 
       <div className="flex flex-wrap items-center justify-end gap-1 mt-auto pt-4">
+        <Link to={`/projects/${project.id}`} className={buttonClass} aria-label={`Open ${project.name}`}>
+          <FolderOpen className="w-3 h-3" aria-hidden="true" /> Open
+        </Link>
         <button type="button" className={buttonClass} disabled={busy} onClick={() => toggle("rename")}>
           <Pencil className="w-3 h-3" aria-hidden="true" /> Rename
         </button>

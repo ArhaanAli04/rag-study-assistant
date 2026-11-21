@@ -2,6 +2,7 @@
 // non-2xx reply into an Error carrying the server's `detail` (e.g. 409 "You already have a project
 // named …"), so callers can show it as is.
 import { apiRequest } from "./apiClient";
+import { formatRelativeTime, formatShortDate, parseServerTime } from "../utils/serverTime";
 
 // Limits the backend enforces (app/db/models/project.py); the UI shows them before the server must.
 export const PROJECT_NAME_MAX = 80;
@@ -52,35 +53,6 @@ export const plural = (count, word) => `${count} ${word}${count === 1 ? "" : "s"
 
 export function projectCounts(project) {
   return `${plural(project.document_count ?? 0, "file")} · ${plural(project.chat_count ?? 0, "chat")}`;
-}
-
-// The backend sends naive UTC times ("2026-11-19T10:00:00"); new Date() would read those as local
-// time, which is off by the browser's UTC offset (5h30 in India), so mark them as UTC first.
-export function parseServerTime(value) {
-  if (!value) return null;
-  const hasZone = /(Z|[+-]\d\d:?\d\d)$/.test(value);
-  const date = new Date(hasZone ? value : `${value}Z`);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-const MINUTE = 60 * 1000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
-
-export function formatShortDate(date, now = new Date()) {
-  const options = { month: "short", day: "numeric" };
-  if (date.getFullYear() !== now.getFullYear()) options.year = "numeric";
-  return date.toLocaleDateString("en-US", options);
-}
-
-export function formatRelativeTime(date, now = new Date()) {
-  const elapsed = now - date;
-  if (elapsed < MINUTE) return "just now";
-  if (elapsed < HOUR) return plural(Math.floor(elapsed / MINUTE), "minute") + " ago";
-  if (elapsed < DAY) return plural(Math.floor(elapsed / HOUR), "hour") + " ago";
-  if (elapsed < 2 * DAY) return "yesterday";
-  if (elapsed < 7 * DAY) return `${Math.floor(elapsed / DAY)} days ago`;
-  return formatShortDate(date, now);
 }
 
 // last_activity is the newer of the newest message and the newest upload (Day 19), so it is empty

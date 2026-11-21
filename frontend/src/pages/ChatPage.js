@@ -1,18 +1,32 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import SessionSidebar from "../components/SessionSidebar";
 import ChatWindow from "../components/ChatWindow";
 import TopNav from "../components/TopNav";
 import { API_BASE_URL } from '../config/api';
 
+// Day 19: the URL says which chat is open, so refresh, back / forward and links from a project's
+// page work: /chat?session=42 opens chat 42; /chat?project=7 is a new chat preselected to project 7;
+// /chat is a new chat. Non-numeric values are ignored.
+function idParam(searchParams, name) {
+  const value = searchParams.get(name);
+  return value && /^\d+$/.test(value) ? Number(value) : null;
+}
+
 export default function ChatPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
 
   const [sessions, setSessions] = useState([]);
-  const [activeSessionId, setActiveSessionId] = useState(null);
-  
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeSessionId = idParam(searchParams, "session");
+  const initialProjectId = activeSessionId ? null : idParam(searchParams, "project");
+
+  const setActiveSessionId = (sessionId) => {
+    setSearchParams(sessionId ? { session: String(sessionId) } : {});
+  };
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // Fetch sessions on mount
@@ -50,8 +64,10 @@ export default function ChatPage() {
     setActiveSessionId(null); // null = new session
   };
 
+  // replace: the new chat's ?project= entry becomes its ?session= entry, so Back doesn't open
+  // another blank chat and a refresh reopens this one.
   const handleSessionCreated = (newSessionId) => {
-    setActiveSessionId(newSessionId);
+    setSearchParams({ session: String(newSessionId) }, { replace: true });
     fetchSessions(); // refresh sidebar
   };
 
@@ -102,6 +118,7 @@ export default function ChatPage() {
         <ChatWindow
           sessionId={activeSessionId}
           session={sessions.find((s) => s.id === activeSessionId)}
+          initialProjectId={initialProjectId}
           onSessionCreated={handleSessionCreated}
         />
       </div>
